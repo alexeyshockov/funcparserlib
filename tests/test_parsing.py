@@ -103,7 +103,7 @@ end"""
     def test_ok_ok_ok(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[str, str]] = x + y + x
+        expr: Parser[str, Tuple[str, str, str]] = x + y + x
         self.assertEqual(expr.parse("xyx"), ("x", "y", "x"))
 
     def test_ok_ok_ignored(self) -> None:
