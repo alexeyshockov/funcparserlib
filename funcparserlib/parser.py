@@ -594,6 +594,11 @@ class _Tuple2Parser(Parser[_A, tuple[_T1, _T2]], Generic[_A, _T1, _T2]):
     def __add__(self, other):  # type: ignore[no-untyped-def]
         return super().__add__(other)
 
+    # PyCharm (2024.1) doesn't properly infer from the base method, so
+    # open _B explicitly here
+    def __rshift__(self, f: Callable[[tuple[_T1, _T2]], _C]) -> "Parser[_A, _C]":
+        return super().__rshift__(f)
+
 
 class _Tuple3Parser(Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]):
     """
@@ -613,6 +618,11 @@ class _Tuple3Parser(Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]
 
     def __add__(self, other):  # type: ignore[no-untyped-def]
         return super().__add__(other)
+
+    # PyCharm (2024.1) doesn't properly infer from the base method, so
+    # open _B explicitly here
+    def __rshift__(self, f: Callable[[tuple[_T1, _T2, _T3]], _C]) -> "Parser[_A, _C]":
+        return super().__rshift__(f)
 
 
 class _Tuple4Parser(
@@ -638,6 +648,13 @@ class _Tuple4Parser(
     def __add__(self, other):  # type: ignore[no-untyped-def]
         return super().__add__(other)
 
+    # PyCharm (2024.1) doesn't properly infer from the base method, so
+    # open _B explicitly here
+    def __rshift__(
+        self, f: Callable[[tuple[_T1, _T2, _T3, _T4]], _C]
+    ) -> "Parser[_A, _C]":
+        return super().__rshift__(f)
+
 
 class _Tuple5Parser(
     Parser[_A, tuple[_T1, _T2, _T3, _T4, _T5]], Generic[_A, _T1, _T2, _T3, _T4, _T5]
@@ -659,6 +676,13 @@ class _Tuple5Parser(
 
     def __add__(self, other):  # type: ignore[no-untyped-def]
         return super().__add__(other)
+
+    # PyCharm (2024.1) doesn't properly infer from the base method, so
+    # open _B explicitly here
+    def __rshift__(
+        self, f: Callable[[tuple[_T1, _T2, _T3, _T4, _T5]], Any]
+    ) -> "Parser[_A, Any]":
+        return super().__rshift__(f)
 
 
 class _Ignored:
