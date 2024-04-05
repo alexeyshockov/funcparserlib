@@ -58,6 +58,7 @@ __all__ = [
     "finished",
     "maybe",
     "skip",
+    "anything_but",
     "oneplus",
     "forward_decl",
     "NoParseError",
@@ -65,6 +66,7 @@ __all__ = [
 ]
 
 import logging
+import sys
 import warnings
 from typing import (
     Any,
@@ -76,9 +78,13 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
-    cast,
     overload,
 )
+
+if sys.version_info >= (3, 11):
+    from typing import Self
+else:
+    from typing_extensions import Self
 
 from funcparserlib.lexer import Token
 
@@ -89,6 +95,16 @@ debug = False
 _A = TypeVar("_A")
 _B = TypeVar("_B")
 _C = TypeVar("_C")
+
+# Additional type variables for __add__ overloads (up to 5-tuple)
+_D = TypeVar("_D")
+_E = TypeVar("_E")
+_F = TypeVar("_F")
+
+_ParserOrParserFn = Union[
+    "Parser[_A, _B]",
+    Callable[[Sequence[_A], "State"], Tuple[_B, "State"]],
+]
 
 
 class Parser(Generic[_A, _B]):
@@ -116,13 +132,7 @@ class Parser(Generic[_A, _B]):
         construct new parsers.
     """
 
-    def __init__(
-        self,
-        p: Union[
-            "Parser[_A, _B]",
-            Callable[[Sequence[_A], "State"], Tuple[_B, "State"]],
-        ],
-    ) -> None:
+    def __init__(self, p: _ParserOrParserFn[_A, _B]) -> None:
         """Wrap the parser function `p` into a `Parser` object."""
         self.name = ""
         self.define(p)
@@ -168,13 +178,7 @@ class Parser(Generic[_A, _B]):
         self.name = name
         return self
 
-    def define(
-        self,
-        p: Union[
-            "Parser[_A, _B]",
-            Callable[[Sequence[_A], "State"], Tuple[_B, "State"]],
-        ],
-    ) -> None:
+    def define(self, p: _ParserOrParserFn[_A, _B]) -> None:
         """Define the parser created earlier as a forward declaration.
 
         Type: `(Parser[A, B]) -> None`
@@ -243,9 +247,9 @@ class Parser(Generic[_A, _B]):
             (tree, _) = self.run(tokens, State(0, 0, None))
             return tree
         except NoParseError as e:
-            max = e.state.max
-            if len(tokens) > max:
-                t = tokens[max]
+            max_pos = e.state.max
+            if len(tokens) > max_pos:
+                t = tokens[max_pos]
                 if isinstance(t, Token):
                     if t.start is None or t.end is None:
                         loc = ""
@@ -267,19 +271,17 @@ class Parser(Generic[_A, _B]):
             raise
 
     @overload
-    def __add__(  # type: ignore[misc]
-        self, other: "_IgnoredParser[_A]"
-    ) -> "Parser[_A, _B]":
+    def __add__(  # type: ignore[overload-overlap]
+        self,
+        other: "_IgnoredParser[_A]",
+    ) -> Self:
         pass
 
     @overload
-    def __add__(self, other: "Parser[_A, _C]") -> "_TupleParser[_A, Tuple[_B, _C]]":
+    def __add__(self, other: "Parser[_A, _C]") -> "_Tuple2Parser[_A, _B, _C]":
         pass
 
-    def __add__(
-        self,
-        other: Union["_IgnoredParser[_A]", "Parser[_A, _C]"],
-    ) -> Union["Parser[_A, _B]", "_TupleParser[_A, Tuple[_B, _C]]"]:
+    def __add__(self, other: "Parser") -> "Parser":
         """Sequential combination of parsers. It runs this parser, then the other
         parser.
 
@@ -297,12 +299,15 @@ class Parser(Generic[_A, _B]):
         Overloaded types (lots of them to provide stricter checking for the quite
         dynamic return type of this method):
 
-        * `(self: Parser[A, B], _IgnoredParser[A]) -> Parser[A, B]`
-        * `(self: Parser[A, B], Parser[A, C]) -> _TupleParser[A, Tuple[B, C]]`
-        * `(self: _TupleParser[A, B], _IgnoredParser[A]) -> _TupleParser[A, B]`
-        * `(self: _TupleParser[A, B], Parser[A, Any]) -> Parser[A, Any]`
-        * `(self: _IgnoredParser[A], _IgnoredParser[A]) -> _IgnoredParser[A]`
+        * `(self: Parser[A, B], _IgnoredParser[A]) -> Self`
         * `(self: _IgnoredParser[A], Parser[A, C]) -> Parser[A, C]`
+        * `(self: Parser[A, B], Parser[A, C]) -> _Tuple2Parser[A, B, C]`
+        * `(self: _Tuple2Parser[A, B, C], Parser[A, D]) -> _Tuple3Parser[A, B, C, D]`
+        * `(self: _Tuple3Parser[A, B, C, D], Parser[A, E]) ->
+           _Tuple4Parser[A, B, C, D, E]`
+        * `(self: _Tuple4Parser[A, B, C, D, E], Parser[A, F]) ->
+           _Tuple5Parser[A, B, C, D, E, F]`
+        * `(self: _Tuple5Parser[A, B, C, D, E, F], Parser[A, Any]) -> Parser[A, Any]`
 
         Examples:
 
@@ -336,11 +341,11 @@ class Parser(Generic[_A, _B]):
             else:
                 return _Tuple((v1, v2))
 
-        @_TupleParser
-        def _add(tokens: Sequence[_A], s: State) -> Tuple[Tuple[_B, _C], State]:
+        @Parser
+        def _add(tokens: Sequence[_A], s: State) -> Tuple[Tuple, State]:
             (v1, s2) = self.run(tokens, s)
             (v2, s3) = other.run(tokens, s2)
-            return cast(Tuple[_B, _C], magic(v1, v2)), s3
+            return magic(v1, v2), s3
 
         @Parser
         def ignored_right(tokens: Sequence[_A], s: State) -> Tuple[_B, State]:
@@ -509,6 +514,28 @@ class Parser(Generic[_A, _B]):
         """
         return _IgnoredParser(self)
 
+    def __invert__(self) -> "Parser[_A, _A]":
+        # TODO Docs
+
+        @Parser
+        def _invert(tokens: Sequence[_A], s: State) -> Tuple[_A, State]:
+            if s.pos >= len(tokens):
+                s2 = State(s.pos, s.max, _invert if s.pos == s.max else s.parser)
+                raise NoParseError("got unexpected end of input", s2)
+
+            try:
+                _, s2 = self.run(tokens, s)
+            except NoParseError as e:
+                t = tokens[s.pos]
+                pos = s.pos + 1
+                s2 = State(pos, max(pos, e.state.max), s.parser)
+                return t, s2
+
+            s3 = State(s.pos, s2.max, _invert if s.pos == s2.max else s.parser)
+            raise NoParseError("got unexpected token", s3)
+
+        return _invert.named(f"anything but {self.name}")
+
 
 class State:
     """Parsing state that is maintained basically for error reporting.
@@ -517,15 +544,12 @@ class State:
     position `max` of the rightmost token that has been consumed while parsing.
     """
 
+    # noinspection PyShadowingBuiltins
     def __init__(
         self,
         pos: int,
         max: int,
-        parser: Union[
-            Parser,
-            Callable[[Any, "State"], Tuple[Any, "State"]],
-            None,
-        ] = None,
+        parser: Optional[_ParserOrParserFn[Any, Any]] = None,
     ) -> None:
         self.pos = pos
         self.max = max
@@ -551,18 +575,88 @@ class _Tuple(tuple):
     pass
 
 
-class _TupleParser(Parser[_A, _B], Generic[_A, _B]):
+class _Tuple2Parser(Parser[_A, Tuple[_B, _C]], Generic[_A, _B, _C]):
+    """
+    Just for type inference, not intended for actual use.
+    """
+
     @overload  # type: ignore[override]
-    def __add__(self, other: "_IgnoredParser[_A]") -> "_TupleParser[_A, _B]":
+    def __add__(  # type: ignore[overload-overlap]
+        self,
+        other: "_IgnoredParser[_A]",
+    ) -> Self:
+        pass
+
+    @overload
+    def __add__(self, other: Parser[_A, _D]) -> "_Tuple3Parser[_A, _B, _C, _D]":
+        pass
+
+    def __add__(self, other: Parser) -> Parser:
+        return super().__add__(other)
+
+
+# Just for type checking, not intended for actual use
+class _Tuple3Parser(Parser[_A, Tuple[_B, _C, _D]], Generic[_A, _B, _C, _D]):
+    """
+    Just for type inference, not intended for actual use.
+    """
+
+    @overload  # type: ignore[override]
+    def __add__(  # type: ignore[overload-overlap]
+        self,
+        other: "_IgnoredParser[_A]",
+    ) -> Self:
+        pass
+
+    @overload
+    def __add__(self, other: Parser[_A, _E]) -> "_Tuple4Parser[_A, _B, _C, _D, _E]":
+        pass
+
+    def __add__(self, other: Parser) -> Parser:
+        return super().__add__(other)
+
+
+# Just for type checking, not intended for actual use
+class _Tuple4Parser(Parser[_A, Tuple[_B, _C, _D, _E]], Generic[_A, _B, _C, _D, _E]):
+    """
+    Just for type inference, not intended for actual use.
+    """
+
+    @overload  # type: ignore[override]
+    def __add__(  # type: ignore[overload-overlap]
+        self,
+        other: "_IgnoredParser[_A]",
+    ) -> Self:
+        pass
+
+    @overload
+    def __add__(self, other: Parser[_A, _F]) -> "_Tuple5Parser[_A, _B, _C, _D, _E, _F]":
+        pass
+
+    def __add__(self, other: Parser) -> Parser:
+        return super().__add__(other)
+
+
+# Just for type checking, not intended for actual use
+class _Tuple5Parser(
+    Parser[_A, Tuple[_B, _C, _D, _E, _F]], Generic[_A, _B, _C, _D, _E, _F]
+):
+    """
+    Just for type inference, not intended for actual use.
+    """
+
+    @overload  # type: ignore[override]
+    def __add__(  # type: ignore[overload-overlap]
+        self,
+        other: "_IgnoredParser[_A]",
+    ) -> Self:
         pass
 
     @overload
     def __add__(self, other: Parser[_A, Any]) -> Parser[_A, Any]:
         pass
 
-    def __add__(
-        self, other: Union["_IgnoredParser[_A]", Parser[_A, Any]]
-    ) -> Union["_TupleParser[_A, _B]", Parser[_A, Any]]:
+    def __add__(self, other: Parser) -> Parser:
         return super().__add__(other)
 
 
@@ -726,6 +820,7 @@ def a(value: _A) -> Parser[_A, _A]:
     return some(eq_value).named(repr(name))
 
 
+# noinspection PyShadowingBuiltins
 def tok(type: str, value: Optional[str] = None) -> Parser[Token, str]:
     """Return a parser that parses a `Token` and returns the string value of the token.
 
@@ -818,18 +913,24 @@ def maybe(p: Parser[_A, _B]) -> Parser[_A, Optional[_B]]:
 def skip(p: Parser[_A, Any]) -> "_IgnoredParser[_A]":
     """An alias for `-p`.
 
-    See also the docs for `Parser.__neg__()`.
+    See also docs for `Parser.__neg__()`.
     """
     return -p
 
 
+def anything_but(p: Parser[_A, Any]) -> Parser[_A, _A]:
+    """An alias for `~p`.
+
+    See also docs for `Parser.__invert__()`.
+    """
+    return ~p
+
+
+# noinspection DuplicatedCode
 class _IgnoredParser(Parser[_A, Any]):
     def __init__(
         self,
-        p: Union[
-            Parser[_A, Any],
-            Callable[[Sequence[_A], "State"], Tuple[Any, "State"]],
-        ],
+        p: _ParserOrParserFn[_A, Any],
     ) -> None:
         super(_IgnoredParser, self).__init__(p)
         run = self._run if debug else self.run
@@ -844,7 +945,7 @@ class _IgnoredParser(Parser[_A, Any]):
             self.name = name
 
     @overload  # type: ignore[override]
-    def __add__(self, other: "_IgnoredParser[_A]") -> "_IgnoredParser[_A]":
+    def __add__(self, other: "_IgnoredParser[_A]") -> Self:
         pass
 
     @overload
