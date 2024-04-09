@@ -261,7 +261,7 @@ class Parser(Generic[_A, _B]):
             _format_parsing_error(e, tokens)
             raise
 
-    def __sub__(self, other: "Parser[_A, _B]") -> "Parser[_A, _B]":
+    def but_not(self, other: "Parser[_A, _B]") -> "Parser[_A, _B]":
         """This parser as usual, but only if the other parser fails."""
 
         @Parser
@@ -435,7 +435,13 @@ class Parser(Generic[_A, _B]):
         @Parser
         def _shift(tokens: Sequence[_A], s: State) -> tuple[_C, State]:
             (v, s2) = self.run(tokens, s)
-            return f(v), s2
+            try:
+                return f(v), s2
+            except NoParseError as e:
+                if not e.state:
+                    # Complete the error with the current state
+                    e.state = State(s.pos, s2.max, _shift)
+                raise
 
         return _shift.named(self.name)
 
