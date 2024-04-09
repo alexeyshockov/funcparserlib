@@ -65,6 +65,7 @@ __all__ = [
     "Parser",
 ]
 
+import dataclasses as dc
 import logging
 import sys
 import warnings
@@ -77,6 +78,7 @@ from typing import (
     TypeVar,
     Union,
     overload,
+    Protocol,
 )
 
 if sys.version_info >= (3, 11):
@@ -105,6 +107,15 @@ _ParserOrParserFn = Union[
     "Parser[_A, _B]",
     Callable[[Sequence[_A], "State"], tuple[_B, "State"]],
 ]
+
+
+_Place = tuple[int, int]
+
+
+class TokenLike(Protocol):
+    value: Any
+    start: _Place
+    end: _Place
 
 
 class Parser(Generic[_A, _B]):
@@ -137,7 +148,7 @@ class Parser(Generic[_A, _B]):
         self.name = ""
         self.define(p)
 
-    def named(self, name: str) -> "Parser[_A, _B]":
+    def named(self, name: str) -> Self:
         # noinspection GrazieInspection
         """Specify the name of the parser for easier debugging.
 
@@ -247,28 +258,29 @@ class Parser(Generic[_A, _B]):
             (tree, _) = self.run(tokens, State(0, 0, None))
             return tree
         except NoParseError as e:
-            max_pos = e.state.max
-            if len(tokens) > max_pos:
-                t = tokens[max_pos]
-                if isinstance(t, Token):
-                    if t.start is None or t.end is None:
-                        loc = ""
-                    else:
-                        s_line, s_pos = t.start
-                        e_line, e_pos = t.end
-                        loc = "%d,%d-%d,%d: " % (s_line, s_pos, e_line, e_pos)
-                    msg = "%s%s: %r" % (loc, e.msg, t.value)
-                elif isinstance(t, str):
-                    msg = "%s: %r" % (e.msg, t)
-                else:
-                    msg = "%s: %s" % (e.msg, t)
-            else:
-                msg = "got unexpected end of input"
-            e_parser = e.state.parser
-            if isinstance(e_parser, Parser):
-                msg = "%s, expected: %s" % (msg, e_parser.name)
-            e.msg = msg
+            _format_parsing_error(e, tokens)
             raise
+
+    def __sub__(self, other: "Parser[_A, _B]") -> "Parser[_A, _B]":
+        """This parser as usual, but only if the other parser fails."""
+
+        @Parser
+        def _but_not(tokens: Sequence[_A], s: State) -> tuple[Union[_B, _C], State]:
+            (v, s2) = self.run(tokens, s)
+            try:
+                (_, s3) = other.run(tokens, dc.replace(s2, pos=s.pos))
+                # (_, s3) = other.run(tokens, State(s.pos, s2.max, s2.parser))
+                # (_, s3) = other.run(tokens, s)
+            except NoParseError as e:
+                return v, dc.replace(s2, max=max(s2.max, e.state.max))
+                # return v, State(s2.pos, max(s2.max, e.state.max), s2.parser)
+
+            raise NoParseError(
+                "got unexpected token", State(s.pos, max(s2.max, s3.max), _but_not)
+            )
+
+        _but_not.name = f"{self.name} (but not {other.name})"
+        return _but_not
 
     @overload
     def __add__(  # type: ignore[overload-overlap]
@@ -389,13 +401,13 @@ class Parser(Generic[_A, _B]):
             except NoParseError as e:
                 state = e.state
             try:
-                return other.run(tokens, State(s.pos, state.max, state.parser))
+                return other.run(tokens, dc.replace(state, pos=s.pos))
             except NoParseError as e:
                 if s.pos == e.state.max:
-                    e.state = State(e.state.pos, e.state.max, _or)
+                    e.state = dc.replace(e.state, parser=_or)
                 raise
 
-        _or.name = "%s or %s" % (self.name, other.name)
+        _or.name = f"{self.name} or {other.name}"
         return _or
 
     def __rshift__(self, f: Callable[[_B], _C]) -> "Parser[_A, _C]":
@@ -445,7 +457,7 @@ class Parser(Generic[_A, _B]):
             (v, s2) = self.run(tokens, s)
             return f(v).run(tokens, s2)
 
-        _bind.name = "(%s >>=)" % (self.name,)
+        _bind.name = f"({self.name} >>=)"
         return _bind
 
     def __neg__(self) -> "_IgnoredParser[_A]":
@@ -520,7 +532,7 @@ class Parser(Generic[_A, _B]):
         @Parser
         def _invert(tokens: Sequence[_A], s: State) -> tuple[_A, State]:
             if s.pos >= len(tokens):
-                s2 = State(s.pos, s.max, _invert if s.pos == s.max else s.parser)
+                s2 = s.replace_parser_if_not_observed_further(_invert)
                 raise NoParseError("got unexpected end of input", s2)
 
             try:
@@ -528,15 +540,17 @@ class Parser(Generic[_A, _B]):
             except NoParseError as e:
                 t = tokens[s.pos]
                 pos = s.pos + 1
-                s2 = State(pos, max(pos, e.state.max), s.parser)
+                s2 = State(pos, max(pos, e.state.max), _invert)
                 return t, s2
 
-            s3 = State(s.pos, s2.max, _invert if s.pos == s2.max else s.parser)
-            raise NoParseError("got unexpected token", s3)
+            # TODO Check state
+            raise NoParseError("got unexpected token", State(s.pos, s2.max, _invert))
 
-        return _invert.named(f"anything but {self.name}")
+        _invert.name = f"anything but {self.name}"
+        return _invert
 
 
+@dc.dataclass(frozen=True, repr=False)
 class State:
     """Parsing state that is maintained basically for error reporting.
 
@@ -544,16 +558,12 @@ class State:
     position `max` of the rightmost token that has been consumed while parsing.
     """
 
-    # noinspection PyShadowingBuiltins
-    def __init__(
-        self,
-        pos: int,
-        max: int,
-        parser: Optional[_ParserOrParserFn[Any, Any]] = None,
-    ) -> None:
-        self.pos = pos
-        self.max = max
-        self.parser = parser
+    pos: int
+    max: int
+    parser: Optional[_ParserOrParserFn] = None
+
+    def replace_parser_if_not_observed_further(self, p: _ParserOrParserFn) -> Self:
+        return dc.replace(self, parser=p) if self.pos == self.max else self
 
     def __str__(self) -> str:
         return str((self.pos, self.max))
@@ -569,6 +579,36 @@ class NoParseError(Exception):
 
     def __str__(self) -> str:
         return self.msg
+
+
+def _format_parsing_error(e: NoParseError, tokens: Sequence) -> None:
+    max_pos = e.state.max
+    if len(tokens) <= max_pos:
+        msg = "got unexpected end of input"
+    else:
+        t_value = t = tokens[max_pos]
+        loc = ""
+
+        try:  # Token-like object
+            t_value = t.value
+            if t.start is not None and t.end is not None:
+                s_line, s_pos = t.start
+                e_line, e_pos = t.end
+                loc = f"{s_line},{s_pos}-{e_line},{e_pos}: "
+        except (AttributeError, TypeError):
+            pass
+
+        msg = f"{loc}{e.msg}: "
+        if isinstance(t_value, str):
+            msg += repr(t_value)
+        else:
+            msg += str(t_value)
+
+    parser = e.state.parser
+    if isinstance(parser, Parser):
+        msg = f"{msg}, expected: {parser.name}"
+
+    e.msg = msg
 
 
 class _Tuple(tuple):
@@ -703,7 +743,7 @@ def finished(tokens: Sequence[Any], s: State) -> tuple[None, State]:
     if s.pos >= len(tokens):
         return None, s
     else:
-        s2 = State(s.pos, s.max, finished if s.pos == s.max else s.parser)
+        s2 = s.replace_parser_if_not_observed_further(finished)
         raise NoParseError("got unexpected token", s2)
 
 
@@ -742,7 +782,7 @@ def many(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
                 (v, s) = p.run(tokens, s)
                 res.append(v)
         except NoParseError as e:
-            s2 = State(s.pos, e.state.max, e.state.parser)
+            s2 = dc.replace(e.state, pos=s.pos)
             if debug:
                 log.debug(
                     "*matched* %d instances of %s, new state = %s"
@@ -785,7 +825,7 @@ def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
     @Parser
     def _some(tokens: Sequence[_A], s: State) -> tuple[_A, State]:
         if s.pos >= len(tokens):
-            s2 = State(s.pos, s.max, _some if s.pos == s.max else s.parser)
+            s2 = s.replace_parser_if_not_observed_further(_some)
             raise NoParseError("got unexpected end of input", s2)
         else:
             t = tokens[s.pos]
@@ -796,7 +836,7 @@ def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
                     log.debug("*matched* %r, new state = %s" % (t, s2))
                 return t, s2
             else:
-                s2 = State(s.pos, s.max, _some if s.pos == s.max else s.parser)
+                s2 = s.replace_parser_if_not_observed_further(_some)
                 if debug and isinstance(s2.parser, Parser):
                     log.debug(
                         "failed %r, state = %s, expected = %s" % (t, s2, s2.parser.name)
@@ -837,7 +877,7 @@ def a(value: _A) -> Parser[_A, _A]:
         objects contain their position in the source file) and good separation of the
         lexical and syntactic levels of the grammar.
     """
-    name = getattr(value, "name", value)
+    name = getattr(value, "name", value)  # TODO Explain what is going on here
 
     def eq_value(t: _A) -> bool:
         return t == value

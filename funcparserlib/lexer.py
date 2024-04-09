@@ -19,12 +19,13 @@
 
 __all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError"]
 
+import dataclasses as dc
 import re
-from typing import Callable, Iterable, List, Tuple, Optional, Sequence, Pattern, Union
+from typing import Callable, Iterable, Optional, Sequence, Pattern, Union
 
 
-_Place = Tuple[int, int]
-_Spec = Tuple[str, Tuple]
+_Place = tuple[int, int]
+_Spec = tuple[str, tuple]
 
 
 class LexerError(Exception):
@@ -38,70 +39,47 @@ class LexerError(Exception):
         return '%s: %d,%d: "%s"' % (s, line, pos, self.msg)
 
 
+@dc.dataclass(repr=False)
 class TokenSpec:
     """A token specification for generating a lexer via `make_tokenizer()`."""
 
-    def __init__(self, type: str, pattern: str, flags: int = 0) -> None:
-        """Initialize a `TokenSpec` object.
-
-        Parameters:
-            type (str): User-defined type of the token (e.g. `"name"`, `"number"`,
-                `"operator"`)
-            pattern (str): Regexp for matching this token type
-            flags (int, optional): Regexp flags, the second argument of `re.compile()`
-        """
-        self.type = type
-        self.pattern = pattern
-        self.flags = flags
+    type: str
+    """User-defined type of the token (e.g. `"name"`, `"number"`, `"operator"`)"""
+    pattern: str
+    """Regexp for matching this token type"""
+    flags: int = 0
+    """Regexp flags, the second argument of `re.compile()`"""
 
     def __repr__(self) -> str:
         return "TokenSpec(%r, %r, %r)" % (self.type, self.pattern, self.flags)
 
 
+@dc.dataclass(frozen=True, repr=False)
 class Token:
     """A token object that represents a substring of certain type in your text.
 
     You can compare tokens for equality using the `==` operator. Tokens also define
     custom `repr()` and `str()`.
-
-    Attributes:
-        type (str): User-defined type of the token (e.g. `"name"`, `"number"`,
-            `"operator"`)
-        value (str): Text value of the token
-        start (Optional[Tuple[int, int]]): Start position (_line_, _column_)
-        end (Optional[Tuple[int, int]]): End position (_line_, _column_)
     """
 
-    def __init__(
-        self,
-        type: str,
-        value: str,
-        start: Optional[_Place] = None,
-        end: Optional[_Place] = None,
-    ) -> None:
-        """Initialize a `Token` object."""
-        self.type = type
-        self.value = value
-        self.start = start
-        self.end = end
+    type: str
+    """User-defined type of the token (e.g. `"name"`, `"number"`, `"operator"`)"""
+    value: str
+    """Text value of the token"""
+    start: Optional[_Place] = dc.field(default=None, compare=False)
+    """Start position (_line_, _column_)"""
+    end: Optional[_Place] = dc.field(default=None, compare=False)
+    """End position (_line_, _column_)"""
 
     def __repr__(self) -> str:
         return "Token(%r, %r)" % (self.type, self.value)
 
-    def __eq__(self, other: object) -> bool:
-        # FIXME: Case sensitivity is assumed here
-        if not isinstance(other, Token):
-            return False
-        else:
-            return self.type == other.type and self.value == other.value
-
     def _pos_str(self) -> str:
         if self.start is None or self.end is None:
             return ""
-        else:
-            sl, sp = self.start
-            el, ep = self.end
-            return "%d,%d-%d,%d:" % (sl, sp, el, ep)
+        s_line, s_pos = self.start
+        e_line, e_pos = self.end
+        return f"{s_line},{s_pos}-{e_line},{e_pos}:"
 
     def __str__(self) -> str:
         s = "%s %s '%s'" % (self._pos_str(), self.type, self.value)
@@ -159,7 +137,7 @@ def make_tokenizer(
 
     ```
     """
-    compiled: List[Tuple[str, Pattern[str]]] = []
+    compiled: list[tuple[str, Pattern[str]]] = []
     for spec in specs:
         if isinstance(spec, TokenSpec):
             c = spec.type, re.compile(spec.pattern, spec.flags)
@@ -168,7 +146,7 @@ def make_tokenizer(
             c = name, re.compile(*args)
         compiled.append(c)
 
-    def match_specs(s: str, i: int, position: Tuple[int, int]) -> Token:
+    def match_specs(s: str, i: int, position: _Place) -> Token:
         line, pos = position
         for type, regexp in compiled:
             m = regexp.match(s, i)
