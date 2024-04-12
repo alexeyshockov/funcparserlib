@@ -21,8 +21,9 @@ __all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError"]
 
 import dataclasses as dc
 import re
-from typing import Callable, Iterable, Optional, Sequence, Pattern, Union
-
+from collections.abc import Iterable, Sequence
+from re import Pattern
+from typing import Callable, Optional, Union
 
 _Place = tuple[int, int]
 _Spec = tuple[str, tuple]

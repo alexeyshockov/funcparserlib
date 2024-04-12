@@ -69,12 +69,12 @@ import dataclasses as dc
 import logging
 import sys
 import warnings
+from collections.abc import Sequence
 from typing import (
     Any,
     Callable,
     Generic,
     Optional,
-    Sequence,
     TypeVar,
     Union,
     overload,
