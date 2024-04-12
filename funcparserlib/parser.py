@@ -800,6 +800,26 @@ def many(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
     return _many
 
 
+def when(p: Parser[_A, _B], pred: Callable[[_B], bool]) -> Parser[_A, _B]:
+    """Wraps a parser to a new one, that parses a token if it satisfies the predicate
+    `pred`.
+
+    Type: `(Parser[A, B], Callable[[B], bool]) -> Parser[A, B]`
+
+    Examples: TODO
+    """
+
+    @Parser
+    def _when(tokens: Sequence[_A], s: State) -> tuple[_B, State]:
+        (v, s2) = p.run(tokens, s)
+        if not pred(v):
+            raise NoParseError("got unexpected token", State(s.pos, s2.max, _when))
+        return v, s2
+
+    _when.name = "when(...)"
+    return _when
+
+
 def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
     """Return a parser that parses a token if it satisfies the predicate `pred`.
 
