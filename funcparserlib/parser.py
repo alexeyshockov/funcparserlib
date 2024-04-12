@@ -70,6 +70,7 @@ import logging
 import sys
 import warnings
 from collections.abc import Sequence
+from copy import copy
 from typing import (
     Any,
     Callable,
@@ -79,6 +80,7 @@ from typing import (
     Union,
     overload,
     Protocol,
+    final,
 )
 
 if sys.version_info >= (3, 11):
@@ -103,11 +105,8 @@ _T3 = TypeVar("_T3")
 _T4 = TypeVar("_T4")
 _T5 = TypeVar("_T5")
 
-_ParserOrParserFn = Union[
-    "Parser[_A, _B]",
-    Callable[[Sequence[_A], "State"], tuple[_B, "State"]],
-]
-
+_ParserFn = Callable[[Sequence[_A], "State"], tuple[_B, "State"]]
+_ParserOrParserFn = Union["Parser[_A, _B]", _ParserFn]
 
 _Place = tuple[int, int]
 
@@ -118,6 +117,8 @@ class TokenLike(Protocol):
     end: _Place
 
 
+@final
+@dc.dataclass(frozen=True, init=False)
 class Parser(Generic[_A, _B]):
     """A parser object that can parse a sequence of tokens or can be combined with
     other parsers using `+`, `|`, `>>`, `many()`, and other parsing combinators.
@@ -143,10 +144,16 @@ class Parser(Generic[_A, _B]):
         construct new parsers.
     """
 
+    _logic: _ParserFn[_A, _B]
+    name: str = dc.field(default="", compare=False)
+
     def __init__(self, p: _ParserOrParserFn[_A, _B]) -> None:
         """Wrap the parser function `p` into a `Parser` object."""
-        self.name = ""
         self.define(p)
+
+    def _with_name(self, name: str) -> Self:
+        object.__setattr__(self, "name", name)
+        return self
 
     def named(self, name: str) -> Self:
         # noinspection GrazieInspection
@@ -186,9 +193,14 @@ class Parser(Generic[_A, _B]):
 
             The way to enable the parsing log may be changed in future versions.
         """
-        self.name = name
+        return copy(self)._with_name(name)
+
+    def _with_name_from(self, p: _ParserOrParserFn[_A, _B]) -> Self:
+        if (name := getattr(p, "name", p.__doc__)) is not None:
+            return self._with_name(name)
         return self
 
+    # TODO Separate from the base parser...
     def define(self, p: _ParserOrParserFn[_A, _B]) -> None:
         """Define the parser created earlier as a forward declaration.
 
@@ -199,14 +211,13 @@ class Parser(Generic[_A, _B]):
 
         See the examples in the docs for `forward_decl()`.
         """
-        f = getattr(p, "run", p)
-        if debug:
-            setattr(self, "_run", f)
-        else:
-            setattr(self, "run", f)
-        name = getattr(p, "name", p.__doc__)
-        if name is not None:
-            self.named(name)
+        f = _extract_logic(p)
+        object.__setattr__(self, "_logic", f)
+        # TODO Optimize later
+        # if not debug:
+        #     object.__setattr__(self, "run", f)
+
+        self._with_name_from(p)
 
     def run(self, tokens: Sequence[_A], s: "State") -> tuple[_B, "State"]:
         """Run the parser against the tokens with the specified parsing state.
@@ -227,10 +238,12 @@ class Parser(Generic[_A, _B]):
         """
         if debug:
             log.debug("trying %s" % self.name)
-        return self._run(tokens, s)
-
-    def _run(self, tokens: Sequence[_A], s: "State") -> tuple[_B, "State"]:
-        raise NotImplementedError("you must define() a parser")
+        try:
+            return self._logic(tokens, s)
+        except NoParseError as e:
+            if e.state and e.state.parser == self:
+                e.state = dc.replace(e.state, parser=self)
+            raise
 
     def parse(self, tokens: Sequence[_A]) -> _B:
         """Parse the sequence of tokens and return the parsed value.
@@ -262,9 +275,9 @@ class Parser(Generic[_A, _B]):
             raise
 
     def but_not(self, other: "Parser[_A, _B]") -> "Parser[_A, _B]":
-        """This parser as usual, but only if the other parser fails."""
+        """Parse as usual, but only if the other parser fails."""
 
-        @Parser
+        @parser(f"{self.name} (but not {other.name})")
         def _but_not(tokens: Sequence[_A], s: State) -> tuple[Union[_B, _C], State]:
             (v, s2) = self.run(tokens, s)
             try:
@@ -279,7 +292,6 @@ class Parser(Generic[_A, _B]):
                 "got unexpected token", State(s.pos, max(s2.max, s3.max), _but_not)
             )
 
-        _but_not.name = f"{self.name} (but not {other.name})"
         return _but_not
 
     @overload
@@ -346,6 +358,7 @@ class Parser(Generic[_A, _B]):
 
         ```
         """
+        name = "(%s, %s)" % (self.name, other.name)
 
         def magic(v1: Any, v2: Any) -> _Tuple:
             if isinstance(v1, _Tuple):
@@ -353,24 +366,19 @@ class Parser(Generic[_A, _B]):
             else:
                 return _Tuple((v1, v2))
 
-        @Parser
+        @parser(name)
         def _add(tokens: Sequence[_A], s: State) -> tuple[tuple, State]:
             (v1, s2) = self.run(tokens, s)
             (v2, s3) = other.run(tokens, s2)
             return magic(v1, v2), s3
 
-        @Parser
+        @parser(name)
         def ignored_right(tokens: Sequence[_A], s: State) -> tuple[_B, State]:
             v, s2 = self.run(tokens, s)
             _, s3 = other.run(tokens, s2)
             return v, s3
 
-        name = "(%s, %s)" % (self.name, other.name)
-        if isinstance(other, _IgnoredParser):
-            return ignored_right.named(name)
-        else:
-            _add.name = name
-            return _add
+        return ignored_right if isinstance(other, _IgnoredParser) else _add
 
     def __or__(self, other: "Parser[_A, _C]") -> "Parser[_A, Union[_B, _C]]":
         """Choice combination of parsers.
@@ -394,7 +402,7 @@ class Parser(Generic[_A, _B]):
         ```
         """
 
-        @Parser
+        @parser(f"{self.name} or {other.name}")
         def _or(tokens: Sequence[_A], s: State) -> tuple[Union[_B, _C], State]:
             try:
                 return self.run(tokens, s)
@@ -407,7 +415,6 @@ class Parser(Generic[_A, _B]):
                     e.state = dc.replace(e.state, parser=_or)
                 raise
 
-        _or.name = f"{self.name} or {other.name}"
         return _or
 
     def __rshift__(self, f: Callable[[_B], _C]) -> "Parser[_A, _C]":
@@ -432,7 +439,7 @@ class Parser(Generic[_A, _B]):
         ```
         """
 
-        @Parser
+        @parser(self.name)
         def _shift(tokens: Sequence[_A], s: State) -> tuple[_C, State]:
             (v, s2) = self.run(tokens, s)
             try:
@@ -443,7 +450,7 @@ class Parser(Generic[_A, _B]):
                     e.state = State(s.pos, s2.max, _shift)
                 raise
 
-        return _shift.named(self.name)
+        return _shift
 
     def bind(self, f: Callable[[_B], "Parser[_A, _C]"]) -> "Parser[_A, _C]":
         """Bind the parser to a monadic function that returns a new parser.
@@ -458,12 +465,11 @@ class Parser(Generic[_A, _B]):
             to its poor performance please use it only when you really need it.
         """
 
-        @Parser
+        @parser(f"({self.name} >>=)")
         def _bind(tokens: Sequence[_A], s: State) -> tuple[_C, State]:
             (v, s2) = self.run(tokens, s)
             return f(v).run(tokens, s2)
 
-        _bind.name = f"({self.name} >>=)"
         return _bind
 
     def __neg__(self) -> "_IgnoredParser[_A]":
@@ -535,7 +541,7 @@ class Parser(Generic[_A, _B]):
     def __invert__(self) -> "Parser[_A, _A]":
         # TODO Docs
 
-        @Parser
+        @parser(f"anything but {self.name}")
         def _invert(tokens: Sequence[_A], s: State) -> tuple[_A, State]:
             if s.pos >= len(tokens):
                 s2 = s.replace_parser_if_not_observed_further(_invert)
@@ -552,8 +558,20 @@ class Parser(Generic[_A, _B]):
             # TODO Check state
             raise NoParseError("got unexpected token", State(s.pos, s2.max, _invert))
 
-        _invert.name = f"anything but {self.name}"
         return _invert
+
+
+def _extract_logic(p: _ParserOrParserFn) -> _ParserFn:
+    return getattr(p, "_logic", p)  # type: ignore
+
+
+# Decorator to create named parsers directly
+def parser(name: str) -> Callable[[_ParserFn[_A, _B]], Parser[_A, _B]]:
+    def _parser(f: _ParserFn[_A, _B]) -> Parser[_A, _B]:
+        # noinspection PyProtectedMember
+        return Parser(f)._with_name(name)
+
+    return _parser
 
 
 @dc.dataclass(frozen=True, repr=False)
@@ -621,7 +639,10 @@ class _Tuple(tuple):
     pass
 
 
-class _Tuple2Parser(Parser[_A, tuple[_T1, _T2]], Generic[_A, _T1, _T2]):
+@dc.dataclass(frozen=True)
+class _Tuple2Parser(  # type: ignore[misc]
+    Parser[_A, tuple[_T1, _T2]], Generic[_A, _T1, _T2]
+):
     """
     Just for type inference, not intended for actual use.
     """
@@ -646,7 +667,9 @@ class _Tuple2Parser(Parser[_A, tuple[_T1, _T2]], Generic[_A, _T1, _T2]):
         return super().__rshift__(f)
 
 
-class _Tuple3Parser(Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]):
+class _Tuple3Parser(  # type: ignore[misc]
+    Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]
+):  # type: ignore[misc]
     """
     Just for type inference, not intended for actual use.
     """
@@ -671,7 +694,7 @@ class _Tuple3Parser(Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]
         return super().__rshift__(f)
 
 
-class _Tuple4Parser(
+class _Tuple4Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4]], Generic[_A, _T1, _T2, _T3, _T4]
 ):
     """
@@ -702,7 +725,7 @@ class _Tuple4Parser(
         return super().__rshift__(f)
 
 
-class _Tuple5Parser(
+class _Tuple5Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4, _T5]], Generic[_A, _T1, _T2, _T3, _T4, _T5]
 ):
     """
@@ -742,7 +765,7 @@ class _Ignored:
         return isinstance(other, _Ignored) and self.value == other.value
 
 
-@Parser
+@parser("end of input")
 def finished(tokens: Sequence[Any], s: State) -> tuple[None, State]:
     """A parser that throws an exception if there are any unparsed tokens left in the
     sequence."""
@@ -751,9 +774,6 @@ def finished(tokens: Sequence[Any], s: State) -> tuple[None, State]:
     else:
         s2 = s.replace_parser_if_not_observed_further(finished)
         raise NoParseError("got unexpected token", s2)
-
-
-finished.name = "end of input"
 
 
 def many(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
@@ -780,7 +800,7 @@ def many(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
     ```
     """
 
-    @Parser
+    @parser("{ %s }" % p.name)
     def _many(tokens: Sequence[_A], s: State) -> tuple[list[_B], State]:
         res = []
         try:
@@ -796,27 +816,25 @@ def many(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
                 )
             return res, s2
 
-    _many.name = "{ %s }" % p.name
     return _many
 
 
 def when(p: Parser[_A, _B], pred: Callable[[_B], bool]) -> Parser[_A, _B]:
-    """Wraps a parser to a new one, that parses a token if it satisfies the predicate
-    `pred`.
+    """Wrap the parser to a new one, that parses a token if it satisfies the
+    predicate `pred`.
 
     Type: `(Parser[A, B], Callable[[B], bool]) -> Parser[A, B]`
 
     Examples: TODO
     """
 
-    @Parser
+    @parser("when(...)")
     def _when(tokens: Sequence[_A], s: State) -> tuple[_B, State]:
         (v, s2) = p.run(tokens, s)
         if not pred(v):
             raise NoParseError("got unexpected token", State(s.pos, s2.max, _when))
         return v, s2
 
-    _when.name = "when(...)"
     return _when
 
 
@@ -848,7 +866,7 @@ def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
         `make_tokenizer()` from `funcparserlib.lexer` to tokenize your text first.
     """
 
-    @Parser
+    @parser("some(...)")
     def _some(tokens: Sequence[_A], s: State) -> tuple[_A, State]:
         if s.pos >= len(tokens):
             s2 = s.replace_parser_if_not_observed_further(_some)
@@ -869,7 +887,6 @@ def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
                     )
                 raise NoParseError("got unexpected token", s2)
 
-    _some.name = "some(...)"
     return _some
 
 
@@ -908,7 +925,7 @@ def a(value: _A) -> Parser[_A, _A]:
     def eq_value(t: _A) -> bool:
         return t == value
 
-    return some(eq_value).named(repr(name))
+    return some(eq_value)._with_name(repr(name))
 
 
 # noinspection PyShadowingBuiltins
@@ -961,8 +978,8 @@ def tok(type: str, value: Optional[str] = None) -> Parser[Token, str]:
     if value is not None:
         p = a(Token(type, value))
     else:
-        p = some(eq_type).named(type)
-    return (p >> (lambda t: t.value)).named(p.name)
+        p = some(eq_type)._with_name(type)
+    return (p >> (lambda t: t.value))._with_name(p.name)
 
 
 def pure(x: _A) -> Parser[Any, _A]:
@@ -976,11 +993,10 @@ def pure(x: _A) -> Parser[Any, _A]:
     Also known as `return` in Haskell.
     """
 
-    @Parser
+    @parser("(pure %r)" % (x,))
     def _pure(_: Sequence[Any], s: State) -> tuple[_A, State]:
         return x, s
 
-    _pure.name = "(pure %r)" % (x,)
     return _pure
 
 
@@ -998,7 +1014,7 @@ def maybe(p: Parser[_A, _B]) -> Parser[_A, Optional[_B]]:
 
     ```
     """
-    return (p | pure(None)).named("[ %s ]" % (p.name,))
+    return (p | pure(None))._with_name("[ %s ]" % (p.name,))
 
 
 def skip(p: Parser[_A, Any]) -> "_IgnoredParser[_A]":
@@ -1017,23 +1033,18 @@ def anything_but(p: Parser[_A, Any]) -> Parser[_A, _A]:
     return ~p
 
 
-# noinspection DuplicatedCode
-class _IgnoredParser(Parser[_A, Any]):
-    def __init__(
-        self,
-        p: _ParserOrParserFn[_A, Any],
-    ) -> None:
+@dc.dataclass(frozen=True)
+class _IgnoredParser(Parser[_A, Any]):  # type: ignore[misc]
+    def __init__(self, p: _ParserOrParserFn[_A, Any]) -> None:
         super(_IgnoredParser, self).__init__(p)
-        run = self._run if debug else self.run
+        f = self._logic
 
         def ignored(tokens: Sequence[_A], s: State) -> tuple[Any, State]:
-            v, s2 = run(tokens, s)
+            v, s2 = f(tokens, s)
             return v if isinstance(v, _Ignored) else _Ignored(v), s2
 
         self.define(ignored)
-        name = getattr(p, "name", p.__doc__)
-        if name is not None:
-            self.name = name
+        self._with_name_from(p)
 
     @overload  # type: ignore[override]
     def __add__(self, other: "_IgnoredParser[_A]") -> Self:
@@ -1046,6 +1057,7 @@ class _IgnoredParser(Parser[_A, Any]):
     def __add__(
         self, other: Union["_IgnoredParser[_A]", Parser[_A, _C]]
     ) -> Union["_IgnoredParser[_A]", Parser[_A, _C]]:
+        name = f"({self.name}, {other.name})"
         if isinstance(other, _IgnoredParser):
 
             @_IgnoredParser
@@ -1054,17 +1066,15 @@ class _IgnoredParser(Parser[_A, Any]):
                 v, s3 = other.run(tokens, s2)
                 return v, s3
 
-            ip.name = "(%s, %s)" % (self.name, other.name)
-            return ip
+            return ip._with_name(name)
         else:
 
-            @Parser
+            @parser(name)
             def p(tokens: Sequence[_A], s: State) -> tuple[_C, State]:
                 _, s2 = self.run(tokens, s)
                 v, s3 = other.run(tokens, s2)
                 return v, s3
 
-            p.name = "(%s, %s)" % (self.name, other.name)
             return p
 
 
@@ -1090,13 +1100,12 @@ def oneplus(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
     ```
     """
 
-    @Parser
+    @parser("(%s, { %s })" % (p.name, p.name))
     def _oneplus(tokens: Sequence[_A], s: State) -> tuple[list[_B], State]:
         (v1, s2) = p.run(tokens, s)
         (v2, s3) = many(p).run(tokens, s2)
         return [v1] + v2, s3
 
-    _oneplus.name = "(%s, { %s })" % (p.name, p.name)
     return _oneplus
 
 
@@ -1152,11 +1161,10 @@ def forward_decl() -> Parser[Any, Any]:
         ```
     """
 
-    @Parser
+    @parser("forward_decl()")
     def f(_tokens: Any, _s: Any) -> Any:
         raise NotImplementedError("you must define() a forward_decl somewhere")
 
-    f.name = "forward_decl()"
     return f
 
 
