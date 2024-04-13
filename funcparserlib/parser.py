@@ -111,6 +111,11 @@ _ParserOrParserFn = Union["Parser[_A, _B]", _ParserFn]
 _Place = tuple[int, int]
 
 
+_DC_KWARGS: dict[str, bool] = {}
+if sys.version_info >= (3, 10):
+    _DC_KWARGS["slots"] = True
+
+
 class TokenLike(Protocol):
     value: Any
     start: _Place
@@ -118,7 +123,7 @@ class TokenLike(Protocol):
 
 
 @final
-@dc.dataclass(frozen=True, init=False)
+@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class Parser(Generic[_A, _B]):
     """A parser object that can parse a sequence of tokens or can be combined with
     other parsers using `+`, `|`, `>>`, `many()`, and other parsing combinators.
@@ -574,7 +579,7 @@ def parser(name: str) -> Callable[[_ParserFn[_A, _B]], Parser[_A, _B]]:
     return _parser
 
 
-@dc.dataclass(frozen=True, repr=False)
+@dc.dataclass(frozen=True, repr=False, **_DC_KWARGS)
 class State:
     """Parsing state that is maintained basically for error reporting.
 
@@ -628,9 +633,8 @@ def _format_parsing_error(e: NoParseError, tokens: Sequence) -> None:
         else:
             msg += str(t_value)
 
-    parser = e.state.parser
-    if isinstance(parser, Parser):
-        msg = f"{msg}, expected: {parser.name}"
+    if isinstance(p := e.state.parser, Parser):
+        msg = f"{msg}, expected: {p.name}"
 
     e.msg = msg
 
@@ -663,10 +667,11 @@ class _Tuple2Parser(  # type: ignore[misc]
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open _B explicitly here
-    def __rshift__(self, f: Callable[[tuple[_T1, _T2]], _C]) -> "Parser[_A, _C]":
+    def __rshift__(self, f: Callable[[tuple[_T1, _T2]], _C]) -> Parser[_A, _C]:
         return super().__rshift__(f)
 
 
+@dc.dataclass(frozen=True)
 class _Tuple3Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]
 ):  # type: ignore[misc]
@@ -690,10 +695,11 @@ class _Tuple3Parser(  # type: ignore[misc]
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open _B explicitly here
-    def __rshift__(self, f: Callable[[tuple[_T1, _T2, _T3]], _C]) -> "Parser[_A, _C]":
+    def __rshift__(self, f: Callable[[tuple[_T1, _T2, _T3]], _C]) -> Parser[_A, _C]:
         return super().__rshift__(f)
 
 
+@dc.dataclass(frozen=True)
 class _Tuple4Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4]], Generic[_A, _T1, _T2, _T3, _T4]
 ):
@@ -721,10 +727,11 @@ class _Tuple4Parser(  # type: ignore[misc]
     # open _B explicitly here
     def __rshift__(
         self, f: Callable[[tuple[_T1, _T2, _T3, _T4]], _C]
-    ) -> "Parser[_A, _C]":
+    ) -> Parser[_A, _C]:
         return super().__rshift__(f)
 
 
+@dc.dataclass(frozen=True)
 class _Tuple5Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4, _T5]], Generic[_A, _T1, _T2, _T3, _T4, _T5]
 ):
@@ -750,19 +757,16 @@ class _Tuple5Parser(  # type: ignore[misc]
     # open _B explicitly here
     def __rshift__(
         self, f: Callable[[tuple[_T1, _T2, _T3, _T4, _T5]], Any]
-    ) -> "Parser[_A, Any]":
+    ) -> Parser[_A, _C]:
         return super().__rshift__(f)
 
 
+@dc.dataclass(frozen=True, repr=False, **_DC_KWARGS)
 class _Ignored:
-    def __init__(self, value: Any) -> None:
-        self.value = value
+    value: Any
 
     def __repr__(self) -> str:
         return "_Ignored(%s)" % repr(self.value)
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, _Ignored) and self.value == other.value
 
 
 @parser("end of input")
@@ -1033,7 +1037,7 @@ def anything_but(p: Parser[_A, Any]) -> Parser[_A, _A]:
     return ~p
 
 
-@dc.dataclass(frozen=True)
+@dc.dataclass(frozen=True, **_DC_KWARGS)
 class _IgnoredParser(Parser[_A, Any]):  # type: ignore[misc]
     def __init__(self, p: _ParserOrParserFn[_A, Any]) -> None:
         super(_IgnoredParser, self).__init__(p)
