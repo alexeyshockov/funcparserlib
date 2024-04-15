@@ -11,7 +11,7 @@ from funcparserlib.parser import (
     oneplus,
     Parser,
     maybe,
-    _Ignored,  # noqa
+    IgnoredValue,
     tok,
     finished,
     forward_decl,
@@ -127,15 +127,15 @@ end"""
     def test_ignored_ignored(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, _Ignored] = -x + -y
-        self.assertEqual(expr.parse("xy"), _Ignored("y"))
+        expr: Parser[str, IgnoredValue] = -x + -y
+        self.assertEqual(expr.parse("xy"), IgnoredValue())
 
     def test_ignored_ignored_ignored(self) -> None:
         x = a("x")
         y = a("y")
         z = a("z")
-        expr: Parser[str, _Ignored] = -x + -y + -z
-        self.assertEqual(expr.parse("xyz"), _Ignored("z"))
+        expr: Parser[str, IgnoredValue] = -x + -y + -z
+        self.assertEqual(expr.parse("xyz"), IgnoredValue())
 
     def test_ignored_maybe(self) -> None:
         x = a("x")
@@ -147,8 +147,8 @@ end"""
     def test_maybe_ignored(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[Optional[_Ignored], str]] = maybe(-x) + y
-        self.assertEqual(expr.parse("xy"), (_Ignored("x"), "y"))
+        expr: Parser[str, Tuple[Optional[IgnoredValue], str]] = maybe(-x) + y
+        self.assertEqual(expr.parse("xy"), "y")
         self.assertEqual(expr.parse("y"), (None, "y"))
 
     def test_ignored_maybe_ignored(self) -> None:

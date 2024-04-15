@@ -21,12 +21,22 @@ __all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError"]
 
 import dataclasses as dc
 import re
+import sys
 from collections.abc import Iterable, Sequence
 from re import Pattern
 from typing import Callable, Optional, Union
 
 _Place = tuple[int, int]
 _Spec = tuple[str, tuple]
+_CompiledSpec = tuple[str, Pattern[str]]
+
+
+_DC_KWARGS: dict[str, bool] = {
+    # Frozen objects have performance impact, so keep it only for type checking
+    # "frozen": True,
+}
+if sys.version_info >= (3, 10):
+    _DC_KWARGS["slots"] = True
 
 
 class LexerError(Exception):
@@ -40,7 +50,7 @@ class LexerError(Exception):
         return '%s: %d,%d: "%s"' % (s, line, pos, self.msg)
 
 
-@dc.dataclass(repr=False)
+@dc.dataclass(frozen=True, repr=False, **_DC_KWARGS)
 class TokenSpec:
     """A token specification for generating a lexer via `make_tokenizer()`."""
 
@@ -55,7 +65,7 @@ class TokenSpec:
         return "TokenSpec(%r, %r, %r)" % (self.type, self.pattern, self.flags)
 
 
-@dc.dataclass(frozen=True, repr=False)
+@dc.dataclass(repr=False, **_DC_KWARGS)
 class Token:
     """A token object that represents a substring of certain type in your text.
 
@@ -138,20 +148,21 @@ def make_tokenizer(
 
     ```
     """
-    compiled: list[tuple[str, Pattern[str]]] = []
-    for spec in specs:
-        if isinstance(spec, TokenSpec):
-            c = spec.type, re.compile(spec.pattern, spec.flags)
-        else:
-            name, args = spec
-            c = name, re.compile(*args)
-        compiled.append(c)
+
+    def compile() -> Iterable[_CompiledSpec]:
+        for spec in specs:
+            if isinstance(spec, TokenSpec):
+                yield spec.type, re.compile(spec.pattern, spec.flags)
+            else:
+                name, args = spec
+                yield name, re.compile(*args)
+
+    compiled = tuple(compile())
 
     def match_specs(s: str, i: int, position: _Place) -> Token:
         line, pos = position
-        for type, regexp in compiled:
-            m = regexp.match(s, i)
-            if m is not None:
+        for token_type, spec_regexp in compiled:
+            if m := spec_regexp.match(s, i):
                 value = m.group()
                 nls = value.count("\n")
                 n_line = line + nls
@@ -159,7 +170,7 @@ def make_tokenizer(
                     n_pos = pos + len(value)
                 else:
                     n_pos = len(value) - value.rfind("\n") - 1
-                return Token(type, value, (line, pos + 1), (n_line, n_pos))
+                return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
         else:
             err_line = s.splitlines()[line - 1]
             raise LexerError((line, pos + 1), err_line)
