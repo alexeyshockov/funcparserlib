@@ -63,11 +63,11 @@ Let's consider a little language of **numeric expressions** with a syntax simila
 Here is **the complete source code** of the tokenizer and the parser for this language written using `funcparserlib`:
 
 ```python
-from typing import List, Tuple, Union
+from typing import Union
 from dataclasses import dataclass
 
 from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
-from funcparserlib.parser import tok, Parser, many, forward_decl, finished
+from funcparserlib.parser import tok, Parser, ForwardDeclParser, many, forward_decl, finished
 
 
 @dataclass
@@ -80,7 +80,7 @@ class BinaryExpr:
 Expr = Union[BinaryExpr, int, float]
 
 
-def tokenize(s: str) -> List[Token]:
+def tokenize(s: str) -> list[Token]:
     specs = [
         TokenSpec("whitespace", r"\s+"),
         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),
@@ -91,12 +91,12 @@ def tokenize(s: str) -> List[Token]:
     return [t for t in tokenizer(s) if t.type != "whitespace"]
 
 
-def parse(tokens: List[Token]) -> Expr:
+def parse(tokens: list[Token]) -> Expr:
     int_num = tok("int") >> int
     float_num = tok("float") >> float
     number = int_num | float_num
 
-    expr: Parser[Token, Expr] = forward_decl()
+    expr: ForwardDeclParser[Token, Expr] = forward_decl()
     parenthesized = -op("(") + expr + -op(")")
     primary = number | parenthesized
     power = primary + many(op("**") + primary) >> to_expr
@@ -113,7 +113,7 @@ def op(name: str) -> Parser[Token, str]:
     return tok("op", name)
 
 
-def to_expr(args: Tuple[Expr, List[Tuple[str, Expr]]]) -> Expr:
+def to_expr(args: tuple[Expr, list[tuple[str, Expr]]]) -> Expr:
     first, rest = args
     result = first
     for op, expr in rest:

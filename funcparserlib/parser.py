@@ -62,6 +62,7 @@ __all__ = [
     "anything_but",
     "tok",
     "Parser",
+    "ForwardDeclParser",
     "State",
     "NoParseError",
     "ParsingResult",
@@ -73,7 +74,6 @@ __all__ = [
 import dataclasses as dc
 import logging
 import sys
-import warnings
 from collections.abc import Sequence, Iterator, Iterable
 from typing import (
     Any,
@@ -183,7 +183,7 @@ class NoParseError(Exception):
 class ParsingResult(Protocol[_R], Iterable):
     """Result monad for parsing combinators.
 
-    Immutable (objects' data should not be changed after creation).
+    Immutable (object's data should not be changed after creation).
     """
 
     state: State
@@ -264,7 +264,6 @@ _ParserObjOrFn = Union["Parser[_A, _B]", _ParserFn]
 
 
 @final
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class Parser(Generic[_A, _B]):
     """A parser object that can parse a sequence of tokens or can be combined with
     other parsers using `+`, `|`, `>>`, `many()`, and other parsing combinators.
@@ -308,13 +307,13 @@ class Parser(Generic[_A, _B]):
         updating the parsing state.
     """
 
-    name: str = dc.field(compare=False)
+    name: Optional[str] = None
 
     def __init__(self, p: _ParserObjOrFn[_A, _B]) -> None:
         """Wrap the parser function `p` into a `Parser` object."""
-        self.define(p)
+        self._define(p)
 
-    def named(self, name: str) -> Self:
+    def named(self, name: Optional[str]) -> Self:
         # noinspection GrazieInspection
         """Specify the name of the parser for easier debugging.
 
@@ -352,7 +351,7 @@ class Parser(Generic[_A, _B]):
 
             The way to enable the parsing log may be changed in future versions.
         """
-        object.__setattr__(self, "name", name)
+        self.name = name
         return self
 
     def _named_from(self, p: _ParserObjOrFn[_A, _B]) -> Self:
@@ -360,8 +359,7 @@ class Parser(Generic[_A, _B]):
             return self.named(name)
         return self
 
-    # TODO Separate from the base parser...
-    def define(self, p: _ParserObjOrFn[_A, _B]) -> None:
+    def _define(self, p: _ParserObjOrFn[_A, _B]) -> None:
         """Define the parser created earlier as a forward declaration.
 
         Type: `(Parser[A, B]) -> None`
@@ -372,8 +370,7 @@ class Parser(Generic[_A, _B]):
         See the examples in the docs for `forward_decl()`.
         """
         f = p.run if isinstance(p, Parser) else p
-        object.__setattr__(self, "run", self._wrap_for_debug(f) if debug else f)
-
+        self.run = self._wrap_for_debug(f) if debug else f
         self._named_from(p)
 
     def _wrap_for_debug(self, f: _ParserFn[_A, _B]) -> _ParserFn[_A, _B]:
@@ -584,11 +581,11 @@ class Parser(Generic[_A, _B]):
         """
 
         @parser(self.name)
-        def _shift(tokens: Sequence[_A], s: State) -> ParsingResult[_C]:
+        def _map(tokens: Sequence[_A], s: State) -> ParsingResult[_C]:
             res = self.run(tokens, s)
             return res.map(f)
 
-        return _shift
+        return _map
 
     def bind(self, f: Callable[[_B], "Parser[_A, _C]"]) -> "Parser[_A, _C]":
         """Bind the parser to a monadic function that returns a new parser.
@@ -703,7 +700,7 @@ class Parser(Generic[_A, _B]):
         return _invert
 
 
-def parser(name: str) -> Callable[[_ParserFn[_A, _B]], Parser[_A, _B]]:
+def parser(name: Optional[str]) -> Callable[[_ParserFn[_A, _B]], Parser[_A, _B]]:
     """Decorator to create named parsers directly."""
 
     def _parser(f: _ParserFn[_A, _B]) -> Parser[_A, _B]:
@@ -752,7 +749,6 @@ class _Tuple(tuple):
             return cls((v1, v2))
 
 
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class _Tuple2Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2]], Generic[_A, _T1, _T2]
 ):
@@ -780,7 +776,6 @@ class _Tuple2Parser(  # type: ignore[misc]
         pass
 
 
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class _Tuple3Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3]], Generic[_A, _T1, _T2, _T3]
 ):
@@ -808,7 +803,6 @@ class _Tuple3Parser(  # type: ignore[misc]
         pass
 
 
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class _Tuple4Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4]], Generic[_A, _T1, _T2, _T3, _T4]
 ):
@@ -838,7 +832,6 @@ class _Tuple4Parser(  # type: ignore[misc]
         pass
 
 
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class _Tuple5Parser(  # type: ignore[misc]
     Parser[_A, tuple[_T1, _T2, _T3, _T4, _T5]], Generic[_A, _T1, _T2, _T3, _T4, _T5]
 ):
@@ -1125,7 +1118,6 @@ def anything_but(p: Parser[_A, Any]) -> Parser[_A, _A]:
     return ~p
 
 
-@dc.dataclass(frozen=True, init=False, **_DC_KWARGS)
 class _IgnoredParser(Parser[_A, IgnoredValue], Generic[_A]):  # type: ignore[misc]
     """Just for type inference, not intended for actual use."""
 
@@ -1177,24 +1169,20 @@ def oneplus(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
     return _oneplus
 
 
-def with_forward_decls(suspension: Callable[[], Parser[_A, _B]]) -> Parser[_A, _B]:
-    warnings.warn(
-        "Use forward_decl() instead:\n"
-        "\n"
-        "    p = forward_decl()\n"
-        "    ...\n"
-        "    p.define(parser_value)\n",
-        DeprecationWarning,
-    )
+class ForwardDeclParser(Parser[_A, _B]):  # type: ignore[misc]
+    def __init__(self) -> None:
+        def f(_tokens: Any, _s: Any) -> Any:
+            raise NotImplementedError("you must define() a forward_decl() somewhere")
 
-    @Parser
-    def f(tokens: Sequence[_A], s: State) -> ParsingResult[_B]:
-        return suspension().run(tokens, s)
+        super().__init__(f)
+        self.define = self._define  # type: ignore[method-assign]
+        self.named("forward_decl()")
 
-    return f
+    def define(self, p: _ParserObjOrFn[_A, _B]) -> None:
+        self._define(p)
 
 
-def forward_decl() -> Parser[Any, Any]:
+def forward_decl() -> ForwardDeclParser:
     """Return an undefined parser that can be used as a forward declaration.
 
     Type: `Parser[Any, Any]`
@@ -1223,17 +1211,12 @@ def forward_decl() -> Parser[Any, Any]:
         declaration, so that your type checker can check types in `p.define(...)` later:
 
         ```python
-        p: Parser[str, int] = forward_decl()
+        p: ForwardDeclParser[str, int] = forward_decl()
         p.define(a("x"))  # Type checker error
         p.define(a("1") >> int)  # OK
         ```
     """
-
-    @parser("forward_decl()")
-    def f(_tokens: Any, _s: Any) -> Any:
-        raise NotImplementedError("you must define() a forward_decl somewhere")
-
-    return f
+    return ForwardDeclParser()
 
 
 if __name__ == "__main__":
