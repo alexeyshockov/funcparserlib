@@ -47,6 +47,7 @@ from funcparserlib.parser import (
     NoParseError,
     Parser,
     tok,
+    ForwardDeclParser,
 )
 from funcparserlib.util import pretty_tree
 
@@ -138,7 +139,7 @@ def parse(tokens: Sequence[Token]) -> Graph:
     node_stmt = node_id + attr_list >> un_arg(Node)
     # We use a forward_decl because of circular definitions like
     # (stmt_list -> stmt -> subgraph -> stmt_list)
-    subgraph: Parser[Token, SubGraph] = forward_decl()
+    subgraph: ForwardDeclParser[Token, SubGraph] = forward_decl()
     edge_rhs = -(op("->") | op("--")) + (subgraph | node_id)
     edge_stmt = (subgraph | node_id) + oneplus(edge_rhs) + attr_list >> un_arg(
         make_edge

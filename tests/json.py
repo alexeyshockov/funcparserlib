@@ -53,6 +53,7 @@ from funcparserlib.parser import (
     NoParseError,
     Parser,
     tok,
+    ForwardDeclParser,
 )
 
 ENCODING = "UTF-8"
@@ -163,7 +164,7 @@ def parse(tokens: Sequence[Token]) -> JsonValue:
     false = n("false") >> const(False)
     number = tok("number") >> make_number
     string = tok("string") >> make_string
-    value: Parser[Token, JsonValue] = forward_decl().named("json_value")
+    value: ForwardDeclParser[Token, JsonValue] = forward_decl().named("json_value")
     member = string + -op(":") + value >> make_member
     json_object = (
         (-op("{") + maybe(member + many(-op(",") + member)) + -op("}")) >> make_object

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import unittest
-from typing import Optional, Tuple
+from typing import Optional
 
 from funcparserlib.lexer import TokenSpec, make_tokenizer, LexerError, Token
 from funcparserlib.parser import (
@@ -17,6 +17,7 @@ from funcparserlib.parser import (
     forward_decl,
     some,
 )
+from funcparserlib.util import expand_tuple_args
 
 
 class ParsingTest(unittest.TestCase):
@@ -49,8 +50,8 @@ class ParsingTest(unittest.TestCase):
             list(tokenize("f is ф"))
         self.assertEqual(str(ctx.exception), 'cannot tokenize data: 1,6: "f is \u0444"')
 
-        def make_equality(values: Tuple[str, str]) -> Tuple[str, str]:
-            v1, v2 = values
+        @expand_tuple_args
+        def make_equality(v1: str, v2: str) -> tuple[str, str]:
             return v1, v2
 
         tok_id = tok("id")
@@ -91,25 +92,25 @@ end"""
     def test_ignored_ok_ok(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[str, str]] = -x + y + x
+        expr: Parser[str, tuple[str, str]] = -x + y + x
         self.assertEqual(expr.parse("xyx"), ("y", "x"))
 
     def test_ok_ignored_ok(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[str, str]] = x + -y + x
+        expr: Parser[str, tuple[str, str]] = x + -y + x
         self.assertEqual(expr.parse("xyx"), ("x", "x"))
 
     def test_ok_ok_ok(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[str, str, str]] = x + y + x
+        expr: Parser[str, tuple[str, str, str]] = x + y + x
         self.assertEqual(expr.parse("xyx"), ("x", "y", "x"))
 
     def test_ok_ok_ignored(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[str, str]] = x + y + -x
+        expr: Parser[str, tuple[str, str]] = x + y + -x
         self.assertEqual(expr.parse("xyx"), ("x", "y"))
 
     def test_ignored_ignored_ok(self) -> None:
@@ -147,7 +148,7 @@ end"""
     def test_maybe_ignored(self) -> None:
         x = a("x")
         y = a("y")
-        expr: Parser[str, Tuple[Optional[IgnoredValue], str]] = maybe(-x) + y
+        expr: Parser[str, tuple[Optional[IgnoredValue], str]] = maybe(-x) + y
         self.assertEqual(expr.parse("xy"), "y")
         self.assertEqual(expr.parse("y"), (None, "y"))
 

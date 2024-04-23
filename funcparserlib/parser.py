@@ -703,10 +703,10 @@ class Parser(Generic[_A, _B]):
 def parser(name: Optional[str]) -> Callable[[_ParserFn[_A, _B]], Parser[_A, _B]]:
     """Decorator to create named parsers directly."""
 
-    def _parser(f: _ParserFn[_A, _B]) -> Parser[_A, _B]:
+    def decorator(f: _ParserFn[_A, _B]) -> Parser[_A, _B]:
         return Parser(f).named(name)
 
-    return _parser
+    return decorator
 
 
 def _format_parsing_error(e: NoParseError, tokens: Sequence) -> None:
@@ -1180,6 +1180,11 @@ class ForwardDeclParser(Parser[_A, _B]):  # type: ignore[misc]
 
     def define(self, p: _ParserObjOrFn[_A, _B]) -> None:
         self._define(p)
+
+    # mypy (1.9.0) does not understand polymorphic Self in return, so duplicate it
+    def named(self, name: Optional[str]) -> Self:
+        self.name = name
+        return self
 
 
 def forward_decl() -> ForwardDeclParser:

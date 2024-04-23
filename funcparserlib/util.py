@@ -17,7 +17,8 @@
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 # OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-from typing import TypeVar, Callable, Sequence
+from functools import wraps
+from typing import TypeVar, Callable, Sequence, overload
 
 _A = TypeVar("_A")
 
@@ -74,3 +75,45 @@ def pretty_tree(
             return "\n".join([line] + lines)
 
     return rec(x, "", ROOT)
+
+
+# Additional type variables tuple overloads (up to 5-tuple)
+_T1 = TypeVar("_T1")
+_T2 = TypeVar("_T2")
+_T3 = TypeVar("_T3")
+_T4 = TypeVar("_T4")
+_T5 = TypeVar("_T5")
+
+
+@overload
+def expand_tuple_args(f: Callable[[_T1, _T2], _A]) -> Callable[[tuple[_T1, _T2]], _A]:
+    ...
+
+
+@overload
+def expand_tuple_args(
+    f: Callable[[_T1, _T2, _T3], _A]
+) -> Callable[[tuple[_T1, _T2, _T3]], _A]:
+    ...
+
+
+@overload
+def expand_tuple_args(
+    f: Callable[[_T1, _T2, _T3, _T4], _A]
+) -> Callable[[tuple[_T1, _T2, _T3, _T4]], _A]:
+    ...
+
+
+@overload
+def expand_tuple_args(
+    f: Callable[[_T1, _T2, _T3, _T4, _T5], _A]
+) -> Callable[[tuple[_T1, _T2, _T3, _T4, _T5]], _A]:
+    ...
+
+
+def expand_tuple_args(f: Callable[..., _A]) -> Callable[[tuple], _A]:
+    @wraps(f)
+    def _unwrap(args: tuple) -> _A:
+        return f(*args)
+
+    return _unwrap
