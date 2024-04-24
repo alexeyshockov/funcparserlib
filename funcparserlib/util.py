@@ -18,7 +18,8 @@
 # OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from functools import wraps
-from typing import TypeVar, Callable, Sequence, overload
+from inspect import signature
+from typing import TypeVar, Callable, Sequence, overload, Union
 
 _A = TypeVar("_A")
 
@@ -111,9 +112,17 @@ def expand_tuple_args(
     ...
 
 
-def expand_tuple_args(f: Callable[..., _A]) -> Callable[[tuple], _A]:
+def expand_tuple_args(f: Callable[..., _A]) -> Callable[..., _A]:
     @wraps(f)
-    def _unwrap(args: tuple) -> _A:
+    def _unwrap_fn(args: tuple) -> _A:
         return f(*args)
 
-    return _unwrap
+    @wraps(f)
+    def _unwrap_method(cls_or_self: Union[type, object], args: tuple) -> _A:
+        return f(cls_or_self, *args)
+
+    sig = signature(f)
+    if (params := tuple(sig.parameters.keys())) and params[0] in {"self", "cls"}:
+        return _unwrap_method
+    else:
+        return _unwrap_fn

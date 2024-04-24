@@ -191,6 +191,10 @@ class ParsingResult(Protocol[_R], Iterable):
     def map(self, f: Callable[[_R], _C]) -> "ParsingResult[_C]":
         ...
 
+    def map_values(self, f: Callable[..., _C]) -> "ParsingResult[_C]":
+        """Assume that the value is a tuple and apply the function to its elements."""
+        ...
+
     def bind(
         self, f: Callable[[_R, State], "ParsingResult[_C]"]
     ) -> "ParsingResult[_C]":
@@ -212,6 +216,10 @@ class ParsingSuccess(ParsingResult[_R]):
 
     def map(self, f: Callable[[_R], _C]) -> ParsingResult[_C]:
         return ParsingSuccess(f(self.value), self.state)
+
+    def map_values(self, f: Callable[..., _C]) -> ParsingResult[_C]:
+        values = cast(tuple, self.value)
+        return ParsingSuccess(f(*values), self.state)
 
     def bind(self, f: Callable[[_R, State], ParsingResult[_C]]) -> ParsingResult[_C]:
         return f(self.value, self.state)
@@ -250,6 +258,9 @@ class ParsingError(ParsingResult[_R]):
         raise self._error
 
     def map(self, f: Callable[[_R], _C]) -> ParsingResult[_C]:
+        return self  # type: ignore
+
+    def map_values(self, f: Callable[..., _C]) -> ParsingResult[_C]:
         return self  # type: ignore
 
     def bind(self, f: Callable[[_R, State], ParsingResult[_C]]) -> ParsingResult[_C]:
@@ -558,6 +569,22 @@ class Parser(Generic[_A, _B]):
 
         return _or
 
+    def map(self, f: Callable[[_B], _C]) -> "Parser[_A, _C]":
+        @parser(self.name)
+        def _map(tokens: Sequence[_A], s: State) -> ParsingResult[_C]:
+            res = self.run(tokens, s)
+            return res.map(f)
+
+        return _map
+
+    def map_values(self, f: Callable[..., _C]) -> "Parser[_A, _C]":
+        @parser(self.name)
+        def _map(tokens: Sequence[_A], s: State) -> ParsingResult[_C]:
+            res = self.run(tokens, s)
+            return res.map_values(f)
+
+        return _map
+
     def __rshift__(self, f: Callable[[_B], _C]) -> "Parser[_A, _C]":
         """Transform the parsing result by applying the specified function.
 
@@ -579,13 +606,7 @@ class Parser(Generic[_A, _B]):
 
         ```
         """
-
-        @parser(self.name)
-        def _map(tokens: Sequence[_A], s: State) -> ParsingResult[_C]:
-            res = self.run(tokens, s)
-            return res.map(f)
-
-        return _map
+        return self.map(f)
 
     def bind(self, f: Callable[[_B], "Parser[_A, _C]"]) -> "Parser[_A, _C]":
         """Bind the parser to a monadic function that returns a new parser.
@@ -768,6 +789,11 @@ class _Tuple2Parser(  # type: ignore[misc]
     def __add__(self, other):  # type: ignore[no-untyped-def]
         pass
 
+    def map_values(  # type: ignore[empty-body]
+        self, f: Callable[[_T1, _T2], _C]
+    ) -> "Parser[_A, _C]":
+        pass
+
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open _B explicitly here
     def __rshift__(  # type: ignore[empty-body]
@@ -793,6 +819,11 @@ class _Tuple3Parser(  # type: ignore[misc]
         ...
 
     def __add__(self, other):  # type: ignore[no-untyped-def]
+        pass
+
+    def map_values(  # type: ignore[empty-body]
+        self, f: Callable[[_T1, _T2, _T3], _C]
+    ) -> "Parser[_A, _C]":
         pass
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
@@ -824,6 +855,11 @@ class _Tuple4Parser(  # type: ignore[misc]
     def __add__(self, other):  # type: ignore[no-untyped-def]
         pass
 
+    def map_values(  # type: ignore[empty-body]
+        self, f: Callable[[_T1, _T2, _T3, _T4], _C]
+    ) -> "Parser[_A, _C]":
+        pass
+
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open _B explicitly here
     def __rshift__(  # type: ignore[empty-body]
@@ -849,6 +885,11 @@ class _Tuple5Parser(  # type: ignore[misc]
         ...
 
     def __add__(self, other):  # type: ignore[no-untyped-def]
+        pass
+
+    def map_values(  # type: ignore[empty-body]
+        self, f: Callable[[_T1, _T2, _T3, _T4, _T5], _C]
+    ) -> "Parser[_A, _C]":
         pass
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
