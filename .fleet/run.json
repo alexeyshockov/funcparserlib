@@ -3,13 +3,13 @@
         {
             "type": "python-tests",
             "name": "Unit tests",
-            "testFramework": "unittest"
+            "testFramework": "pytest"
         },
         {
             "type": "command",
-            "name": "pre-commit",
-            "program": "pre-commit",
-            "args": ["run", "-a"]
+            "name": "check",
+            "program": "just",
+            "args": ["check"]
         }
     ]
 }
