@@ -41,6 +41,11 @@ Run one test with `uv run pytest tests/test_parsing.py -k many -v`.
 `tests/test_parsing.py` covers the combinators, `tests/test_json.py` and `tests/test_dot.py` drive the
 example grammars in `tests/json.py` and `tests/dot.py`, and `tests/test_examples.py` runs `examples/`.
 
+Properties go in the same modules, written with [Hypothesis](https://hypothesis.readthedocs.io/): the tokens
+reassemble the text and know their positions, a sequence keeps what it does not skip, the error names the first token
+that differs, and the example JSON grammar reads what `json.dumps` writes as `json.loads` does. A failing property
+prints the smallest input it found; keep it as an example-based test when the fix lands.
+
 ## Maintainer setup
 
 Once per repository, before the first release from this tooling:

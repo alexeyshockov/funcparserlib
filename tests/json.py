@@ -133,7 +133,10 @@ def parse(tokens: Sequence[Token]) -> JsonValue:
             else:
                 return chr(int(m.group("unicode"), 16))
 
-        return re_esc.sub(sub, s)
+        # A `\uXXXX` pair encodes one character outside the BMP; a lone surrogate stays as is.
+        return (
+            re_esc.sub(sub, s).encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass")
+        )
 
     def make_string(s: str) -> str:
         return unescape(s[1:-1])

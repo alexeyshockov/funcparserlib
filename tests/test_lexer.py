@@ -1,4 +1,6 @@
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from funcparserlib.lexer import LexerError, TokenSpec, make_tokenizer
 
@@ -36,3 +38,44 @@ def test_the_error_line_drops_a_crlf_ending() -> None:
     with pytest.raises(LexerError) as e:
         list(tokenize("a\r\nb?\r\nc"))
     assert e.value.msg == "b?"
+
+
+# Properties: any text over the specs' alphabet tokenizes, and each token knows where it is.
+
+SPECS = [
+    TokenSpec("space", r"[ \t]+"),
+    TokenSpec("nl", r"\r?\n"),
+    TokenSpec("word", r"[a-z]+"),
+    TokenSpec("number", r"[0-9]+"),
+    TokenSpec("op", r"[-+*/()]"),
+]
+TEXT = st.text(alphabet="abz019 \t\n\r+-*/()").filter(lambda s: "\r" not in s.replace("\r\n", ""))
+
+
+def place(text: str, i: int) -> tuple[int, int]:
+    """The 1-based (line, column) of `text[i]`, counting lines at "\\n"."""
+    return text.count("\n", 0, i) + 1, i - text.rfind("\n", 0, i)
+
+
+@given(TEXT)
+def test_the_tokens_are_the_text(text: str) -> None:
+    assert "".join(t.value for t in make_tokenizer(SPECS)(text)) == text
+
+
+@given(TEXT)
+def test_a_token_starts_where_its_text_starts_and_ends_on_its_last_character(text: str) -> None:
+    i = 0
+    for t in make_tokenizer(SPECS)(text):
+        j = i + len(t.value)
+        assert t.start == place(text, i)
+        line, column = place(text, j)
+        assert t.end == (line, column - 1)
+        i = j
+
+
+@given(TEXT, TEXT)
+def test_the_error_is_at_the_first_character_no_spec_matches(before: str, after: str) -> None:
+    text = f"{before}?{after}"
+    with pytest.raises(LexerError) as e:
+        list(make_tokenizer(SPECS)(text))
+    assert e.value.place == place(text, len(before))

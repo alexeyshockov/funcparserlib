@@ -40,6 +40,7 @@ dev = [
 ]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
 tests = [
+    "hypothesis ~=6.169",
     "pytest ~=9.0",
     "pytest-timeout ~=2.3",
 ]

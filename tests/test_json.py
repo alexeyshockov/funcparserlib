@@ -1,4 +1,8 @@
+import json as stdlib_json
 import unittest
+
+from hypothesis import given
+from hypothesis import strategies as st
 
 from funcparserlib.lexer import LexerError
 from funcparserlib.parser import NoParseError
@@ -108,3 +112,33 @@ class JsonTest(unittest.TestCase):
             pass
         else:
             self.fail("must raise LexerError")
+
+
+# Property: the example grammar reads what the stdlib's json module writes, as json.loads does.
+
+JSON = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=False, allow_infinity=False)
+    | st.text(),
+    lambda kids: st.lists(kids, max_size=4) | st.dictionaries(st.text(), kids, max_size=4),
+    max_leaves=20,
+)
+
+
+def same(x: object, y: object) -> bool:
+    """`x == y`, with the types compared too (`True == 1` and `1 == 1.0` in Python)."""
+    if type(x) is not type(y):
+        return False
+    if isinstance(x, list) and isinstance(y, list):
+        return len(x) == len(y) and all(map(same, x, y))
+    if isinstance(x, dict) and isinstance(y, dict):
+        return x.keys() == y.keys() and all(same(x[k], y[k]) for k in x)
+    return x == y
+
+
+@given(JSON, st.booleans())
+def test_the_grammar_reads_json_as_the_stdlib_does(value: object, ensure_ascii: bool) -> None:
+    text = stdlib_json.dumps(value, ensure_ascii=ensure_ascii)
+    assert same(json.loads(text), stdlib_json.loads(text))
