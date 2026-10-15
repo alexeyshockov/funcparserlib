@@ -42,7 +42,12 @@ dev = [
 # What examples/ imports besides the package: markdown.py reads markdown-it-py's token stream.
 examples = ["markdown-it-py ~=4.0"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
-bench = ["pytest-benchmark ~=5.2"]
+bench = [
+    # The other parsing libraries bench_comparison.py measures against.
+    "parsy ~=2.2",
+    "pyparsing ~=3.3",
+    "pytest-benchmark ~=5.2",
+]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
 tests = [
     "hypothesis ~=6.169",
