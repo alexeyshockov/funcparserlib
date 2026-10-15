@@ -37,7 +37,10 @@ dependencies = []
 [dependency-groups]
 dev = [
     { include-group = "tests" },
+    { include-group = "examples" },
 ]
+# What examples/ imports besides the package: markdown.py reads markdown-it-py's token stream.
+examples = ["markdown-it-py ~=4.0"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = ["pytest-benchmark ~=5.2"]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
