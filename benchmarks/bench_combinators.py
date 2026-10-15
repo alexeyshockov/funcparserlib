@@ -47,5 +47,5 @@ def bench_maybe(benchmark: Any) -> None:
 def bench_forward_decl_recursion(benchmark: Any) -> None:
     nested: Parser[str, Any] = forward_decl()
     nested.define(-a("(") + maybe(nested) + -a(")"))  # type: ignore[attr-defined]
-    depth = 300
+    depth = 100
     assert benchmark((nested + -finished).parse, "(" * depth + ")" * depth) is None

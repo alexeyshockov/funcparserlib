@@ -1,7 +1,7 @@
 """The JSON grammar of `tests/json.py`, written with parsy and with pyparsing, for comparison.
 
-Each follows its library's own JSON example. Strings are decoded by the same `unescape()` in all
-three, so that the comparison measures the parsing, and each returns what `json.loads()` returns.
+Each follows its library's own JSON example. `unescape()` decodes strings as `tests/json.py` does,
+so that the comparison measures the parsing, and each returns what `json.loads()` returns.
 """
 
 import re
@@ -22,7 +22,9 @@ def unescape(quoted: str) -> str:
     def sub(m: re.Match[str]) -> str:
         return _STANDARD[m.group(1)] if m.group(1) else chr(int(m.group(2), 16))
 
-    return _ESCAPE.sub(sub, quoted[1:-1])
+    # A `\uXXXX` pair encodes one character outside the BMP; a lone surrogate stays as is.
+    decoded = _ESCAPE.sub(sub, quoted[1:-1])
+    return decoded.encode("utf-16", "surrogatepass").decode("utf-16", "surrogatepass")
 
 
 def number(text: str) -> int | float:

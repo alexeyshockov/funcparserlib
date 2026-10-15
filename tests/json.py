@@ -26,7 +26,8 @@ The parser is based on [the JSON grammar][1].
 
 import re
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from functools import cache
 from pprint import pformat
 from re import VERBOSE, Match
 from typing import Any, TypeVar
@@ -62,6 +63,13 @@ JsonMember = tuple[str, JsonValue]
 
 
 def tokenize(s: str) -> list[Token]:
+    return [x for x in _tokenizer()(s) if x.type != "space"]
+
+
+# Built once: the specs and the grammar do not depend on the input.
+@cache
+def _tokenizer() -> Callable[[str], Iterable[Token]]:
+    """The JSON tokenizer."""
     specs = [
         TokenSpec("space", r"[ \t\r\n]+"),
         TokenSpec("string", r'"({unescaped} | {escaped})*"'.format(**regexps), VERBOSE),
@@ -78,12 +86,17 @@ def tokenize(s: str) -> list[Token]:
         TokenSpec("op", r"[{}\[\]\-,:]"),
         TokenSpec("name", r"[A-Za-z_][A-Za-z_0-9]*"),
     ]
-    useless = ["space"]
-    t = make_tokenizer(specs)
-    return [x for x in t(s) if x.type not in useless]
+    return make_tokenizer(specs)
 
 
 def parse(tokens: Sequence[Token]) -> JsonValue:
+    return _grammar().parse(tokens)
+
+
+@cache
+def _grammar() -> Parser[Token, JsonValue]:
+    """The JSON grammar, up to the end of input."""
+
     def const(x: T) -> Callable[[Any], T]:
         return lambda _: x
 
@@ -159,9 +172,7 @@ def parse(tokens: Sequence[Token]) -> JsonValue:
         (-op("[") + maybe(value + many(-op(",") + value)) + -op("]")) >> make_array
     ).named("json_array")
     value.define(null | true | false | json_object | json_array | number | string)
-    json_text = value + -finished
-
-    return json_text.parse(tokens)
+    return value + -finished
 
 
 def loads(s: str) -> JsonValue:

@@ -1,7 +1,8 @@
 """funcparserlib against parsy and pyparsing: the same JSON document, text in, Python values out.
 
-funcparserlib tokenizes and then parses; parsy and pyparsing parse the text directly. The `json`
-group compares the whole job; `bench_funcparserlib_json_parse` is the parsing half alone.
+funcparserlib tokenizes and then parses; parsy and pyparsing parse the text directly. Each grammar
+is built once, before the timing. The `json` group compares the whole job; `bench_json_parse` in
+bench_grammars.py is funcparserlib's parsing half alone.
 """
 
 import json

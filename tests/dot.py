@@ -33,7 +33,8 @@ dealing with DOT.
 
 import os
 import sys
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from functools import cache
 from re import MULTILINE
 from typing import NamedTuple, TypeVar
 
@@ -93,6 +94,14 @@ T = TypeVar("T")
 
 
 def tokenize(s: str) -> Sequence[Token]:
+    useless = ["Comment", "NL", "Space"]
+    return [x for x in _tokenizer()(s) if x.type not in useless]
+
+
+# Built once: the specs and the grammar do not depend on the input.
+@cache
+def _tokenizer() -> Callable[[str], Iterable[Token]]:
+    """The DOT tokenizer."""
     specs = [
         TokenSpec("Comment", r"/\*(.|[\r\n])*?\*/", MULTILINE),
         TokenSpec("Comment", r"//.*"),
@@ -103,12 +112,17 @@ def tokenize(s: str) -> Sequence[Token]:
         TokenSpec("Number", r"-?(\.[0-9]+)|([0-9]+(\.[0-9]*)?)"),
         TokenSpec("String", r'"[^"]*"'),  # '\"' escapes are ignored
     ]
-    useless = ["Comment", "NL", "Space"]
-    t = make_tokenizer(specs)
-    return [x for x in t(s) if x.type not in useless]
+    return make_tokenizer(specs)
 
 
 def parse(tokens: Sequence[Token]) -> Graph:
+    return _grammar().parse(tokens)
+
+
+@cache
+def _grammar() -> Parser[Token, Graph]:
+    """The DOT grammar, up to the end of input."""
+
     def un_arg(f: Callable[..., T]) -> Callable[[tuple], T]:
         return lambda args: f(*args)
 
@@ -146,9 +160,7 @@ def parse(tokens: Sequence[Token]) -> Graph:
     subgraph.define(-n("subgraph") + maybe(dot_id) + graph_body >> un_arg(SubGraph))
     graph_modifiers = maybe(n("strict")) + maybe(n("graph") | n("digraph"))
     graph = graph_modifiers + maybe(dot_id) + graph_body >> un_arg(Graph)
-    dotfile = graph + -finished
-
-    return dotfile.parse(tokens)
+    return graph + -finished
 
 
 def pretty_parse_tree(obj: object) -> str:
