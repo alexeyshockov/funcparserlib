@@ -590,7 +590,10 @@ class Parser[A, B]:
         """This token test giving `conv` of the token: one parser where `>>` or `-p` wraps it."""
         test = cast("_TokenTest", self._test)
         chain = test.chain if self is test.leaf else (self, *test.chain)
-        p: Parser[A, C] = _token_test(_TokenTest(test.leaf, chain, test.pred, conv))
+        # After the conversion the test has: `-(p >> f)` still calls `f`.
+        prev = test.conv
+        then = conv if prev is None else lambda t: conv(prev(t))
+        p: Parser[A, C] = _token_test(_TokenTest(test.leaf, chain, test.pred, then))
         p._rename(self.name)
         p._shape = self._shape
         p._first = self._first
@@ -925,8 +928,7 @@ class Parser[A, B]:
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
         if self._test is not None and not debug:
-            conv = self._test.conv
-            return self._fused(f if conv is None else lambda t: f(conv(t)))
+            return self._fused(f)
 
         @_parser(self.name, shape=self._shape, first=self._first)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:

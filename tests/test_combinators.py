@@ -252,3 +252,10 @@ def test_a_legacy_parsing_function_warns_once_per_function_by_default() -> None:
         for _ in range(3):
             Parser(legacy_digit).parse("1")
     assert len(record) == 1
+
+
+def test_a_skipped_parser_still_converts_its_value() -> None:
+    seen: list[str] = []
+    expr = -(a("x") >> seen.append) + a("y")
+    assert expr.parse("xy") == "y"
+    assert seen == ["x"]
