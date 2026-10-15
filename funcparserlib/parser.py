@@ -418,12 +418,13 @@ class Parser[A, B]:
     run: ParserFn[A, B]
     """Run the parser against the tokens with the specified parsing state.
 
-    Type: `(Sequence[A], State) -> tuple[B, State]`
+    Type: `(Sequence[A], State) -> ParsingResult[B]`
 
     The parsing state includes the current position in the sequence being parsed, and the position
     of the rightmost token that has been consumed while parsing for better error messages.
 
-    If the parser fails to parse the tokens, it raises `NoParseError`.
+    It returns a `ParsingSuccess` with the parsed value and the state after it, or a `ParsingError`
+    if the parser fails; it does not raise `NoParseError`.
 
     !!! Warning
 
@@ -525,7 +526,18 @@ class Parser[A, B]:
 
         See the examples in the docs for `forward_decl()`.
         """
-        self._fn = p.run if isinstance(p, Parser) else p
+        if not isinstance(p, Parser):
+            self._fn = p
+        elif isinstance(p, ForwardDeclParser):
+            fwd = p
+
+            # Looked up on each run: `fwd` may be defined after this parser is.
+            def run_declared(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+                return fwd.run(tokens, s)
+
+            self._fn = run_declared
+        else:
+            self._fn = p.run
         self._update_run()
         self._named_from(p)
 
@@ -626,12 +638,12 @@ class Parser[A, B]:
             >>> expr.parse("0")
             Traceback (most recent call last):
                 ...
-            funcparserlib.parser.NoParseError: got unexpected token: '0', expected: when(...)
+            funcparserlib.parser.NoParseError: got unexpected token: '0', expected: digit
 
             ```
         """
 
-        @_parser("when(...)", leaf=True)
+        @_parser(self.name, leaf=True)
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError) or pred(res.value):
@@ -1201,13 +1213,6 @@ class IgnoredValue:
 _IGNORED = IgnoredValue()
 
 
-def _end_of_input(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
-    if s.pos >= len(tokens):
-        return ParsingSuccess(None, s)
-    else:
-        return ParsingError(s.expect(finished))
-
-
 def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     """Return a parser that applies the parser `p` as many times as it succeeds at parsing the
     tokens.
@@ -1396,7 +1401,7 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
 def pure[A](x: A) -> Parser[Any, A]:
     """Wrap any object into a parser.
 
-    Type: `(A) -> Parser[A, A]`
+    Type: `(B) -> Parser[Any, B]`
 
     A pure parser doesn't touch the tokens sequence, it just returns its pure `x` value.
 
@@ -1495,6 +1500,12 @@ class IgnoredParser[A](Parser[A, IgnoredValue]):
     def __add__(self, other: IgnoredParser[A]) -> Self: ...
 
     @overload
+    def __add__[C](self, other: ForwardDeclParser[A, C]) -> Parser[A, C]: ...
+
+    @overload
+    def __add__(self, other: EndOfInput) -> Parser[A, None]: ...
+
+    @overload
     def __add__[P: Parser[Any, Any]](self, other: P) -> P: ...
 
     def __add__(self, other):
@@ -1555,9 +1566,31 @@ class EndOfInput(Parser[Any, None]):
     def __neg__(self) -> IgnoredEndOfInput:  # type: ignore[override]  # ty: ignore[invalid-method-override]
         return cast("IgnoredEndOfInput", super().__neg__())
 
+    def named(self, name: str | None) -> EndOfInput:
+        """A new end-of-input parser named `name`, as `Parser.named()` names one.
 
-finished: EndOfInput = EndOfInput(_end_of_input)._rename("end of input")
-finished._leaf = True
+        Unlike other parsers, this one is not renamed: `finished.named("EOF")` leaves `finished` as
+        it is in every other grammar.
+        """
+        p = _end_of_input()
+        Parser.named(p, name)
+        return p
+
+
+def _end_of_input() -> EndOfInput:
+    """A parser that succeeds only at the end of input, naming itself when it fails."""
+
+    def run(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
+        if s.pos >= len(tokens):
+            return ParsingSuccess(None, s)
+        return ParsingError(s.expect(p))
+
+    p = EndOfInput(run)._rename("end of input")
+    p._leaf = True
+    return p
+
+
+finished: EndOfInput = _end_of_input()
 """A parser that throws an exception if there are any unparsed tokens left in the sequence."""
 
 
@@ -1575,6 +1608,17 @@ class ForwardDeclParser[A, B](Parser[A, B]):
     def define(self, p: ParserObjOrFn[A, B]) -> None:
         """Define the parser this forward declaration stands for."""
         self._define(p)
+
+    @overload  # type: ignore[override]
+    def __add__(  # type: ignore[overload-overlap]
+        self, other: IgnoredEndOfInput | IgnoredParser[A]
+    ) -> Parser[A, B]: ...
+
+    @overload
+    def __add__[C](self, other: Parser[A, C]) -> Tuple2Parser[A, B, C]: ...
+
+    def __add__(self, other: Parser[A, Any]) -> Parser[A, Any]:  # ty: ignore[invalid-method-override] -- a sum is no forward declaration
+        return super().__add__(other)
 
 
 def forward_decl() -> ForwardDeclParser[Any, Any]:

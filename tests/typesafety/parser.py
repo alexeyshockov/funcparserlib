@@ -59,6 +59,11 @@ _ = assert_type(maybe(n), Parser[Token, int | None])
 
 decl: ForwardDeclParser[str, str] = forward_decl()
 
+# A sequence with a forward declaration or the end of input is a plain parser: no `define()`.
+_ = assert_type(-x + decl, Parser[str, str])
+_ = assert_type(decl + -x, Parser[str, str])
+_ = assert_type(-x + finished, Parser[str, None])
+
 
 def add(left: int, right: str) -> float:
     return left + len(right)

@@ -6,7 +6,7 @@ Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib
 
 The grammar-writing API of 1.0 keeps working: `tok`, `a`, `some`, `many`, `oneplus`, `maybe`, `skip`,
 `pure`, `finished`, `forward_decl`, `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `p.named()`, `p.parse()`,
-`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same results. Error
+`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same parsed values. Error
 messages name what was expected more precisely; see Changed.
 
 ### Added
@@ -46,6 +46,13 @@ messages name what was expected more precisely; see Changed.
 - A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
   `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one
   raises `NoParseError` when unpacked.
+- `State(pos, max, expected=(), context=(), problems=())`: the third argument is `expected`, the parsers that failed at
+  `max`, and no longer `parser`. `State.parser` is still the last of them
+- The value of `-p` no longer carries the value of `p`: `-x + -y` and `maybe(-x)` parse to `IgnoredValue()`, where 1.0
+  gave `_Ignored('y')`
+- `TokenSpec` compares by its type, pattern and flags instead of by identity, and a `Token` compared with a non-token
+  is unequal instead of raising `AttributeError`
+- `finished.named(name)` returns a new end-of-input parser; `finished` keeps its name in every other grammar
 - `Token`, `TokenSpec`, `State` and the parsing results are immutable to type checkers. Every exported
   class except `Parser` is `@final` to type checkers.
 - The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
@@ -59,6 +66,8 @@ messages name what was expected more precisely; see Changed.
 - `p + -finished` is typed: mypy and pyright inferred `Any` for it (as in 1.0), because `-finished` was an
   `IgnoredParser[Any]` and matched both overloads of `+`. `finished` is an `EndOfInput` now, and `-finished` an
   `IgnoredEndOfInput`, whose value `+` drops
+- A forward declaration defined as another one, `p.define(q)`, parses as `q` when `q` is defined later, instead of
+  raising `NotImplementedError`
 - `many(p)` and `oneplus(p)` raise `ValueError` when `p` matches without consuming a token (`many(maybe(p))`,
   `many(pure(x))`, `many(many(p))`), instead of looping forever
 - `make_tokenizer()` raises `ValueError` for a token spec that matches the empty string, and a tokenizer raises it for a

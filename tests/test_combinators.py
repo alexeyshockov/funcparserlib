@@ -31,7 +31,7 @@ def test_starmap_spreads_the_tuple() -> None:
 def test_when_accepts_what_the_predicate_accepts() -> None:
     digit = some(str.isdigit).named("digit").when(lambda d: d != "0")
     assert digit.parse("7") == "7"
-    with pytest.raises(NoParseError, match=r"got unexpected token: '0', expected: when\(\.\.\.\)"):
+    with pytest.raises(NoParseError, match=r"got unexpected token: '0', expected: digit$"):
         digit.parse("0")
 
 

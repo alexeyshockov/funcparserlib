@@ -254,3 +254,20 @@ def test_a_token_from_the_lexer_keeps_its_message() -> None:
 def test_a_no_parse_error_is_built_as_in_1_0() -> None:
     e = NoParseError("message", State(0, 0))
     assert (str(e), e.token, e.expected, e.context) == ("message", None, (), ())
+
+
+# `finished` is shared by every grammar.
+
+
+def test_naming_finished_leaves_finished_unchanged() -> None:
+    eof = finished.named("EOF")
+    assert error(x + eof, "xy").expected == ("EOF",)
+    assert error(x + finished, "xy").expected == ("end of input",)
+    assert finished.name == "end of input"
+
+
+def test_a_forward_decl_defined_as_a_later_forward_decl_parses() -> None:
+    alias, expr = forward_decl(), forward_decl()
+    alias.define(expr)
+    expr.define(x + y)
+    assert alias.parse("xy") == ("x", "y")
