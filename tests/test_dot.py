@@ -1,16 +1,14 @@
-# -*- coding: utf-8 -*-
-
 import unittest
-from typing import Optional
 
-from funcparserlib.parser import NoParseError
 from funcparserlib.lexer import LexerError
-from .dot import parse, tokenize, Graph, Edge, SubGraph, DefAttrs, Attr, Node
+from funcparserlib.parser import NoParseError
+
+from .dot import Attr, DefAttrs, Edge, Graph, Node, SubGraph, parse, tokenize
 
 
 class DotTest(unittest.TestCase):
-    def t(self, data: str, expected: Optional[Graph] = None) -> None:
-        self.assertEqual(parse(tokenize(data)), expected)
+    def t(self, data: str, expected: Graph | None = None) -> None:
+        assert parse(tokenize(data)) == expected
 
     def test_comments(self) -> None:
         self.t(
@@ -115,10 +113,7 @@ class DotTest(unittest.TestCase):
                 stmts=[
                     Node(
                         id="n1",
-                        attrs=[
-                            Attr(name="attr1", value=None),
-                            Attr(name="attr2", value="value2"),
-                        ],
+                        attrs=[Attr(name="attr1", value=None), Attr(name="attr2", value="value2")],
                     )
                 ],
             ),
@@ -137,11 +132,7 @@ class DotTest(unittest.TestCase):
                 strict=None,
                 type="graph",
                 id="g1",
-                stmts=[
-                    Node(id="n1", attrs=[]),
-                    Node(id="n2", attrs=[]),
-                    Node(id="n3", attrs=[]),
-                ],
+                stmts=[Node(id="n1", attrs=[]), Node(id="n2", attrs=[]), Node(id="n3", attrs=[])],
             ),
         )
 
@@ -212,18 +203,12 @@ class DotTest(unittest.TestCase):
                 type="digraph",
                 id="g1",
                 stmts=[
-                    Edge(
-                        nodes=["n1", '"Медведь"'],
-                        attrs=[Attr(name="label", value='"Поехали!"')],
-                    ),
+                    Edge(nodes=["n1", '"Медведь"'], attrs=[Attr(name="label", value='"Поехали!"')]),
                     Edge(
                         nodes=['"Медведь"', "n3"],
                         attrs=[Attr(name="label", value='"Добро пожаловать!"')],
                     ),
-                    Edge(
-                        nodes=["n3", "n1"],
-                        attrs=[Attr(name='"Водка"', value='"Селёдка"')],
-                    ),
+                    Edge(nodes=["n3", "n1"], attrs=[Attr(name='"Водка"', value='"Селёдка"')]),
                 ],
             ),
         )

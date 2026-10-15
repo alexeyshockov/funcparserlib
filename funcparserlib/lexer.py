@@ -17,40 +17,44 @@
 # CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
 # OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-__all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError"]
+"""Regexp-based tokenizers: turn text into a sequence of `Token` objects for the parser."""
+
+__all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError", "Place", "Spec"]
 
 import dataclasses as dc
 import re
-import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from re import Pattern
-from typing import Callable, Optional, Union
+from typing import Any, final
 
-_Place = tuple[int, int]
-_Spec = tuple[str, tuple]
+from ._commons import valueclass
+
+type Place = tuple[int, int]
+"""A position in the text: (_line_, _column_), both counted from 1."""
+
+type Spec = tuple[str, tuple[Any, ...]]
+"""A legacy token spec: (_type_, _args_), where _args_ are the arguments of `re.compile()`."""
+
 _CompiledSpec = tuple[str, Pattern[str]]
 
 
-_DC_KWARGS: dict[str, bool] = {
-    # Frozen objects have performance impact, so keep it only for type checking
-    # "frozen": True,
-}
-if sys.version_info >= (3, 10):
-    _DC_KWARGS["slots"] = True
-
-
 class LexerError(Exception):
-    def __init__(self, place: _Place, msg: str) -> None:
-        self.place = place
-        self.msg = msg
+    """Raised by a tokenizer when no token spec matches the text at `place`.
+
+    `msg` is the line of the text where tokenizing stopped.
+    """
+
+    def __init__(self, place: Place, msg: str) -> None:
+        self.place: Place = place
+        self.msg: str = msg
 
     def __str__(self) -> str:
-        s = "cannot tokenize data"
         line, pos = self.place
-        return '%s: %d,%d: "%s"' % (s, line, pos, self.msg)
+        return f'cannot tokenize data: {line},{pos}: "{self.msg}"'
 
 
-@dc.dataclass(frozen=True, repr=False, **_DC_KWARGS)
+@final
+@valueclass(repr=False)
 class TokenSpec:
     """A token specification for generating a lexer via `make_tokenizer()`."""
 
@@ -62,28 +66,29 @@ class TokenSpec:
     """Regexp flags, the second argument of `re.compile()`"""
 
     def __repr__(self) -> str:
-        return "TokenSpec(%r, %r, %r)" % (self.type, self.pattern, self.flags)
+        return f"TokenSpec({self.type!r}, {self.pattern!r}, {self.flags!r})"
 
 
-@dc.dataclass(repr=False, **_DC_KWARGS)
+@final
+@valueclass(repr=False)
 class Token:
     """A token object that represents a substring of certain type in your text.
 
-    You can compare tokens for equality using the `==` operator. Tokens also define
-    custom `repr()` and `str()`.
+    You can compare tokens for equality using the `==` operator. Tokens also define custom `repr()`
+    and `str()`.
     """
 
     type: str
     """User-defined type of the token (e.g. `"name"`, `"number"`, `"operator"`)"""
     value: str
     """Text value of the token"""
-    start: Optional[_Place] = dc.field(default=None, compare=False)
+    start: Place | None = dc.field(default=None, compare=False)
     """Start position (_line_, _column_)"""
-    end: Optional[_Place] = dc.field(default=None, compare=False)
+    end: Place | None = dc.field(default=None, compare=False)
     """End position (_line_, _column_)"""
 
     def __repr__(self) -> str:
-        return "Token(%r, %r)" % (self.type, self.value)
+        return f"Token({self.type!r}, {self.value!r})"
 
     def _pos_str(self) -> str:
         if self.start is None or self.end is None:
@@ -93,24 +98,20 @@ class Token:
         return f"{s_line},{s_pos}-{e_line},{e_pos}:"
 
     def __str__(self) -> str:
-        s = "%s %s '%s'" % (self._pos_str(), self.type, self.value)
+        s = f"{self._pos_str()} {self.type} '{self.value}'"
         return s.strip()
 
     @property
     def name(self) -> str:
+        """The token's value; parsers use it to name a parser made from a token."""
         return self.value
 
     def pformat(self) -> str:
-        return "%s %s '%s'" % (
-            self._pos_str().ljust(20),  # noqa
-            self.type.ljust(14),
-            self.value,
-        )
+        """The token in aligned columns: position, type and value."""
+        return f"{self._pos_str().ljust(20)} {self.type.ljust(14)} '{self.value}'"
 
 
-def make_tokenizer(
-    specs: Sequence[Union[TokenSpec, _Spec]],
-) -> Callable[[str], Iterable[Token]]:
+def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterable[Token]]:
     # noinspection GrazieInspection
     """Make a function that tokenizes text based on the regexp specs.
 
@@ -125,31 +126,29 @@ def make_tokenizer(
         positional arguments for `re.compile()`: either just (_pattern_,) or
         (_pattern_, _flags_).
 
-    It returns a tokenizer function that takes a string and returns an iterable of
-    `Token` objects, or raises `LexerError` if it cannot tokenize the string according
-    to its token specs.
+    It returns a tokenizer function that takes a string and returns an iterable of `Token` objects,
+    or raises `LexerError` if it cannot tokenize the string according to its token specs.
 
     Examples:
+        ```pycon
+        >>> tokenize = make_tokenizer([
+        ...     TokenSpec("space", r"\\s+"),
+        ...     TokenSpec("id", r"\\w+"),
+        ...     TokenSpec("op", r"[,!]"),
+        ... ])
+        >>> text = "Hello, World!"
+        >>> [t for t in tokenize(text) if t.type != "space"]  # noqa
+        [Token('id', 'Hello'), Token('op', ','), Token('id', 'World'), Token('op', '!')]
+        >>> text = "Bye?"
+        >>> list(tokenize(text))
+        Traceback (most recent call last):
+            ...
+        funcparserlib.lexer.LexerError: cannot tokenize data: 1,4: "Bye?"
 
-    ```pycon
-    >>> tokenize = make_tokenizer([
-    ...     TokenSpec("space", r"\\s+"),
-    ...     TokenSpec("id", r"\\w+"),
-    ...     TokenSpec("op", r"[,!]"),
-    ... ])
-    >>> text = "Hello, World!"
-    >>> [t for t in tokenize(text) if t.type != "space"]  # noqa
-    [Token('id', 'Hello'), Token('op', ','), Token('id', 'World'), Token('op', '!')]
-    >>> text = "Bye?"
-    >>> list(tokenize(text))
-    Traceback (most recent call last):
-        ...
-    funcparserlib.lexer.LexerError: cannot tokenize data: 1,4: "Bye?"
-
-    ```
+        ```
     """
 
-    def compile() -> Iterable[_CompiledSpec]:
+    def compile_specs() -> Iterable[_CompiledSpec]:
         for spec in specs:
             if isinstance(spec, TokenSpec):
                 yield spec.type, re.compile(spec.pattern, spec.flags)
@@ -157,23 +156,19 @@ def make_tokenizer(
                 name, args = spec
                 yield name, re.compile(*args)
 
-    compiled = tuple(compile())
+    compiled = tuple(compile_specs())
 
-    def match_specs(s: str, i: int, position: _Place) -> Token:
+    def match_specs(s: str, i: int, position: Place) -> Token:
         line, pos = position
         for token_type, spec_regexp in compiled:
             if m := spec_regexp.match(s, i):
                 value = m.group()
                 nls = value.count("\n")
                 n_line = line + nls
-                if nls == 0:
-                    n_pos = pos + len(value)
-                else:
-                    n_pos = len(value) - value.rfind("\n") - 1
+                n_pos = pos + len(value) if nls == 0 else len(value) - value.rfind("\n") - 1
                 return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
-        else:
-            err_line = s.splitlines()[line - 1]
-            raise LexerError((line, pos + 1), err_line)
+        err_line = s.splitlines()[line - 1]
+        raise LexerError((line, pos + 1), err_line)
 
     def f(s: str) -> Iterable[Token]:
         length = len(s)
@@ -183,7 +178,7 @@ def make_tokenizer(
             t = match_specs(s, i, (line, pos))
             yield t
             if t.end is None:
-                raise ValueError("Token %r has no end specified", (t,))
+                raise ValueError(f"token {t!r} has no end position")
             line, pos = t.end
             i += len(t.value)
 

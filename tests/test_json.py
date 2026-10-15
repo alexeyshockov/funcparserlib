@@ -1,16 +1,14 @@
-# -*- coding: utf-8 -*-
-
 import unittest
-from typing import Optional
 
-from funcparserlib.parser import NoParseError
 from funcparserlib.lexer import LexerError
+from funcparserlib.parser import NoParseError
+
 from . import json
 
 
 class JsonTest(unittest.TestCase):
-    def t(self, data: str, expected: Optional[object] = None) -> None:
-        self.assertEqual(json.loads(data), expected)
+    def t(self, data: str, expected: object | None = None) -> None:
+        assert json.loads(data) == expected
 
     def test_1_array(self) -> None:
         self.t("[1]", [1])
@@ -45,15 +43,7 @@ class JsonTest(unittest.TestCase):
                 "spam": "eggs"
             }
         """,
-            {
-                "foo": 1,
-                "bar": {
-                    "baz": 2,
-                    "quux": [True, False],
-                    "{}": {},
-                },
-                "spam": "eggs",
-            },
+            {"foo": 1, "bar": {"baz": 2, "quux": [True, False], "{}": {}}, "spam": "eggs"},
         )
 
     def test_null(self) -> None:

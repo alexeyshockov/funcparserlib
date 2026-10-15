@@ -19,35 +19,35 @@
 
 """A DOT language parser using funcparserlib.
 
-The parser is based on [the DOT grammar][1]. It is pretty complete with a few
-not supported things:
+The parser is based on [the DOT grammar][1]. It is pretty complete with a few not supported things:
 
 * String escapes
 * Ports and compass points
 * XML identifiers
 
-At the moment, the parser builds only a parse tree, not an abstract syntax tree
-(AST), or an API for dealing with DOT.
+At the moment, the parser builds only a parse tree, not an abstract syntax tree (AST), or an API for
+dealing with DOT.
 
   [1]: https://www.graphviz.org/doc/info/lang.html
 """
 
 import os
 import sys
+from collections.abc import Callable, Sequence
 from re import MULTILINE
-from typing import Sequence, List, TypeVar, Callable, NamedTuple, Union, Optional
+from typing import NamedTuple, TypeVar
 
-from funcparserlib.lexer import TokenSpec, make_tokenizer, Token, LexerError
+from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
-    maybe,
-    many,
-    finished,
-    oneplus,
-    forward_decl,
+    ForwardDeclParser,
     NoParseError,
     Parser,
+    finished,
+    forward_decl,
+    many,
+    maybe,
+    oneplus,
     tok,
-    ForwardDeclParser,
 )
 from funcparserlib.util import pretty_tree
 
@@ -55,38 +55,38 @@ ENCODING = "UTF-8"
 
 
 class Graph(NamedTuple):
-    strict: Optional[str]
-    type: Optional[str]
-    id: Optional[str]
-    stmts: List["Statement"]
+    strict: str | None
+    type: str | None
+    id: str | None
+    stmts: list["Statement"]
 
 
 class SubGraph(NamedTuple):
-    id: Optional[str]
-    stmts: List["Statement"]
+    id: str | None
+    stmts: list["Statement"]
 
 
 class Attr(NamedTuple):
     name: str
-    value: Optional[str]
+    value: str | None
 
 
 class Node(NamedTuple):
     id: str
-    attrs: List[Attr]
+    attrs: list[Attr]
 
 
 class Edge(NamedTuple):
-    nodes: List[Union[str, SubGraph]]
-    attrs: List[Attr]
+    nodes: list[str | SubGraph]
+    attrs: list[Attr]
 
 
 class DefAttrs(NamedTuple):
     object: str
-    attrs: List[Attr]
+    attrs: list[Attr]
 
 
-Statement = Union[DefAttrs, Edge, SubGraph, Node]
+Statement = DefAttrs | Edge | SubGraph | Node
 
 
 T = TypeVar("T")
@@ -112,8 +112,8 @@ def parse(tokens: Sequence[Token]) -> Graph:
     def un_arg(f: Callable[..., T]) -> Callable[[tuple], T]:
         return lambda args: f(*args)
 
-    def flatten(xs: List[List[Attr]]) -> List[Attr]:
-        return sum(xs, [])
+    def flatten(xs: list[list[Attr]]) -> list[Attr]:
+        return [x for attrs in xs for x in attrs]
 
     def n(s: str) -> Parser[Token, str]:
         return tok("Name", s)
@@ -126,9 +126,7 @@ def parse(tokens: Sequence[Token]) -> Graph:
     def make_graph_attr(args: tuple) -> DefAttrs:
         return DefAttrs("graph", [Attr(*args)])
 
-    def make_edge(
-        node: Union[str, SubGraph], xs: List[Union[str, SubGraph]], attrs: List[Attr]
-    ) -> Edge:
+    def make_edge(node: str | SubGraph, xs: list[str | SubGraph], attrs: list[Attr]) -> Edge:
         return Edge([node] + xs, attrs)
 
     node_id = dot_id  # + maybe(port)
@@ -141,9 +139,7 @@ def parse(tokens: Sequence[Token]) -> Graph:
     # (stmt_list -> stmt -> subgraph -> stmt_list)
     subgraph: ForwardDeclParser[Token, SubGraph] = forward_decl()
     edge_rhs = -(op("->") | op("--")) + (subgraph | node_id)
-    edge_stmt = (subgraph | node_id) + oneplus(edge_rhs) + attr_list >> un_arg(
-        make_edge
-    )
+    edge_stmt = (subgraph | node_id) + oneplus(edge_rhs) + attr_list >> un_arg(make_edge)
     stmt = attr_stmt | edge_stmt | subgraph | graph_attr | node_stmt
     stmt_list = many(stmt + -maybe(op(";")))
     graph_body = -op("{") + stmt_list + -op("}")
@@ -172,25 +168,21 @@ def pretty_parse_tree(obj: object) -> str:
         else:
             return []
 
-    def show(x: object) -> str:
+    def show(x: object) -> str:  # noqa: PLR0911 — one return per node type
         if isinstance(x, NamedValues):
             return x.name
         elif isinstance(x, Graph):
-            return "Graph [id=%s, strict=%r, type=%s]" % (
-                x.id,
-                x.strict is not None,
-                x.type,
-            )
+            return f"Graph [id={x.id}, strict={x.strict is not None!r}, type={x.type}]"
         elif isinstance(x, SubGraph):
-            return "SubGraph [id=%s]" % (x.id,)
+            return f"SubGraph [id={x.id}]"
         elif isinstance(x, Edge):
             return "Edge"
         elif isinstance(x, Attr):
-            return "Attr [name=%s, value=%s]" % (x.name, x.value)
+            return f"Attr [name={x.name}, value={x.value}]"
         elif isinstance(x, DefAttrs):
-            return "DefAttrs [object=%s]" % (x.object,)
+            return f"DefAttrs [object={x.object}]"
         elif isinstance(x, Node):
-            return "Node [id=%s]" % (x.id,)
+            return f"Node [id={x.id}]"
         else:
             return str(x)
 
@@ -207,10 +199,10 @@ def main() -> None:
         text = stdin.read().decode(ENCODING)
         tree = parse(tokenize(text))
         # print(pformat(tree))
-        print(pretty_parse_tree(tree).encode(ENCODING))
+        print(pretty_parse_tree(tree).encode(ENCODING))  # noqa: T201 — the CLI's output
     except (NoParseError, LexerError) as e:
-        msg = ("syntax error: %s" % e).encode(ENCODING)
-        print(msg, file=sys.stderr)
+        msg = (f"syntax error: {e}").encode(ENCODING)
+        print(msg, file=sys.stderr)  # noqa: T201 — the CLI's output
         sys.exit(1)
 
 

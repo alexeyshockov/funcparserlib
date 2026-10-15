@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 # Copyright © 2009/2023 Andrey Vlasovskikh
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy of this
@@ -28,32 +26,21 @@ The parser is based on [the JSON grammar][1].
 
 import re
 import sys
+from collections.abc import Callable, Sequence
 from pprint import pformat
-from re import VERBOSE
-from typing import (
-    List,
-    Sequence,
-    Optional,
-    Tuple,
-    Any,
-    Dict,
-    Match,
-    TypeVar,
-    Callable,
-    Text,
-    Union,
-)
+from re import VERBOSE, Match
+from typing import Any, TypeVar
 
-from funcparserlib.lexer import TokenSpec, make_tokenizer, Token, LexerError
+from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
-    maybe,
-    many,
-    finished,
-    forward_decl,
+    ForwardDeclParser,
     NoParseError,
     Parser,
+    finished,
+    forward_decl,
+    many,
+    maybe,
     tok,
-    ForwardDeclParser,
 )
 
 ENCODING = "UTF-8"
@@ -70,14 +57,14 @@ regexps = {
 }
 re_esc = re.compile(regexps["escaped"], VERBOSE)
 T = TypeVar("T")
-JsonValue = Union[None, bool, dict, list, int, float, str]
-JsonMember = Tuple[str, JsonValue]
+JsonValue = None | bool | dict | list | int | float | str
+JsonMember = tuple[str, JsonValue]
 
 
-def tokenize(s: str) -> List[Token]:
+def tokenize(s: str) -> list[Token]:
     specs = [
         TokenSpec("space", r"[ \t\r\n]+"),
-        TokenSpec("string", r'"(%(unescaped)s | %(escaped)s)*"' % regexps, VERBOSE),
+        TokenSpec("string", r'"({unescaped} | {escaped})*"'.format(**regexps), VERBOSE),
         TokenSpec(
             "number",
             r"""
@@ -103,20 +90,16 @@ def parse(tokens: Sequence[Token]) -> JsonValue:
     def op(s: str) -> Parser[Token, str]:
         return tok("op", s)
 
-    def n(s: str) -> Parser[Token, Text]:
+    def n(s: str) -> Parser[Token, str]:
         return tok("name", s)
 
-    def make_array(
-        values: Optional[Tuple[JsonValue, List[JsonValue]]]
-    ) -> List[JsonValue]:
+    def make_array(values: tuple[JsonValue, list[JsonValue]] | None) -> list[JsonValue]:
         if values is None:
             return []
         else:
             return [values[0]] + values[1]
 
-    def make_object(
-        values: Optional[Tuple[JsonMember, List[JsonMember]]]
-    ) -> Dict[str, Any]:
+    def make_object(values: tuple[JsonMember, list[JsonMember]] | None) -> dict[str, Any]:
         if values is None:
             return {}
         else:
@@ -126,7 +109,7 @@ def parse(tokens: Sequence[Token]) -> JsonValue:
             d.update(rest)
             return d
 
-    def make_number(s: str) -> Union[int, float]:
+    def make_number(s: str) -> int | float:
         try:
             return int(s)
         except ValueError:
@@ -186,9 +169,9 @@ def main() -> None:
     try:
         text = sys.stdin.read()
         tree = loads(text)
-        print(pformat(tree))
+        print(pformat(tree))  # noqa: T201 — the CLI's output
     except (NoParseError, LexerError) as e:
-        print("syntax error: %s" % e, file=sys.stderr)
+        print(f"syntax error: {e}", file=sys.stderr)  # noqa: T201 — the CLI's output
         sys.exit(1)
 
 

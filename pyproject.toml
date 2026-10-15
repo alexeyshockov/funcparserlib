@@ -65,3 +65,10 @@ known_first_party = ["funcparserlib"]
 [tool.slotscheck]
 strict-imports = true
 require-superclass = true
+
+# Exported classes that may be subclassed, each with the reason. Everything else exported is
+# `@final`.
+[tool.conventions.subclassable]
+"funcparserlib.parser.Parser" = """The root of every parser: `ForwardDeclParser`, \
+`IgnoredParser` and the `TupleNParser` sequence types subclass it, and a user grammar may \
+define its own parser classes the same way."""
