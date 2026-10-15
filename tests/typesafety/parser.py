@@ -63,6 +63,7 @@ decl: ForwardDeclParser[str, str] = forward_decl()
 _ = assert_type(-x + decl, Parser[str, str])
 _ = assert_type(decl + -x, Parser[str, str])
 _ = assert_type(-x + finished, Parser[str, None])
+_ = assert_type(-finished + decl, Parser[str, str])
 
 
 def add(left: int, right: str) -> float:

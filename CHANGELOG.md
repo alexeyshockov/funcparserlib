@@ -74,6 +74,8 @@ messages name what was expected more precisely; see Changed.
   `IgnoredEndOfInput`, whose value `+` drops
 - A forward declaration defined as another one, `p.define(q)`, parses as `q` when `q` is defined later, instead of
   raising `NotImplementedError`
+- A forward declaration defined as itself, `p.define(p)`, raises `ValueError` at `define()` instead of failing at
+  `parse()`
 - `many(p)` and `oneplus(p)` raise `ValueError` when `p` matches without consuming a token (`many(maybe(p))`,
   `many(pure(x))`, `many(many(p))`), instead of looping forever
 - `make_tokenizer()` raises `ValueError` for a token spec that matches the empty string, and a tokenizer raises it for a

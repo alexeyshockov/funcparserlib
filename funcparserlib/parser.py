@@ -442,6 +442,7 @@ class Parser[A, B]:
     _fn: ParserFn[A, B]
     _label: bool = False
     _leaf: bool = False
+    _shape: bool = False
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
@@ -495,6 +496,7 @@ class Parser[A, B]:
         """
         self.name = name
         self._label = name is not None
+        self._shape = False
         self._update_run()
         return self
 
@@ -505,6 +507,7 @@ class Parser[A, B]:
 
     def _named_from(self, p: ParserObjOrFn[A, B]) -> Self:
         if not self._label and (name := getattr(p, "name", p.__doc__)) is not None:
+            self._shape = getattr(p, "_shape", False)
             return self._rename(name)
         return self
 
@@ -560,7 +563,8 @@ class Parser[A, B]:
             try:
                 res: object = f(tokens, s)
             except NoParseError as e:
-                # A result unpacked inside `f` is in these tokens; a nested `parse()` is not.
+                # A failure unpacked inside `f` is taken as one at these tokens. A `NoParseError`
+                # from a nested `parse()` carries none, and fails at this parser.
                 res = e._result or ParsingError(s.expect(self), e.msg)
                 legacy = True
             else:
@@ -646,7 +650,10 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"{self.name} (but not {other.name})", leaf=True)
+        name = _label_of(self)
+        shown = f"{name} (but not {_label_of(other) or '...'})" if name else "but_not(...)"
+
+        @_parser(shown, leaf=True)
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
@@ -677,7 +684,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(self.name, leaf=True)
+        @_parser(_label_of(self) or "when(...)", leaf=True)
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError) or pred(res.value):
@@ -709,7 +716,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(self.name)
+        @_parser(self.name, shape=self._shape)
         def _context(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             inner = State(s.pos, s.max, s.expected, (*s.context, label), s.problems)
             res = self.run(tokens, inner)
@@ -744,7 +751,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(self.name)
+        @_parser(self.name, shape=self._shape)
         def _check(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError) or pred(res.value):
@@ -816,7 +823,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"({self.name}, {other.name})")
+        @_parser(f"({self.name}, {other.name})", shape=True)
         def _add(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             res_l = self.run(tokens, s)
             if isinstance(res_l, ParsingError):
@@ -845,7 +852,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"{self.name} or {other.name}")
+        @_parser(f"{self.name} or {other.name}", shape=True)
         def _or(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
             res = self.run(tokens, s)
             if not isinstance(res, ParsingError) or res.committed:
@@ -857,7 +864,7 @@ class Parser[A, B]:
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
 
-        @_parser(self.name)
+        @_parser(self.name, shape=self._shape)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
             return res.map(f)
@@ -867,7 +874,7 @@ class Parser[A, B]:
     def starmap[C](self, f: Callable[..., C]) -> Parser[A, C]:
         """Transform the parsing results (tuple) by applying the specified function."""
 
-        @_parser(self.name)
+        @_parser(self.name, shape=self._shape)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
             return res.starmap(f)
@@ -909,7 +916,7 @@ class Parser[A, B]:
             to its poor performance please use it only when you really need it.
         """
 
-        @_parser(f"({self.name} >>=)")
+        @_parser(f"({self.name} >>=)", shape=True)
         def _bind(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
             return res.bind(lambda v, s2: f(v).run(tokens, s2))
@@ -979,7 +986,7 @@ class Parser[A, B]:
                 object, not intended for actual use.
         """
 
-        @_parser(self.name)
+        @_parser(self.name, shape=self._shape)
         def _ignored(tokens: Sequence[A], s: State) -> ParsingResult[IgnoredValue]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
@@ -1010,7 +1017,9 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"anything but {self.name}", leaf=True)
+        name = _label_of(self)
+
+        @_parser(f"anything but {name}" if name else "anything else", leaf=True)
         def _invert(tokens: Sequence[A], s: State) -> ParsingResult[A]:
             if s.pos >= len(tokens):
                 s2 = s.expect(_invert)
@@ -1057,20 +1066,27 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
 
 
 def _parser[A, B](
-    name: str | None, *, leaf: bool = False
+    name: str | None, *, leaf: bool = False, shape: bool = False
 ) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     """`parser()` for the parsers the library builds: a name without a label.
 
     A `leaf` parser names itself among the expected ones when it fails, so a label given to it later
-    changes only its name.
+    changes only its name. A `shape` name spells out how the parser is built, `('x', 'y')`, rather
+    than what it parses.
     """
 
     def decorator(f: ParserFn[A, B]) -> Parser[A, B]:
         p: Parser[A, B] = _built(Parser, f)._rename(name)
         p._leaf = leaf
+        p._shape = shape
         return p
 
     return decorator
+
+
+def _label_of(p: Parser[Any, Any]) -> str | None:
+    """`p.name` when it says what `p` parses, `None` when it spells out how `p` is built."""
+    return None if p._shape else p.name
 
 
 def _built[P: Parser[Any, Any]](cls: type[P], f: ParserFn[Any, Any]) -> P:
@@ -1092,8 +1108,16 @@ def _warn_legacy(f: Callable[..., object]) -> None:
         warnings.warn(msg, DeprecationWarning, stacklevel=2)
     else:
         module = getattr(f, "__module__", None)
+        # The function's module registry, as `warnings.warn()` keeps: a warning shown once is not
+        # repeated for every grammar built from the function.
+        registry = getattr(f, "__globals__", {}).setdefault("__warningregistry__", {})
         warnings.warn_explicit(
-            msg, DeprecationWarning, code.co_filename, code.co_firstlineno, module=module
+            msg,
+            DeprecationWarning,
+            code.co_filename,
+            code.co_firstlineno,
+            module=module,
+            registry=registry,
         )
 
 
@@ -1310,7 +1334,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         ```
     """
 
-    @_parser(f"{{ {p.name} }}")
+    @_parser(f"{{ {p.name} }}", shape=True)
     def _many(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
         acc = []
         while True:
@@ -1483,7 +1507,7 @@ def pure[A](x: A) -> Parser[Any, A]:
     Also known as `return` in Haskell.
     """
 
-    @_parser(f"(pure {x!r})")
+    @_parser(f"(pure {x!r})", shape=True)
     def _pure(_: Sequence[Any], s: State) -> ParsingResult[A]:
         return ParsingSuccess(x, s)
 
@@ -1513,7 +1537,7 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
         ```
     """
 
-    @_parser(p.name)
+    @_parser(p.name, shape=p._shape)
     def _commit(tokens: Sequence[A], s: State) -> ParsingResult[B]:
         # A fresh furthest position tells whether `p` read a token.
         res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
@@ -1609,7 +1633,7 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     """
     many_p = many(p)
 
-    @_parser(f"({p.name}, {{ {p.name} }})")
+    @_parser(f"({p.name}, {{ {p.name} }})", shape=True)
     def _oneplus(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
         first = p.run(tokens, s)
         if isinstance(first, ParsingError):
@@ -1629,7 +1653,13 @@ class IgnoredEndOfInput(Parser[Any, IgnoredValue]):
     `p + -finished` has the type of `p`.
     """
 
-    def __add__[P: Parser[Any, Any]](self, other: P) -> P:  # type: ignore[override]
+    @overload  # type: ignore[override]
+    def __add__[T, C](self, other: ForwardDeclParser[T, C]) -> Parser[T, C]: ...
+
+    @overload
+    def __add__[P: Parser[Any, Any]](self, other: P) -> P: ...
+
+    def __add__(self, other):
         raise NotImplementedError
 
 
@@ -1679,9 +1709,19 @@ class ForwardDeclParser[A, B](Parser[A, B]):
 
         super().__init__(f)
         self._rename("forward_decl()")
+        self._shape = True
 
     def define(self, p: ParserObjOrFn[A, B]) -> None:
-        """Define the parser this forward declaration stands for."""
+        """Define the parser this forward declaration stands for.
+
+        Raises `ValueError` when `p` is this forward declaration itself.
+        """
+        if p is self:
+            raise with_hint(
+                ValueError("a forward_decl() is defined as itself"),
+                "Define it as the parser it stands for, which may use it inside:"
+                " `expr.define(a('x') + maybe(expr))`.",
+            )
         self._define(p)
 
     @overload  # type: ignore[override]

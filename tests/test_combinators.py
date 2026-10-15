@@ -1,3 +1,4 @@
+import warnings
 from collections.abc import Sequence
 from typing import Any
 
@@ -5,6 +6,7 @@ import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
+from funcparserlib.lexer import Token
 from funcparserlib.parser import (
     NoParseError,
     Parser,
@@ -21,6 +23,7 @@ from funcparserlib.parser import (
     parser,
     pure,
     some,
+    tok,
 )
 from funcparserlib.util import expand_tuple_args, pretty_tree
 
@@ -45,6 +48,26 @@ def test_when_reports_the_inner_failure() -> None:
     digit = some(str.isdigit).named("digit").when(lambda d: d != "0")
     with pytest.raises(NoParseError, match="got unexpected token: 'x', expected: digit"):
         digit.parse("x")
+
+
+@pytest.mark.parametrize(
+    ("p", "text", "expected"),
+    [
+        ((a("x") + a("y")).when(lambda _: False), "xy", "when(...)"),
+        ((a("x") + a("y")).but_not(a("x")), "xy", "but_not(...)"),
+        (~(a("x") + a("y")), "xy", "anything else"),
+        ((a("x") >> str.upper).when(lambda _: False), "x", "'x'"),
+        (tok("number").when(lambda _: False), [Token("number", "1")], "number"),
+        (some(str.isdigit).but_not(a("1") | a("2")), "1", "some(...) (but not ...)"),
+    ],
+    ids=["when, sequence", "but_not, sequence", "~, sequence", "when, map", "when, tok", "but_not"],
+)
+def test_a_predicate_combinator_names_what_its_parser_parses_never_its_shape(
+    p: Parser[Any, Any], text: Any, expected: str
+) -> None:
+    with pytest.raises(NoParseError) as e:
+        p.parse(text)
+    assert e.value.expected == (expected,)
 
 
 def test_but_not_rejects_what_the_other_parser_accepts() -> None:
@@ -221,3 +244,11 @@ def test_a_parsing_function_of_parser_raises_as_it_is() -> None:
 
     with pytest.raises(NoParseError, match=r"^no digits here$"):
         (digit | a("x")).parse("x")
+
+
+def test_a_legacy_parsing_function_warns_once_per_function_by_default() -> None:
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("default")
+        for _ in range(3):
+            Parser(legacy_digit).parse("1")
+    assert len(record) == 1

@@ -271,3 +271,9 @@ def test_a_forward_decl_defined_as_a_later_forward_decl_parses() -> None:
     alias.define(expr)
     expr.define(x + y)
     assert alias.parse("xy") == ("x", "y")
+
+
+def test_a_forward_decl_defined_as_itself_fails_at_define() -> None:
+    expr = forward_decl()
+    with pytest.raises(ValueError, match="defined as itself"):
+        expr.define(expr)
