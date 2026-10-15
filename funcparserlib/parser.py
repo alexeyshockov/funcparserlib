@@ -90,6 +90,7 @@ __all__ = [
 import logging
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
+from operator import attrgetter
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
 from ._commons import valueclass, with_hint
@@ -443,6 +444,7 @@ class Parser[A, B]:
     _label: bool = False
     _leaf: bool = False
     _shape: bool = False
+    _test: _TokenTest | None = None
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
@@ -578,6 +580,15 @@ class Parser[A, B]:
             return cast("ParsingResult[B]", res)
 
         return run_adapted
+
+    def _fused[C](self, conv: Callable[[Any], C]) -> Parser[A, C]:
+        """This token test giving `conv` of the token: one parser where `>>` or `-p` wraps it."""
+        test = cast("_TokenTest", self._test)
+        chain = test.chain if self is test.leaf else (self, *test.chain)
+        p: Parser[A, C] = _token_test(_TokenTest(test.leaf, chain, test.pred, conv))
+        p._rename(self.name)
+        p._shape = self._shape
+        return p
 
     def _wrap_for_debug(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
         def run_parser_verbose(tokens: Sequence[A], s: State) -> ParsingResult[B]:
@@ -826,9 +837,21 @@ class Parser[A, B]:
         @_parser(f"({self.name}, {other.name})", shape=True)
         def _add(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             res_l = self.run(tokens, s)
-            if isinstance(res_l, ParsingError):
+            if res_l.__class__ is ParsingError:
                 return res_l
-            return res_l + other.run(tokens, res_l.state)
+            res_r = other.run(tokens, res_l.state)
+            if res_r.__class__ is ParsingError:
+                return res_r
+            # ParsingSuccess.__add__(), inlined
+            v1: Any = res_l.value
+            v2: Any = res_r.value
+            if v1.__class__ is IgnoredValue:
+                return res_r
+            if v2.__class__ is IgnoredValue:
+                return ParsingSuccess(v1, res_r.state)
+            if v1.__class__ is _Tuple:
+                return ParsingSuccess(_Tuple((*v1, v2)), res_r.state)
+            return ParsingSuccess(_Tuple((v1, v2)), res_r.state)
 
         return _add
 
@@ -863,6 +886,9 @@ class Parser[A, B]:
 
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
+        if self._test is not None and not debug:
+            conv = self._test.conv
+            return self._fused(f if conv is None else lambda t: f(conv(t)))
 
         @_parser(self.name, shape=self._shape)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
@@ -985,6 +1011,9 @@ class Parser[A, B]:
                 `p1 + p2 + ... + pN`. The parsed value of `-p` is an `IgnoredValue`
                 object, not intended for actual use.
         """
+
+        if self._test is not None and not debug:
+            return cast("IgnoredParser[A]", self._fused(_ignore))
 
         @_parser(self.name, shape=self._shape)
         def _ignored(tokens: Sequence[A], s: State) -> ParsingResult[IgnoredValue]:
@@ -1312,6 +1341,50 @@ class IgnoredValue:
 _IGNORED = IgnoredValue()
 
 
+def _ignore(_: object) -> IgnoredValue:
+    return _IGNORED
+
+
+@final
+@valueclass
+class _TokenTest:
+    """A parser that tests one token: `pred` on it, then `conv` of it as the value.
+
+    `leaf` is the `some()` parser it was built from and `chain` the parsers between, outermost
+    first; when the test fails, the error names the outermost labelled one, or `leaf`, as the
+    parsers would without fusing.
+    """
+
+    leaf: Parser[Any, Any]
+    chain: tuple[Parser[Any, Any], ...]
+    pred: Callable[[Any], bool]
+    conv: Callable[[Any], Any] | None
+
+
+def _token_test(test: _TokenTest) -> Parser[Any, Any]:
+    """One parser running the token test, `>>` and `-p` would run in several."""
+    pred, conv, chain, leaf = test.pred, test.conv, test.chain, test.leaf
+
+    def expected() -> Parser[Any, Any]:
+        for q in chain:
+            if q._label:
+                return q
+        return leaf
+
+    def run(tokens: Sequence[Any], s: State) -> ParsingResult[Any]:
+        pos = s.pos
+        if pos >= len(tokens):
+            return ParsingError(s.expect(expected()), "got unexpected end of input")
+        t = tokens[pos]
+        if pred(t):
+            return ParsingSuccess(t if conv is None else conv(t), s.reset_pos(pos + 1))
+        return ParsingError(s.expect(expected()))
+
+    p = _built(Parser, run)
+    p._test = test
+    return p
+
+
 def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     """Return a parser that applies the parser `p` as many times as it succeeds at parsing the
     tokens.
@@ -1407,6 +1480,7 @@ def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
             _log.debug("failed %r, state = %s, expected: %s", t, s, _some.name)
         return ParsingError(s2)
 
+    _some._test = _TokenTest(_some, (), pred, None)
     return _some
 
 
@@ -1493,8 +1567,13 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
     def eq_type(t: Token) -> bool:
         return t.type == type
 
-    p = a(Token(type, value)) if value is not None else some(eq_type).named(type)
-    return (p >> (lambda t: t.value))._rename(p.name)
+    def eq_token(t: object) -> bool:
+        # What `t == Token(type, value)` compares, without building a token.
+        return isinstance(t, Token) and t.type == type and t.value == value
+
+    eq = eq_type if value is None else cast("Callable[[Token], bool]", eq_token)
+    p = some(eq).named(type if value is None else repr(value))
+    return (p >> cast("Callable[[Token], str]", attrgetter("value")))._rename(p.name)
 
 
 def pure[A](x: A) -> Parser[Any, A]:

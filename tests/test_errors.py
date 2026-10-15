@@ -277,3 +277,25 @@ def test_a_forward_decl_defined_as_itself_fails_at_define() -> None:
     expr = forward_decl()
     with pytest.raises(ValueError, match="defined as itself"):
         expr.define(expr)
+
+
+# A token test under `>>` or `-p` fails as the parsers it is built from would, names included.
+
+
+def test_a_token_test_named_after_use_is_named_in_its_errors() -> None:
+    digit = some(str.isdigit)
+    number = digit >> int
+    digit.named("digit")
+    assert error(number, "x").expected == ("digit",)
+
+
+def test_a_parser_over_a_token_test_named_after_use_is_named_in_its_errors() -> None:
+    word = tok("word")
+    upper = word >> str.upper
+    word.named("a word")
+    assert error(-upper, [Token("op", "=")]).expected == ("a word",)
+
+
+def test_a_skipped_token_test_names_the_token() -> None:
+    e = error(tok("word") + -tok("op", ":"), [Token("word", "w"), Token("op", "=")])
+    assert e.expected == ("':'",)
