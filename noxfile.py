@@ -57,3 +57,19 @@ def tests(session: nox.Session, member: str) -> None:
     sync(session, *(["--package", MEMBERS[member]] if WORKSPACE else []))
     session.chdir(member)
     session.run("pytest", *session.posargs)
+
+
+# The micro-benchmarks (`just bench::micro`), where the project has them: one session per
+# interpreter. The one tagged `bench` is what `just bench::micro` runs: the newest, unless a
+# dependency the benchmarks build has no wheel for it yet, in which case the tag moves to another
+# version in BENCH_PYTHONS.
+BENCH_PYTHONS = [nox.param(v, tags=["bench"] if v == NEWEST else []) for v in VERSIONS]
+
+if any(Path(member, "benchmarks").is_dir() for member in MEMBERS):
+
+    @nox.session
+    @nox.parametrize("python", BENCH_PYTHONS)
+    def bench(session: nox.Session) -> None:
+        """The micro-benchmarks on one interpreter; the arguments go to pytest."""
+        sync(session, "--group", "bench", *(["--all-packages"] if WORKSPACE else []))
+        session.run("pytest", *session.posargs)

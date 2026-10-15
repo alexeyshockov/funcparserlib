@@ -3,7 +3,8 @@
 #
 # The micro-benchmarks are the `bench_*.py` files of each distribution's `benchmarks/` directory,
 # beside its `tests/`; a single-distribution repository keeps them in this directory. They run in
-# the shared `.venv`, which `just venv` syncs with every group, under `pytest.ini` beside this file.
+# the noxfile's `bench` sessions, one interpreter each, under `pytest.ini` beside this file; the
+# session tagged `bench` is the default, and the project's noxfile says which interpreter that is.
 
 set working-directory := '..'
 
@@ -27,8 +28,9 @@ types:
     [ ${#dirs[@]} -gt 0 ] || { echo "ty: no benchmarks/ directory to check"; exit 1; }
     exec {{ tools }} toolbox ty -- "${dirs[@]}"
 
-# `results/` keeps every run, with the machine and the commit it ran on.
-[doc("Run the micro-benchmarks, every distribution's or DIST's; the other arguments go to pytest")]
+# `results/` keeps every run, with the machine, the interpreter and the commit it ran on. Another
+# interpreter's session runs by name: `just tools::nox -s "bench(python='3.14')" -- benchmarks`.
+[doc("Run the micro-benchmarks in the noxfile's sessions tagged `bench`, every distribution's or DIST's; the other arguments go to pytest")]
 [positional-arguments]
 micro *args:
     #!/usr/bin/env bash
@@ -36,16 +38,26 @@ micro *args:
     dirs=({{ bench_dirs }})
     if [ $# -gt 0 ] && [ -d "$1/benchmarks" ]; then dirs=("$1/benchmarks"); shift; fi
     [ ${#dirs[@]} -gt 0 ] || { echo "no benchmarks/ directory to run"; exit 1; }
-    exec uv run --no-sync pytest -c benchmarks/pytest.ini "${dirs[@]}" "$@"
+    {{ tools }} nox --tags bench --list --json | {{ tools }} python -c '
+    import json, sys
+    if not json.load(sys.stdin):
+        sys.exit(
+            "bench::micro: no noxfile session is tagged `bench`; add the `bench` session of the"
+            " template noxfile to this project'"'"'s noxfile.py"
+        )
+    '
+    exec {{ tools }} nox --tags bench -- -c benchmarks/pytest.ini "${dirs[@]}" "$@"
 
-[doc("Compare saved runs, the last two by default; the table also goes to benchmarks/results/compare.csv")]
+[doc("Compare saved runs, by default the two newest of one machine and interpreter; the table also goes to benchmarks/results/compare.csv")]
 [positional-arguments]
 compare *runs:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ $# -eq 0 ]; then
-        set -- $(ls -t benchmarks/results/*/*.json 2>/dev/null | head -n 2)
-        [ $# -gt 0 ] || { echo "no saved runs under benchmarks/results/"; exit 1; }
+        # The two newest runs of one machine and interpreter: the directory of the newest run.
+        newest=$(ls -t benchmarks/results/*/*.json 2>/dev/null | head -n 1)
+        [ -n "$newest" ] || { echo "no saved runs under benchmarks/results/"; exit 1; }
+        set -- $(ls -t "$(dirname "$newest")"/*.json | head -n 2)
     fi
     exec uv run --no-sync pytest-benchmark --storage file://benchmarks/results compare \
         --csv=benchmarks/results/compare "$@"

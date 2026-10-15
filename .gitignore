@@ -18,3 +18,4 @@ venv/
 .copier-answers.yml
 .hypothesis/
 benchmarks/results/
+.nox/

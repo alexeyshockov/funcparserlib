@@ -293,9 +293,13 @@ its package directories in `[tool.conventions] packages`. A rule that is one pro
 - Micro-benchmarks are pytest-benchmark cases, `bench_*.py` files in a `benchmarks/` directory
   beside a distribution's `tests/`, and run in-process with no server or network. A case whose
   timing includes threads or sockets is compared with others of the same run only.
-- `just bench::micro [DIST] [ARGS]` runs them in the shared `.venv` under `benchmarks/pytest.ini`,
-  which no test suite reads, and saves each run under `benchmarks/results/`, with the machine and
-  the commit; `just bench::compare [RUN ...]` compares saved runs, the last two by default.
+- `just bench::micro [DIST] [ARGS]` runs them in the noxfile's sessions tagged `bench` under
+  `benchmarks/pytest.ini`, which no test suite reads, and saves each run under
+  `benchmarks/results/`, with the machine, the interpreter and the commit. The `bench` session
+  runs on one interpreter each; the tag is on the newest by default, and a project whose benchmark
+  dependencies have no wheel for it yet moves the tag in its noxfile. A figure is quoted with the
+  interpreter it ran on. `just bench::compare [RUN ...]` compares saved runs, by default the two
+  newest of one machine and interpreter.
 - Macro-benchmarks run against a server or a driver, or drive a load generator, and are noisy,
   local measurement tools, not CI gates: do not add them to routine verification or run them
   unless the task is performance work.
