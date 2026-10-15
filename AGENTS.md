@@ -56,6 +56,8 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
 - **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
   `maybe()`, `forward_decl()` infer for a user is asserted in `tests/typesafety/` (`just types-api`,
   ADR 0001).
+- **An error names everything expected where parsing stopped**, a label instead of a parser's parts, and an error
+  from a nested `parse()` unchanged. `tests/test_errors.py`.
 - **Values are `@valueclass`**: `Token`, `TokenSpec`, `State` and the parsing results are frozen to
   type checkers and assign their fields directly at runtime. The conventions runner, CON513.
 - **`Parser` is the one exported class open to subclassing**; everything else exported is `@final`.

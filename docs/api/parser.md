@@ -67,6 +67,28 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 
 ::: funcparserlib.parser.skip
 
+## Error Reporting
+
+When parsing fails, `NoParseError` says where parsing stopped, what it found there and what every
+parser that failed at that position expected. A name given with `Parser.named()` is a label: the
+error names it instead of what the parser is made of. `commit()` makes a failure final once a
+parser has read a token, `Parser.context()` names the part of the grammar an error is in, and
+`Parser.check()` records an error without stopping the parse.
+
+::: funcparserlib.parser.NoParseError
+
+::: funcparserlib.parser.NoParseError.render
+
+::: funcparserlib.parser.ParseErrors
+
+::: funcparserlib.parser.TokenDescription
+
+::: funcparserlib.parser.commit
+
+::: funcparserlib.parser.Parser.context
+
+::: funcparserlib.parser.Parser.check
+
 ## Extra: Parser Monad
 
 As a functional programmer, you might be pleased to know, that parsers in funcparserlib

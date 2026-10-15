@@ -11,6 +11,18 @@ messages.
 
 ### Added
 
+- Error messages name everything that was expected at the position parsing stopped: `(p1 + p2) | (p1 + p3)` failing
+  after `p1` expects `p2 or p3`, and `many(p) + -finished` expects `p or end of input`. A sequence is expected as its
+  first parser, not by its shape
+- A name given with `Parser.named()` is a label: when the parser fails at its first token, the error names it
+- `NoParseError.token`, `.expected`, `.context` and `.description`, and `NoParseError.render(source)`, which adds the
+  source line and a `^` marker under the token
+- `Parser.parse(tokens, describe=...)`, a function from a token to the `TokenDescription` an error shows, for tokens
+  that are not `funcparserlib.lexer.Token`
+- `commit(p)`: once `p` has read a token, its failure is final, and `|`, `many` and `maybe` do not backtrack from it
+- `Parser.context(label)`: errors inside the parser end with `in label`
+- `Parser.check(pred, message)`: a non-fatal error; `parse()` raises every recorded one together as `ParseErrors`,
+  an `ExceptionGroup` of `NoParseError`
 - Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
   and `~p` / `anything_but(p)`
@@ -27,6 +39,9 @@ messages.
 
 ### Changed
 
+- Error messages that named a sequence by its shape (`expected: ('x', 'y') or 'z'`) name what failed at the position
+  instead (`expected: 'x' or 'z'`); `State` holds what failed there (`expected`), the active contexts and the recorded
+  check failures, and a `ParsingError` can be `committed`
 - Dropped support for Python 2.7 and 3.7 to 3.11
 - A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
   `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one
@@ -39,6 +54,8 @@ messages.
 
 ### Fixed
 
+- A `parse()` inside a `>>` function no longer has its error rewritten by the outer `parse()`, which named the outer
+  parse's token and repeated the message
 - `p + -finished` is typed: mypy and pyright inferred `Any` for it (as in 1.0), because `-finished` was an
   `IgnoredParser[Any]` and matched both overloads of `+`. `finished` is an `EndOfInput` now, and `-finished` an
   `IgnoredEndOfInput`, whose value `+` drops

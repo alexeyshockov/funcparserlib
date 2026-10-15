@@ -235,7 +235,7 @@ end"""
         expr = (-a("x") + a("y")) | a("z")
         with pytest.raises(NoParseError) as ctx:
             expr.parse("b")
-        assert ctx.value.msg == "got unexpected token: 'b', expected: ('x', 'y') or 'z'"
+        assert ctx.value.msg == "got unexpected token: 'b', expected: 'x' or 'z'"
 
     def test_expected_some_without_name(self) -> None:
         def lowercase(t: str) -> bool:
@@ -252,10 +252,7 @@ end"""
         expr = nested | a("x")
         with pytest.raises(NoParseError) as ctx:
             expr.parse("y")
-        assert (
-            ctx.value.msg
-            == "got unexpected token: 'y', expected: (('a', [ forward_decl() ]), 'z') or 'x'"
-        )
+        assert ctx.value.msg == "got unexpected token: 'y', expected: 'a' or 'x'"
 
     def test_expected_forward_decl_with_name(self) -> None:
         nested = forward_decl().named("nested")
@@ -263,9 +260,7 @@ end"""
         expr = nested | a("x")
         with pytest.raises(NoParseError) as ctx:
             expr.parse("y")
-        assert (
-            ctx.value.msg == "got unexpected token: 'y', expected: (('a', [ nested ]), 'z') or 'x'"
-        )
+        assert ctx.value.msg == "got unexpected token: 'y', expected: nested or 'x'"
 
     def test_end_of_input_after_many_alternatives(self) -> None:
         brackets = a("[") + a("]")

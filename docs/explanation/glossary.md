@@ -23,4 +23,15 @@ implements it; `Parser.parse()` runs it over a whole sequence.
 **parsing result**: what one step of parsing returns: `ParsingSuccess` with the value and the next
 `State`, or `ParsingError` with where it stopped. `ParsingResult` is either.
 
-**`NoParseError`**: raised by `Parser.parse()` when the tokens do not match the grammar.
+**`NoParseError`**: raised by `Parser.parse()` when the tokens do not match the grammar. It names what every parser
+that failed at the furthest position expected; `ParseErrors` groups it with the errors `Parser.check()` recorded.
+
+**label**: a name given with `Parser.named()`, which an error shows instead of what the parser is made of when the
+parser fails at its first token.
+
+**committed failure**: a failure of a parser wrapped in `commit()` after it read a token; no alternative is tried for it.
+
+**context**: a name given with `Parser.context()` to a part of the grammar, which errors inside it end with.
+
+**`TokenDescription`**: how an error shows a token, its text and position; `Parser.parse(tokens, describe=...)` makes
+one from each token.
