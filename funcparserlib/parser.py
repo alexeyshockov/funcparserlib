@@ -83,7 +83,7 @@ import logging
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, Protocol, Self, cast, final, overload
 
-from ._commons import valueclass
+from ._commons import valueclass, with_hint
 from .lexer import Place, Token
 
 _log = logging.getLogger("funcparserlib")
@@ -414,15 +414,33 @@ class Parser[A, B]:
         return cast("B", tree)
 
     def but_not(self, other: "Parser[A, Any]") -> "Parser[A, B]":
-        """Parse as usual, but only if the other parser fails."""
+        """Parse as usual, but only if the other parser fails at the same position.
+
+        Type: `(Parser[A, B], Parser[A, Any]) -> Parser[A, B]`
+
+        Examples:
+            ```pycon
+            >>> name = some(str.isalpha).named("name")
+            >>> expr = name.but_not(a("if"))
+            >>> expr.parse(["x"])
+            'x'
+            >>> expr.parse(["if"])  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.NoParseError: got unexpected token: 'if', expected: name (but ...)
+
+            ```
+        """
 
         @parser(f"{self.name} (but not {other.name})")
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
+            if isinstance(res, ParsingError):
+                return res
             res_not = other.run(tokens, res.state.reset_pos_to(s))
             if isinstance(res_not, ParsingError):
                 return res
-            return ParsingError(s.replace_rest(max(res.state.max, res_not.state.max), _but_not))
+            return ParsingError(s.replace_parser_if_not_observed_further(_but_not))
 
         return _but_not
 
@@ -431,15 +449,26 @@ class Parser[A, B]:
 
         Type: `(Parser[A, B], Callable[[B], bool]) -> Parser[A, B]`
 
-        Examples: TODO
+        Examples:
+            ```pycon
+            >>> digit = some(str.isdigit).named("digit")
+            >>> expr = digit.when(lambda d: d != "0")
+            >>> expr.parse("7")
+            '7'
+            >>> expr.parse("0")
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.NoParseError: got unexpected token: '0', expected: when(...)
+
+            ```
         """
 
         @parser("when(...)")
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingSuccess) and pred(res.value):
+            if isinstance(res, ParsingError) or pred(cast("ParsingSuccess[B]", res).value):
                 return res
-            return ParsingError(s.replace_rest(res.state.max, _when))
+            return ParsingError(s.replace_parser_if_not_observed_further(_when))
 
         return _when
 
@@ -682,20 +711,36 @@ class Parser[A, B]:
         return cast("IgnoredParser[A]", _ignored)
 
     def __invert__(self) -> "Parser[A, A]":
-        # TODO Docs
+        """Return a parser that parses one token, any token this parser does not parse.
+
+        Type: `(Parser[A, B]) -> Parser[A, A]`
+
+        Examples:
+            ```pycon
+            >>> expr = ~a("x")
+            >>> expr.parse("y")
+            'y'
+            >>> expr.parse("x")
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.NoParseError: got unexpected token: 'x', expected: anything but 'x'
+            >>> expr.parse("")  # doctest: +ELLIPSIS
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.NoParseError: got unexpected end of input, expected: anything ...
+
+            ```
+        """
 
         @parser(f"anything but {self.name}")
         def _invert(tokens: Sequence[A], s: State) -> ParsingResult[A]:
+            if s.pos >= len(tokens):
+                s2 = s.replace_parser_if_not_observed_further(_invert)
+                return ParsingError(s2, "got unexpected end of input")
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
-                t = tokens[s.pos]
-                pos = s.pos + 1
-                # TODO Test the state
-                # s2 = res.state.replace_pos(pos)
-                s2 = s.reset_pos(pos)
-                return ParsingSuccess(t, s2)
-            else:
-                return ParsingError(s.replace_rest(res.state.max, _invert))
+                return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
+            return ParsingError(s.replace_parser_if_not_observed_further(_invert))
 
         return _invert
 
@@ -897,6 +942,12 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         while True:
             res = p.run(tokens, s)
             if isinstance(res, ParsingSuccess):
+                if res.state.pos == s.pos:
+                    raise with_hint(
+                        ValueError(f"{p.name} matched no tokens inside many()"),
+                        "many() repeats a parser until it fails, and one that matches nothing never"
+                        " fails: repeat the parser that maybe(), many() or pure() wraps.",
+                    )
                 acc.append(res.value)
                 s = res.state
             else:

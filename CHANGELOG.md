@@ -36,6 +36,15 @@ messages.
   mypy, pyright and ty
 - Built with uv and `uv_build`
 
+### Fixed
+
+- `many(p)` and `oneplus(p)` raise `ValueError` when `p` matches without consuming a token (`many(maybe(p))`,
+  `many(pure(x))`, `many(many(p))`), instead of looping forever
+- `make_tokenizer()` raises `ValueError` for a token spec that matches the empty string, and a tokenizer raises it for a
+  spec that matches the empty string at some position (such as `\b`), instead of yielding empty tokens forever
+- `LexerError.msg` is the line the error position counts: lines are split at `\n` only, as positions are, so a form
+  feed, a lone `\r` or a Unicode line separator in a token no longer shifts it or raises `IndexError`
+
 ### Removed
 
 - `with_forward_decls()`, deprecated since 0.3.1: use `forward_decl()` and `p.define()`

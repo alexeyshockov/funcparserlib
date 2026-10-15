@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterable, Sequence
 from re import Pattern
 from typing import Any, final
 
-from ._commons import valueclass
+from ._commons import valueclass, with_hint
 
 type Place = tuple[int, int]
 """A position in the text: (_line_, _column_), both counted from 1."""
@@ -151,10 +151,16 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
     def compile_specs() -> Iterable[_CompiledSpec]:
         for spec in specs:
             if isinstance(spec, TokenSpec):
-                yield spec.type, re.compile(spec.pattern, spec.flags)
+                token_type, regexp = spec.type, re.compile(spec.pattern, spec.flags)
             else:
-                name, args = spec
-                yield name, re.compile(*args)
+                token_type, args = spec
+                regexp = re.compile(*args)
+            if regexp.match(""):
+                raise with_hint(
+                    ValueError(f"the pattern of token {token_type!r} matches the empty string"),
+                    "A token consumes at least one character: repeat with `+` rather than `*`.",
+                )
+            yield token_type, regexp
 
     compiled = tuple(compile_specs())
 
@@ -163,11 +169,17 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
         for token_type, spec_regexp in compiled:
             if m := spec_regexp.match(s, i):
                 value = m.group()
+                if not value:
+                    raise ValueError(
+                        f"the pattern of token {token_type!r} matched the empty string"
+                        f" at {line},{pos + 1}"
+                    )
                 nls = value.count("\n")
                 n_line = line + nls
                 n_pos = pos + len(value) if nls == 0 else len(value) - value.rfind("\n") - 1
                 return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
-        err_line = s.splitlines()[line - 1]
+        # Lines are counted by "\n" alone, as the token positions are.
+        err_line = s.split("\n")[line - 1].rstrip("\r")
         raise LexerError((line, pos + 1), err_line)
 
     def f(s: str) -> Iterable[Token]:

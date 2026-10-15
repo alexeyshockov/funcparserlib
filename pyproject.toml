@@ -66,6 +66,10 @@ known_first_party = ["funcparserlib"]
 strict-imports = true
 require-superclass = true
 
+# A token spec has one pattern.
+[tool.conventions.messages]
+singular = ["pattern"]
+
 # Exported classes that may be subclassed, each with the reason. Everything else exported is
 # `@final`.
 [tool.conventions.subclassable]
