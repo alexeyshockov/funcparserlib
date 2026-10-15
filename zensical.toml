@@ -26,6 +26,9 @@ nav = [
         { "Parser" = "api/parser.md" },
         { "Utilities" = "api/util.md" },
     ] },
+    { "Recipes" = [
+        { "Parsing Markdown with markdown-it" = "recipes/markdown.md" },
+    ] },
     { "Glossary" = "explanation/glossary.md" },
     { "Decisions (ADR)" = "adr/index.md" },
     { "Changelog" = "changes.md" },
