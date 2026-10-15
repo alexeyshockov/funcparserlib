@@ -38,6 +38,8 @@ dependencies = []
 dev = [
     { include-group = "tests" },
 ]
+# The micro-benchmarks in `benchmarks/` (`just bench::micro`).
+bench = ["pytest-benchmark ~=5.2"]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
 tests = [
     "hypothesis ~=6.169",
@@ -52,7 +54,9 @@ build-backend.module-name = "funcparserlib"
 [tool.pytest.ini_options]
 timeout = 30
 testpaths = ["tests", "funcparserlib", "docs"]
-addopts = ["--doctest-modules", "--doctest-glob=*.md"]
+# `-p no:benchmark`: `.venv` holds pytest-benchmark for `just bench::micro`, and loaded here it
+# creates `.benchmarks/`.
+addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark"]
 filterwarnings = ["error"]
 
 [tool.interrogate]

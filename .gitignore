@@ -17,3 +17,4 @@ venv/
 .ruff_cache/
 .copier-answers.yml
 .hypothesis/
+benchmarks/results/

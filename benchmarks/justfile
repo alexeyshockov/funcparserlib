@@ -1,0 +1,51 @@
+# The benchmark recipes: a module of the root justfile, reached as `just bench::<recipe>`.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# The micro-benchmarks are the `bench_*.py` files of each distribution's `benchmarks/` directory,
+# beside its `tests/`; a single-distribution repository keeps them in this directory. They run in
+# the shared `.venv`, which `just venv` syncs with every group, under `pytest.ini` beside this file.
+
+set working-directory := '..'
+
+# A variable is evaluated when a recipe uses it, so the lookups below cost nothing elsewhere.
+set lazy
+
+tools := "env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools"
+dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --dirs`
+# Each distribution's `benchmarks/` directory that exists.
+bench_dirs := shell('for d in $1; do b=$([ "$d" = . ] && echo benchmarks || echo "$d/benchmarks"); [ -d "$b" ] && printf "%s " "$b"; done; true', dists)
+
+# Benchmarks sit at the tests level: ty blocking, no mypy. Against `.venv`, which `venv` syncs with every
+# group, so the benchmark stacks' dependencies are already there — ty in an environment missing them
+# reports each import unresolved, and suppressing that rule would hide a genuinely missing import.
+[doc("Check the benchmarks with ty (blocking)")]
+types:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dirs=({{ bench_dirs }})
+    # With no path, `toolbox ty` checks the whole repository.
+    [ ${#dirs[@]} -gt 0 ] || { echo "ty: no benchmarks/ directory to check"; exit 1; }
+    exec {{ tools }} toolbox ty -- "${dirs[@]}"
+
+# `results/` keeps every run, with the machine and the commit it ran on.
+[doc("Run the micro-benchmarks, every distribution's or DIST's; the other arguments go to pytest")]
+[positional-arguments]
+micro *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dirs=({{ bench_dirs }})
+    if [ $# -gt 0 ] && [ -d "$1/benchmarks" ]; then dirs=("$1/benchmarks"); shift; fi
+    [ ${#dirs[@]} -gt 0 ] || { echo "no benchmarks/ directory to run"; exit 1; }
+    exec uv run --no-sync pytest -c benchmarks/pytest.ini "${dirs[@]}" "$@"
+
+[doc("Compare saved runs, the last two by default; the table also goes to benchmarks/results/compare.csv")]
+[positional-arguments]
+compare *runs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ $# -eq 0 ]; then
+        set -- $(ls -t benchmarks/results/*/*.json 2>/dev/null | head -n 2)
+        [ $# -gt 0 ] || { echo "no saved runs under benchmarks/results/"; exit 1; }
+    fi
+    exec uv run --no-sync pytest-benchmark --storage file://benchmarks/results compare \
+        --csv=benchmarks/results/compare "$@"

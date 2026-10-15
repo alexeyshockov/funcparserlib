@@ -140,6 +140,7 @@ down next to its config rather than leaving a gap to be inferred.
 | `examples/` | **gate** (in `files`) | **blocking** | — | — | `types`, `types-examples` |
 | `tests/` | — | **blocking** | — | — | `types-tests` |
 | each distribution's `tests/typesafety/` | informational | informational | **gate** | informational | `types-api` |
+| the `benchmarks/` directories | — | **blocking** | — | — | `types-benchmarks` |
 
 In a uv workspace, each distribution's files are checked by ty as their own project, with the
 distribution's own directory first on the search path, the other distributions next and the
@@ -281,6 +282,27 @@ its package directories in `[tool.conventions] packages`. A rule that is one pro
   Attribute names follow the vendor's conventions; others go under `<package>.*`.
 - Logging: a `NullHandler` on the package's root logger, loggers named `<package>.<module>`, errors
   logged with `exc_info`. The library configures no handler.
+
+## Benchmarks
+
+- Benchmark code is measurement infrastructure, not product logic. It may reach into the package's
+  internals (the ruff carve-out for `benchmarks/` says so); the package never imports it.
+- It is type-checked at the tests level: `just types-benchmarks` runs ty over it, blocking, in
+  `just gate`. mypy does not read it. An environment missing a benchmark's dependency shows up as
+  an unresolved import — fix the environment (`just venv`), never the rule.
+- Micro-benchmarks are pytest-benchmark cases, `bench_*.py` files in a `benchmarks/` directory
+  beside a distribution's `tests/`, and run in-process with no server or network. A case whose
+  timing includes threads or sockets is compared with others of the same run only.
+- `just bench::micro [DIST] [ARGS]` runs them in the shared `.venv` under `benchmarks/pytest.ini`,
+  which no test suite reads, and saves each run under `benchmarks/results/`, with the machine and
+  the commit; `just bench::compare [RUN ...]` compares saved runs, the last two by default.
+- Macro-benchmarks run against a server or a driver, or drive a load generator, and are noisy,
+  local measurement tools, not CI gates: do not add them to routine verification or run them
+  unless the task is performance work.
+- Compare results from the same machine and run, control background load, and rerun anomalies. A
+  single absolute number is not a regression signal.
+- Preserve CLI flags, filter semantics, output formats and the benchmark matrix unless the task
+  changes them deliberately; then update the nearest benchmark README with it.
 
 ## Exception messages
 

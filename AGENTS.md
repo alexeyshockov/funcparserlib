@@ -26,6 +26,7 @@ tools/conventions/        the shared conventions runner, rendered; never edited 
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
 docs/adr/                 the decision record
 examples/                 runnable programs using public APIs only; tests/test_examples.py runs each
+benchmarks/               pytest-benchmark micro-benchmarks, bench_*.py; results/ is local and untracked
 ```
 
 ## Commands
@@ -39,6 +40,8 @@ just types               # mypy over the package, the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
 just tests               # the noxfile's local sessions: the 3.12 floor and free-threaded 3.15t
 just docs-build          # the site into site/
+just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
+just bench::compare      # the last two saved runs side by side
 uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 ```
 

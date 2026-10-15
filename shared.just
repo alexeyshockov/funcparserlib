@@ -59,6 +59,8 @@ mod tools
 
 # A feature's recipes, where the project has the feature.
 import? 'docs.just'
+[doc("The benchmarks (benchmarks/justfile): run, compare, type-check")]
+mod bench 'benchmarks/justfile'
 
 [doc("Install the host tools (uv, just, prek), build the pinned tool environment, and install the commit hooks")]
 doctor:
@@ -134,8 +136,11 @@ types-checks:
 types-tests:
     {{ tools }} toolbox ty -- {{ test_dirs }}
 
-[doc("Check types (including examples, tests and the checks)")]
-types-all: types types-info types-examples types-tests types-checks
+[doc("Check the benchmarks with ty (blocking)")]
+types-benchmarks: bench::types
+
+[doc("Check types (including examples, tests, benchmarks and the checks)")]
+types-all: types types-info types-examples types-tests types-benchmarks types-checks
 
 # `--public-only` counts the symbols a caller reaches through the public modules and their
 # re-exports, each reported where it is defined. The threshold is pyrefly's default, 100%. A public
@@ -204,7 +209,7 @@ test *args:
 # Not here, on purpose: `lint` (pre-commit.ci runs the hooks from the same config). The type-checking
 # rows are the target-level table in CONVENTIONS.md, one recipe per row that gates.
 [doc("Everything a pull request must pass, the local test matrix last")]
-gate: conventions imports deps slots types type-coverage types-api types-examples types-tests types-checks tests
+gate: conventions imports deps slots types type-coverage types-api types-examples types-tests types-benchmarks types-checks tests
 
 
 # --- Structure ---

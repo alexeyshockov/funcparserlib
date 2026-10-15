@@ -54,6 +54,8 @@ jobs:
         run: just types-examples
       - name: type check tests (ty)
         run: just types-tests
+      - name: type check benchmarks (ty)
+        run: just types-benchmarks
       - name: type check the checks (ty)
         run: just types-checks
       # Second opinions from ty and pyrefly; the recipe never fails.
