@@ -24,6 +24,8 @@
 
 ::: funcparserlib.parser.forward_decl
 
+::: funcparserlib.parser.parser
+
 ### `finished`
 
 A parser that throws an exception if there are any unparsed tokens left in the sequence.
@@ -66,6 +68,18 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 ::: funcparserlib.parser.oneplus
 
 ::: funcparserlib.parser.skip
+
+::: funcparserlib.parser.Parser.map
+
+::: funcparserlib.parser.Parser.starmap
+
+::: funcparserlib.parser.Parser.when
+
+::: funcparserlib.parser.Parser.but_not
+
+::: funcparserlib.parser.Parser.__invert__
+
+::: funcparserlib.parser.anything_but
 
 ## Error Reporting
 

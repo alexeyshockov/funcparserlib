@@ -6,8 +6,8 @@ Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib
 
 The grammar-writing API of 1.0 keeps working: `tok`, `a`, `some`, `many`, `oneplus`, `maybe`, `skip`,
 `pure`, `finished`, `forward_decl`, `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `p.named()`, `p.parse()`,
-`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same results and error
-messages.
+`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same results. Error
+messages name what was expected more precisely; see Changed.
 
 ### Added
 
@@ -32,8 +32,8 @@ messages.
 - `ParsingResult`, `ParsingSuccess` and `ParsingError`: the result a parsing function returns
 - `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
 - Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
-  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`
-  (parser)
+  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`,
+  and the `State` fields' `Expectation` and `CheckFailure` (parser)
 - `funcparserlib.__version__`
 - `Token` is hashable, consistently with `==`: by type and value, ignoring positions
 

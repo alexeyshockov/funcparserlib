@@ -50,9 +50,9 @@ uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 Rule, then what enforces it. Challenge one in discussion rather than routing around it.
 
 - **No runtime dependencies.** `dependencies = []` in `pyproject.toml`; `just deps`.
-- **A grammar written for 1.0 parses the same and fails with the same message.** The doctests in
-  `docs/` and in the docstrings (pytest's `--doctest-glob` and `--doctest-modules`),
-  `tests/test_parsing.py`.
+- **A grammar written for 1.0 parses to the same value, and its errors say what each doc example
+  says.** The doctests in `docs/` and in the docstrings (pytest's `--doctest-glob` and
+  `--doctest-modules`), which compare error messages too, `tests/test_parsing.py`.
 - **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
   `maybe()`, `forward_decl()` infer for a user is asserted in `tests/typesafety/` (`just types-api`,
   ADR 0001).

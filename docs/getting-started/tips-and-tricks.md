@@ -39,10 +39,10 @@ Consider the following grammar:
 When a parser fails to parse its input, it usually reports the token it expects:
 
 ```pycon
->>> paren.parse(tokenize("(1"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> paren.parse(tokenize("(1"))
 Traceback (most recent call last):
     ...
-NoParseError: got unexpected end of input, expected: ')'
+funcparserlib.parser.NoParseError: got unexpected end of input, expected: ')'
 
 ```
 
@@ -51,32 +51,32 @@ sequence:
 
 ```pycon
 
->>> expr.parse(tokenize("1 + 2"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> expr.parse(tokenize("1 + 2"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,3-1,3: got unexpected token: '+', expected: '*'
+funcparserlib.parser.NoParseError: 1,3-1,3: got unexpected token: '+', expected: '*'
 
 ```
 
-If there were several parsing alternatives and all of them failed to parse the current token, then the parser will
-report its name as the expected input:
+If there were several parsing alternatives and all of them failed at the current token, the error lists what each of
+them expected there:
 
 ```pycon
->>> number.parse(tokenize("*"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> number.parse(tokenize("*"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '*', expected: int or float
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '*', expected: int or float
 
->>> expr.parse(tokenize("+"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> expr.parse(tokenize("+"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '+', expected: int or float or (('(', int or float), ')')
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '+', expected: '(' or int or float
 
 ```
 
-Parser names are auto-generated and may be quite long and hard to understand. For better error messages you may want to
-name your parsers explicitly via [`Parser.named(name)`](../api/parser.md#funcparserlib.parser.Parser.named). The naming
-style is up to you. For example:
+The error names the parsers that failed, and a list of every alternative of a big grammar is hard to read. A name given
+with [`Parser.named(name)`](../api/parser.md#funcparserlib.parser.Parser.named) is a label: when the parser fails at its
+first token, the error names it instead of its parts. The naming style is up to you. For example:
 
 ```pycon
 >>> number = ((tok("int") >> int) | (tok("float") >> float)).named("number")
@@ -89,15 +89,15 @@ style is up to you. For example:
 Test it:
 
 ```pycon
->>> number.parse(tokenize("*"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> number.parse(tokenize("*"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '*', expected: number
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '*', expected: number
 
->>> expr.parse(tokenize("+"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> expr.parse(tokenize("+"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '+', expected: number or '('
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '+', expected: number or '('
 
 ```
 
@@ -149,7 +149,7 @@ we need to parse the first token for `mul`, for that we need to parse the first 
 recursion in your grammar results in a stack overflow exception:
 
 ```pycon
->>> expr.parse(tokenize("1 * 2"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> expr.parse(tokenize("1 * 2"))
 Traceback (most recent call last):
     ...
 RecursionError: maximum recursion depth exceeded

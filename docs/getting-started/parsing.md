@@ -143,10 +143,10 @@ proper parse tree in the next chapter.
 If the first token in the input is _not_ of type `"int"`, our parser raises an exception:
 
 ```pycon
->>> int_str.parse(tokenize("+"))  # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> int_str.parse(tokenize("+"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '+', expected: int
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '+', expected: int
 
 ```
 
@@ -176,10 +176,10 @@ Test it:
 >>> number.parse(tokenize("3.14"))
 '3.14'
 
->>> number.parse(tokenize("*"))  # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> number.parse(tokenize("*"))
 Traceback (most recent call last):
     ...
-NoParseError: 1,1-1,1: got unexpected token: '*', expected: int or float
+funcparserlib.parser.NoParseError: 1,1-1,1: got unexpected token: '*', expected: int or float
 
 ```
 
@@ -295,7 +295,7 @@ We want to allow using parentheses to specify the order of calculations.
 Ideally, we would like to write a recursive assignment like this one, but the Python syntax doesn't allow it:
 
 ```pycon
->>> expr = power | number | (op("(") + expr + op(")"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> expr = power | number | (op("(") + expr + op(")"))
 Traceback (most recent call last):
     ...
 NameError: name 'expr' is not defined
@@ -383,10 +383,10 @@ input.
 Let's try it for our grammar:
 
 ```pycon
->>> document.parse(tokenize("2 ** (3 ** 4"))   # doctest: +IGNORE_EXCEPTION_DETAIL
+>>> document.parse(tokenize("2 ** (3 ** 4"))
 Traceback (most recent call last):
     ...
-NoParseError: got unexpected end of input, expected: ')'
+funcparserlib.parser.NoParseError: got unexpected end of input, expected: '**' or ')'
 
 >>> document.parse(tokenize("2 ** (3 ** 4)"))
 ('2', [('**', ('(', ('3', [('**', '4')]), ')'))], None)

@@ -14,8 +14,9 @@ The primary focus of `funcparserlib` is **parsing little languages** or **extern
 
 Parsers made with `funcparserlib` are pure-Python LL(\*) parsers. It means that it's **very easy to write parsers**
 without thinking about lookaheads and other hardcore parsing stuff. However, recursive descent parsing is a rather slow
-method compared to LL(k) or LR(k) algorithms. Still, parsing with `funcparserlib` is **at least twice faster than
-PyParsing**, a very popular library for Python.
+method compared to LL(k) or LR(k) algorithms. Still, on a JSON benchmark `funcparserlib` is **about 1.7 times faster
+than pyparsing and 2 times faster than parsy**, two popular parsing libraries for Python
+([the benchmark](https://github.com/vlasovskikh/funcparserlib/blob/master/benchmarks/bench_comparison.py)).
 
 The source code of `funcparserlib` is only 1.2K lines of code, with lots of comments. Its API is fully type hinted. It
 features the longest parsed prefix error reporting, as well as a tiny lexer generator for token position tracking.
