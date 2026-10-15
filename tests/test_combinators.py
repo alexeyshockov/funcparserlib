@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -7,12 +8,17 @@ from hypothesis import strategies as st
 from funcparserlib.parser import (
     NoParseError,
     Parser,
+    ParsingError,
+    ParsingResult,
+    ParsingSuccess,
+    State,
     a,
     anything_but,
     finished,
     many,
     maybe,
     oneplus,
+    parser,
     pure,
     some,
 )
@@ -160,3 +166,49 @@ def test_pretty_tree_draws_a_line_per_node(tree: object) -> None:
 
     drawn = pretty_tree(tree, kids, lambda x: "[]" if isinstance(x, list) else str(x))
     assert len(drawn.splitlines()) == count(tree)
+
+
+# A parsing function written for 1.0: a `(value, state)` tuple, or a raised `NoParseError`.
+
+
+def legacy_digit(tokens: Any, s: State) -> Any:
+    if s.pos < len(tokens) and tokens[s.pos].isdigit():
+        return tokens[s.pos], State(s.pos + 1, max(s.pos + 1, s.max))
+    raise NoParseError("got unexpected token", s)
+
+
+def test_a_legacy_parsing_function_parses_and_backtracks() -> None:
+    expr = many(Parser(legacy_digit) | a("x"))
+    with pytest.warns(DeprecationWarning, match="legacy_digit follows the 1.0 protocol"):
+        assert expr.parse("1x2") == ["1", "x", "2"]
+
+
+def test_a_legacy_parsing_function_warns_once_per_parser() -> None:
+    digits = many(Parser(legacy_digit))
+    with pytest.warns(DeprecationWarning, match="follows the 1.0 protocol") as record:
+        digits.parse("123")
+    assert len(record) == 1
+
+
+def test_a_legacy_parsing_function_keeps_what_its_parsers_expected() -> None:
+    def legacy_pair(tokens: Any, s: State) -> Any:
+        v1, s1 = a("x").run(tokens, s)
+        v2, s2 = a("y").run(tokens, s1)
+        return (v1, v2), s2
+
+    with (
+        pytest.warns(DeprecationWarning, match="follows the 1.0 protocol"),
+        pytest.raises(NoParseError) as e,
+    ):
+        (Parser(legacy_pair) | a("z")).parse("xw")
+    assert e.value.expected == ("'y'",)
+
+
+def test_a_parsing_function_returning_a_result_does_not_warn() -> None:
+    @parser("digit")
+    def digit(tokens: Sequence[str], s: State) -> ParsingResult[str]:
+        if s.pos < len(tokens) and tokens[s.pos].isdigit():
+            return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
+        return ParsingError(s.expect(digit))
+
+    assert many(digit).parse("12") == ["1", "2"]

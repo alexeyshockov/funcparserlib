@@ -45,7 +45,7 @@ messages name what was expected more precisely; see Changed.
 - Dropped support for Python 2.7 and 3.7 to 3.11
 - A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
   `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one
-  raises `NoParseError` when unpacked.
+  raises `NoParseError` when unpacked. A function written for 1.0 still works; see Deprecated.
 - `State(pos, max, expected=(), context=(), problems=())`: the third argument is `expected`, the parsers that failed at
   `max`, and no longer `parser`. `State.parser` is still the last of them
 - The value of `-p` no longer carries the value of `p`: `-x + -y` and `maybe(-x)` parse to `IgnoredValue()`, where 1.0
@@ -58,6 +58,12 @@ messages name what was expected more precisely; see Changed.
 - The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
   mypy, pyright and ty
 - Built with uv and `uv_build`
+
+### Deprecated
+
+- A parsing function that returns a `(value, state)` tuple or raises `NoParseError`, as in 1.0: `Parser(f)`,
+  `parser()` and `ForwardDeclParser.define()` read its tuple as a success and its `NoParseError` as a failure that
+  `|` backtracks from, and warn with a `DeprecationWarning` the first time each parser gets such a result
 
 ### Fixed
 

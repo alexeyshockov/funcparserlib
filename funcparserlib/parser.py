@@ -88,6 +88,7 @@ __all__ = [
 ]
 
 import logging
+import warnings
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
@@ -209,6 +210,8 @@ class NoParseError(Exception):
     `render(source)` adds the source line and a marker under the token, when the token's description
     has a position.
     """
+
+    _result: ParsingError | None = None
 
     def __init__(
         self,
@@ -358,7 +361,9 @@ class ParsingError:
 
     @property
     def _error(self) -> NoParseError:
-        return NoParseError(self.message, self.state)
+        e = NoParseError(self.message, self.state)
+        e._result = self
+        return e
 
     @property
     def value(self) -> NoReturn:
@@ -439,7 +444,12 @@ class Parser[A, B]:
     _leaf: bool = False
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
-        """Wrap the parser function `p` into a `Parser` object."""
+        """Wrap the parser function `p` into a `Parser` object.
+
+        A function written for 1.0, which returns a `(value, state)` tuple or raises `NoParseError`,
+        still works: its tuple is a success, its `NoParseError` a failure `|` backtracks from. The
+        first such result emits a `DeprecationWarning`.
+        """
         self._define(p)
 
     def named(self, name: str | None) -> Self:
@@ -517,7 +527,7 @@ class Parser[A, B]:
 
         return run_labelled
 
-    def _define(self, p: ParserObjOrFn[A, B]) -> None:
+    def _define(self, p: ParserObjOrFn[A, B], *, adapt: bool = True) -> None:
         """Define the parser created earlier as a forward declaration.
 
         Type: `(Parser[A, B]) -> None`
@@ -527,7 +537,7 @@ class Parser[A, B]:
         See the examples in the docs for `forward_decl()`.
         """
         if not isinstance(p, Parser):
-            self._fn = p
+            self._fn = self._adapted(p) if adapt else p
         elif isinstance(p, ForwardDeclParser):
             fwd = p
 
@@ -540,6 +550,30 @@ class Parser[A, B]:
             self._fn = p.run
         self._update_run()
         self._named_from(p)
+
+    def _adapted(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
+        """`f`, reading a 1.0 result as a `ParsingResult`, with a warning for the first one."""
+        warned = False
+
+        def run_adapted(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+            nonlocal warned
+            try:
+                res: object = f(tokens, s)
+            except NoParseError as e:
+                # A result unpacked inside `f` is in these tokens; a nested `parse()` is not.
+                res = e._result or ParsingError(s.expect(self), e.msg)
+                legacy = True
+            else:
+                legacy = isinstance(res, tuple)
+                if legacy:
+                    value, state = cast("tuple[B, State]", res)
+                    res = ParsingSuccess(value, state)
+            if legacy and not warned:
+                warned = True
+                _warn_legacy(f)
+            return cast("ParsingResult[B]", res)
+
+        return run_adapted
 
     def _wrap_for_debug(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
         def run_parser_verbose(tokens: Sequence[A], s: State) -> ParsingResult[B]:
@@ -785,10 +819,9 @@ class Parser[A, B]:
         @_parser(f"({self.name}, {other.name})")
         def _add(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             res_l = self.run(tokens, s)
-            if isinstance(res_l, ParsingSuccess):
-                res_r = other.run(tokens, res_l.state)
-                return res_l + res_r
-            return res_l
+            if isinstance(res_l, ParsingError):
+                return res_l
+            return res_l + other.run(tokens, res_l.state)
 
         return _add
 
@@ -996,7 +1029,25 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     Type: `(str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]`
 
     The decorated function takes the tokens and the current `State` and returns a `ParsingSuccess`
-    or a `ParsingError`.
+    or a `ParsingError`. A success carries the state moved past what it parsed, `s.reset_pos(pos)`;
+    a failure carries `s.expect(p)`, where `p` is the parser that failed, so that the error names
+    it.
+
+    Examples:
+        ```pycon
+        >>> @parser("digit")
+        ... def digit(tokens, s):
+        ...     if s.pos < len(tokens) and tokens[s.pos].isdigit():
+        ...         return ParsingSuccess(int(tokens[s.pos]), s.reset_pos(s.pos + 1))
+        ...     return ParsingError(s.expect(digit))
+        >>> many(digit).parse("12")
+        [1, 2]
+        >>> (digit + digit).parse("1x")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected token: 'x', expected: digit
+
+        ```
     """
 
     def decorator(f: ParserFn[A, B]) -> Parser[A, B]:
@@ -1015,11 +1066,35 @@ def _parser[A, B](
     """
 
     def decorator(f: ParserFn[A, B]) -> Parser[A, B]:
-        p = Parser(f)._rename(name)
+        p: Parser[A, B] = _built(Parser, f)._rename(name)
         p._leaf = leaf
         return p
 
     return decorator
+
+
+def _built[P: Parser[Any, Any]](cls: type[P], f: ParserFn[Any, Any]) -> P:
+    """A parser of `cls` running `f`, a parsing function of this module, without the 1.0 adapter."""
+    p = cls.__new__(cls)
+    p._define(f, adapt=False)
+    return p
+
+
+def _warn_legacy(f: Callable[..., object]) -> None:
+    """Warn that `f` returned a `(value, state)` tuple or raised `NoParseError`, as in 1.0."""
+    name = getattr(f, "__qualname__", repr(f))
+    msg = (
+        f"parsing function {name} follows the 1.0 protocol, deprecated in 2.0:"
+        " return a ParsingSuccess or a ParsingError"
+    )
+    code = getattr(f, "__code__", None)
+    if code is None:
+        warnings.warn(msg, DeprecationWarning, stacklevel=2)
+    else:
+        module = getattr(f, "__module__", None)
+        warnings.warn_explicit(
+            msg, DeprecationWarning, code.co_filename, code.co_firstlineno, module=module
+        )
 
 
 def _parse_error[A](
@@ -1240,7 +1315,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         acc = []
         while True:
             res = p.run(tokens, s)
-            if isinstance(res, ParsingSuccess):
+            if not isinstance(res, ParsingError):
                 if res.state.pos == s.pos:
                     raise with_hint(
                         ValueError(f"{p.name} matched no tokens inside many()"),
@@ -1249,7 +1324,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
                     )
                 acc.append(res.value)
                 s = res.state
-            elif isinstance(res, ParsingError) and res.committed:
+            elif res.committed:
                 return res
             else:
                 s = s.replace_rest_from(res.state)
@@ -1585,7 +1660,7 @@ def _end_of_input() -> EndOfInput:
             return ParsingSuccess(None, s)
         return ParsingError(s.expect(p))
 
-    p = EndOfInput(run)._rename("end of input")
+    p = _built(EndOfInput, run)._rename("end of input")
     p._leaf = True
     return p
 
