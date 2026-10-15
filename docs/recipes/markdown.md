@@ -66,4 +66,24 @@ block quotes contain blocks, so `block` is a forward declaration too:
 
 ```
 
-A construct the grammars do not cover, such as an image or an HTML block, fails with `NoParseError`.
+## Errors
+
+A construct the grammars do not cover, such as an image or an HTML block, fails with `NoParseError`. By default an
+error shows a token as the object it is, which for a markdown-it token is its whole `repr()`. `parse()` takes a
+`describe` function that turns a token into the `TokenDescription` the message shows; this one gives the token's type
+and line:
+
+```python
+--8<-- "examples/markdown.py:describe"
+```
+
+The two forward declarations are named, `forward_decl().named("block")` and `forward_decl().named("inline content")`,
+so an error says what kind of content was expected rather than listing every rule:
+
+```pycon
+>>> parse("- one\n- two ![image](i.png)")
+Traceback (most recent call last):
+    ...
+funcparserlib.parser.NoParseError: got unexpected token: image on line 2, expected: inline content or end of input
+
+```

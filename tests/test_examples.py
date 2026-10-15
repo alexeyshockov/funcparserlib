@@ -79,12 +79,17 @@ def test_markdown_nests_blocks_inside_quotes_and_items() -> None:
 
 
 @pytest.mark.parametrize(
-    ("text", "token_type"),
-    [("![alt](i.png)", "image"), ("<div>x</div>", "html_block"), ("- a\n- ![b](c)", "image")],
+    ("text", "message"),
+    [
+        ("![alt](i.png)", "image on line 1, expected: inline content or end of input"),
+        ("text\n\n<div>x</div>", "html_block on line 3, expected: block or end of input"),
+        ("- a\n- b ![c](d)", "image on line 2, expected: inline content or end of input"),
+    ],
 )
-def test_markdown_rejects_what_the_tree_does_not_cover(text: str, token_type: str) -> None:
-    with pytest.raises(NoParseError, match=f"type='{token_type}'"):
+def test_markdown_rejects_what_the_tree_does_not_cover(text: str, message: str) -> None:
+    with pytest.raises(NoParseError) as e:
         markdown.parse(text)
+    assert str(e.value) == f"got unexpected token: {message}"
 
 
 SUPPORTED = [

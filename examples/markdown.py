@@ -7,7 +7,7 @@ document's stream, and the inline grammar parses each `inline` token's children.
 
 The tree covers headings, paragraphs, bullet and ordered lists, block quotes, code blocks and
 thematic breaks; inside them, text, code spans, emphasis, strong emphasis, links and line breaks.
-Anything else (an image, an HTML block) fails with `NoParseError`.
+Anything else (an image, an HTML block) fails with `NoParseError`, naming the token and its line.
 """
 
 from __future__ import annotations
@@ -17,7 +17,15 @@ from dataclasses import dataclass
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from funcparserlib.parser import ForwardDeclParser, Parser, finished, forward_decl, many, some
+from funcparserlib.parser import (
+    ForwardDeclParser,
+    Parser,
+    TokenDescription,
+    finished,
+    forward_decl,
+    many,
+    some,
+)
 
 
 # --8<-- [start:tree]
@@ -134,6 +142,21 @@ def token(type_: str) -> Parser[Token, Token]:
 # --8<-- [end:token]
 
 
+# --8<-- [start:describe]
+def describe(t: Token, line: int | None = None) -> TokenDescription:
+    """How an error shows a markdown-it token: its type and the line it is on.
+
+    A block token knows its lines (`map`); an inline token does not, and takes `line` from the block
+    around it. markdown-it-py records no columns, so the description has no position.
+    """
+    if t.map:
+        line = t.map[0] + 1
+    return TokenDescription(t.type if line is None else f"{t.type} on line {line}")
+
+
+# --8<-- [end:describe]
+
+
 # --8<-- [start:inline]
 def make_link(opening_and_children: tuple[Token, list[Inline]]) -> Link:
     """A link from its `link_open` token, which holds the target, and its text."""
@@ -141,7 +164,7 @@ def make_link(opening_and_children: tuple[Token, list[Inline]]) -> Link:
     return Link(str(opening.attrs["href"]), children)
 
 
-inline: ForwardDeclParser[Token, Inline] = forward_decl()
+inline: ForwardDeclParser[Token, Inline] = forward_decl().named("inline content")
 text = token("text") >> (lambda t: Text(t.content))
 code = token("code_inline") >> (lambda t: Code(t.content))
 softbreak = token("softbreak") >> (lambda _: Break(hard=False))
@@ -156,8 +179,9 @@ inlines = many(inline) + -finished
 
 # --8<-- [start:block]
 def inline_content(t: Token) -> list[Inline]:
-    """The inline content of an `inline` token, parsed from its children."""
-    return inlines.parse(t.children or [])
+    """The inline content of an `inline` token, parsed from its children, which take its line."""
+    line = t.map[0] + 1 if t.map else None
+    return inlines.parse(t.children or [], describe=lambda child: describe(child, line))
 
 
 def make_heading(opening_and_children: tuple[Token, list[Inline]]) -> Heading:
@@ -172,7 +196,7 @@ def make_ordered_list(opening_and_items: tuple[Token, list[list[Block]]]) -> Ord
     return OrderedList(int(opening.attrs.get("start", 1)), items)
 
 
-block: ForwardDeclParser[Token, Block] = forward_decl()
+block: ForwardDeclParser[Token, Block] = forward_decl().named("block")
 inline_ = token("inline") >> inline_content
 heading = token("heading_open") + inline_ + -token("heading_close") >> make_heading
 paragraph = -token("paragraph_open") + inline_ + -token("paragraph_close") >> Paragraph
@@ -204,7 +228,7 @@ markdown = MarkdownIt("commonmark")
 
 def parse(text: str) -> list[Block]:
     """The blocks of the Markdown `text`; raises `NoParseError` for what the tree does not cover."""
-    return document.parse(markdown.parse(text))
+    return document.parse(markdown.parse(text), describe=describe)
 
 
 # --8<-- [end:parse]
