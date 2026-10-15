@@ -1,3 +1,6 @@
+import functools
+import operator
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -299,3 +302,59 @@ def test_a_parser_over_a_token_test_named_after_use_is_named_in_its_errors() -> 
 def test_a_skipped_token_test_names_the_token() -> None:
     e = error(tok("word") + -tok("op", ":"), [Token("word", "w"), Token("op", "=")])
     assert e.expected == ("':'",)
+
+
+# The optimised parsers, fused token tests and `|` dispatched by the next token, give what the
+# plain combinators give: the parsers built with `debug` on, which are neither fused nor dispatched.
+
+WRAPPERS = ["label", "map", "skip", "maybe", "commit", "context"]
+TERMS = st.recursive(
+    st.tuples(st.just("a"), st.sampled_from("xyz")),
+    lambda kids: st.one_of(
+        st.tuples(st.sampled_from(WRAPPERS), kids),
+        st.tuples(st.just("seq"), kids, kids),
+        st.tuples(st.just("or"), st.lists(kids, min_size=2, max_size=5)),
+    ),
+    max_leaves=10,
+)
+GRAMMARS = st.tuples(st.just("or"), st.lists(TERMS, min_size=3, max_size=5))
+
+
+WRAP: dict[str, Callable[[Parser[str, Any]], Parser[str, Any]]] = {
+    "label": lambda p: p.named("label"),
+    "map": lambda p: p >> repr,
+    "skip": lambda p: -p + a("z"),
+    "maybe": maybe,
+    "commit": commit,
+    "context": lambda p: p.context("ctx"),
+}
+
+
+def build(g: Any) -> Parser[str, Any]:
+    kind, *args = g
+    if kind == "a":
+        return a(args[0])
+    if kind == "seq":
+        return build(args[0]) + build(args[1])
+    if kind == "or":
+        return functools.reduce(operator.or_, [build(p) for p in args[0]])
+    return WRAP[kind](build(args[0]))
+
+
+def outcome(p: Parser[str, Any], text: str) -> object:
+    try:
+        return "value", (p + -finished).parse(text)
+    except NoParseError as e:
+        return "error", e.msg, e.expected, e.context, e.state.max
+
+
+@given(GRAMMARS, st.text("xyz", max_size=6))
+def test_the_optimised_parsers_parse_as_the_plain_ones(grammar: Any, text: str) -> None:
+    from funcparserlib import parser
+
+    plain_debug, parser.debug = parser.debug, True
+    try:
+        plain = build(grammar)
+    finally:
+        parser.debug = plain_debug
+    assert outcome(build(grammar), text) == outcome(plain, text)

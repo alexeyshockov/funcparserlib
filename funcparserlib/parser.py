@@ -98,7 +98,7 @@ from .lexer import Place, Token
 
 _log = logging.getLogger("funcparserlib")
 
-debug = False
+debug: bool = False
 
 
 @final
@@ -445,6 +445,11 @@ class Parser[A, B]:
     _leaf: bool = False
     _shape: bool = False
     _test: _TokenTest | None = None
+    # The keys, `_key(token)`, of every token the parser can start with, when known; a parser with
+    # them consumes at least that token.
+    _first: frozenset[object] | None = None
+    # A `|` parser: its alternatives, nested `|` flattened, in the order they are tried.
+    _alts: tuple[Parser[Any, Any], ...] = ()
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
@@ -588,6 +593,7 @@ class Parser[A, B]:
         p: Parser[A, C] = _token_test(_TokenTest(test.leaf, chain, test.pred, conv))
         p._rename(self.name)
         p._shape = self._shape
+        p._first = self._first
         return p
 
     def _wrap_for_debug(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
@@ -664,7 +670,7 @@ class Parser[A, B]:
         name = _label_of(self)
         shown = f"{name} (but not {_label_of(other) or '...'})" if name else "but_not(...)"
 
-        @_parser(shown, leaf=True)
+        @_parser(shown, leaf=True, first=self._first)
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
@@ -695,7 +701,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(_label_of(self) or "when(...)", leaf=True)
+        @_parser(_label_of(self) or "when(...)", leaf=True, first=self._first)
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError) or pred(res.value):
@@ -727,7 +733,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(self.name, shape=self._shape)
+        @_parser(self.name, shape=self._shape, first=self._first)
         def _context(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             inner = State(s.pos, s.max, s.expected, (*s.context, label), s.problems)
             res = self.run(tokens, inner)
@@ -762,7 +768,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(self.name, shape=self._shape)
+        @_parser(self.name, shape=self._shape, first=self._first)
         def _check(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError) or pred(res.value):
@@ -834,7 +840,7 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"({self.name}, {other.name})", shape=True)
+        @_parser(f"({self.name}, {other.name})", shape=True, first=self._first)
         def _add(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             res_l = self.run(tokens, s)
             if res_l.__class__ is ParsingError:
@@ -875,14 +881,46 @@ class Parser[A, B]:
             ```
         """
 
-        @_parser(f"{self.name} or {other.name}", shape=True)
-        def _or(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
+        def tried(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
             res = self.run(tokens, s)
             if not isinstance(res, ParsingError) or res.committed:
                 return res
             return other.run(tokens, res.state.reset_pos_to(s))
 
-        return _or
+        alts = (*(self._alts or (self,)), *(other._alts or (other,)))
+        first = None if self._first is None or other._first is None else self._first | other._first
+        table = None if debug else _dispatch_table(alts)
+        if table is None:
+            p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(tried)
+        else:
+            by_key, unknown = table
+
+            def dispatched(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
+                pos = s.pos
+                if pos < len(tokens):
+                    t = tokens[pos]
+                    try:
+                        candidates = by_key.get(t if t.__class__ is str else _key(t), unknown)
+                    except TypeError:  # an unhashable key
+                        return tried(tokens, s)
+                    st = s
+                    for alt in candidates:
+                        res = alt.run(tokens, st)
+                        if res.__class__ is not ParsingError:
+                            # The alternatives skipped could not read the token, and what they
+                            # expected is forgotten once parsing gets past it.
+                            if res.state.pos > pos:
+                                return res
+                            break
+                        if res.committed:
+                            break
+                        st = res.state.reset_pos_to(s)
+                # Every alternative in order, for the state and errors that trying them gives.
+                return tried(tokens, s)
+
+            p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(dispatched)
+        p._alts = alts
+        return p
 
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
@@ -890,7 +928,7 @@ class Parser[A, B]:
             conv = self._test.conv
             return self._fused(f if conv is None else lambda t: f(conv(t)))
 
-        @_parser(self.name, shape=self._shape)
+        @_parser(self.name, shape=self._shape, first=self._first)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
             return res.map(f)
@@ -900,7 +938,7 @@ class Parser[A, B]:
     def starmap[C](self, f: Callable[..., C]) -> Parser[A, C]:
         """Transform the parsing results (tuple) by applying the specified function."""
 
-        @_parser(self.name, shape=self._shape)
+        @_parser(self.name, shape=self._shape, first=self._first)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
             return res.starmap(f)
@@ -1015,7 +1053,7 @@ class Parser[A, B]:
         if self._test is not None and not debug:
             return cast("IgnoredParser[A]", self._fused(_ignore))
 
-        @_parser(self.name, shape=self._shape)
+        @_parser(self.name, shape=self._shape, first=self._first)
         def _ignored(tokens: Sequence[A], s: State) -> ParsingResult[IgnoredValue]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
@@ -1095,7 +1133,11 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
 
 
 def _parser[A, B](
-    name: str | None, *, leaf: bool = False, shape: bool = False
+    name: str | None,
+    *,
+    leaf: bool = False,
+    shape: bool = False,
+    first: frozenset[object] | None = None,
 ) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     """`parser()` for the parsers the library builds: a name without a label.
 
@@ -1108,6 +1150,7 @@ def _parser[A, B](
         p: Parser[A, B] = _built(Parser, f)._rename(name)
         p._leaf = leaf
         p._shape = shape
+        p._first = first
         return p
 
     return decorator
@@ -1361,6 +1404,28 @@ class _TokenTest:
     conv: Callable[[Any], Any] | None
 
 
+def _key(t: object) -> object:
+    """What `|` looks a token up by: its `type`, or the token itself when it has none."""
+    return getattr(t, "type", t)
+
+
+type _Dispatch = tuple[dict[object, tuple[Parser[Any, Any], ...]], tuple[Parser[Any, Any], ...]]
+
+
+def _dispatch_table(alts: tuple[Parser[Any, Any], ...]) -> _Dispatch | None:
+    """For each token key, the alternatives that can start with it, in order; then the ones that can
+    start with any token. `None` when it would not narrow the choice.
+    """
+    known = [alt._first for alt in alts if alt._first is not None]
+    if len(alts) < 3 or len(known) < 2:
+        return None
+    keys: set[object] = set().union(*known)
+    by_key = {
+        key: tuple(alt for alt in alts if alt._first is None or key in alt._first) for key in keys
+    }
+    return by_key, tuple(alt for alt in alts if alt._first is None)
+
+
 def _token_test(test: _TokenTest) -> Parser[Any, Any]:
     """One parser running the token test, `>>` and `-p` would run in several."""
     pred, conv, chain, leaf = test.pred, test.conv, test.chain, test.leaf
@@ -1518,7 +1583,13 @@ def a[A](value: A) -> Parser[A, A]:
     def eq_value(t: A) -> bool:
         return t == value
 
-    return some(eq_value).named(repr(name))
+    p = some(eq_value).named(repr(name))
+    # The key every token equal to `value` has, for the types whose equality is known to agree.
+    if isinstance(value, str):
+        p._first = frozenset({value})
+    elif isinstance(value, Token):
+        p._first = frozenset({value.type})
+    return p
 
 
 # noinspection PyShadowingBuiltins
@@ -1573,6 +1644,7 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
 
     eq = eq_type if value is None else cast("Callable[[Token], bool]", eq_token)
     p = some(eq).named(type if value is None else repr(value))
+    p._first = frozenset({type})
     return (p >> cast("Callable[[Token], str]", attrgetter("value")))._rename(p.name)
 
 
@@ -1616,7 +1688,7 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
         ```
     """
 
-    @_parser(p.name, shape=p._shape)
+    @_parser(p.name, shape=p._shape, first=p._first)
     def _commit(tokens: Sequence[A], s: State) -> ParsingResult[B]:
         # A fresh furthest position tells whether `p` read a token.
         res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
