@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The commit hooks run on pre-commit.ci from `.pre-commit-config.yaml`. The jobs here need the
+# project importable or a specific interpreter. Each step runs a `just` recipe, and the conventions
+# runner (CON700) holds the `gate` job to `just gate`'s dependency list.
+jobs:
+  # Everything `just gate` runs, one recipe per named step so GitHub reports which one failed, in
+  # the gate's order.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The release tags: the conventions runner holds the tree's version above the newest
+          # one (CON413) and gives no verdict on a clone without them (CON414).
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - run: uv sync --all-groups --all-extras
+      - name: conventions
+        run: just conventions
+      - name: import-linter
+        run: just imports
+      - name: deptry
+        run: just deps
+      - name: slotscheck
+        run: just slots
+      - name: type check (mypy)
+        run: just types
+      - name: type completeness (pyrefly coverage)
+        run: just type-coverage
+      - name: type-safety suite (basedpyright)
+        run: just types-api
+      - name: type check examples (ty)
+        run: just types-examples
+      - name: type check tests (ty)
+        run: just types-tests
+      - name: type check the checks (ty)
+        run: just types-checks
+      # Second opinions from ty and pyrefly; the recipe never fails.
+      - name: ty and pyrefly (informational)
+        run: just types-info
+
+  tests:
+    uses: ./.github/workflows/tests.yaml # zizmor: ignore[self-repository]
+
+  # The one required status check. It fails unless every job it needs succeeded; GitHub reports a
+  # job skipped by a failed dependency as passed.
+  ci:
+    needs: [gate, tests]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - run: test "$NOT_ALL_PASSED" = false
+        env:
+          NOT_ALL_PASSED: >-
+            ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+            || contains(needs.*.result, 'skipped') }}
