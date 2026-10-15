@@ -11,7 +11,7 @@ messages.
 
 ### Added
 
-- Support for Python 3.12, 3.13 and 3.14, including the free-threaded 3.14t build
+- Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
   and `~p` / `anything_but(p)`
 - `funcparserlib.util.expand_tuple_args()`, which adapts a function of N arguments to the tuple that

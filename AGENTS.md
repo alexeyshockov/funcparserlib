@@ -37,7 +37,7 @@ just check [FILES]       # read-only: every applicable hook, + ty for Python pat
 just fix [FILES]         # apply the fixers
 just types               # mypy over the package, the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
-just tests               # the noxfile's local sessions: the 3.12 floor and free-threaded 3.14t
+just tests               # the noxfile's local sessions: the 3.12 floor and free-threaded 3.15t
 just docs-build          # the site into site/
 uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 ```

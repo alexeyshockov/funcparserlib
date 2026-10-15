@@ -19,7 +19,7 @@ Day to day:
 just check path/to/file.py   # read-only verdict for one file (never rewrites it)
 just types                   # mypy over the package — the correctness gate
 just gate                    # everything a pull request must pass (CI's gate job runs its static part)
-just tests                   # the suite on the 3.12 floor and on free-threaded 3.14t
+just tests                   # the suite on the 3.12 floor and on free-threaded 3.15t
 just docs-serve              # the site with live reload
 just fix                     # the only recipe that rewrites files
 just --list                  # every recipe, always current
