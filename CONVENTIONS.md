@@ -465,18 +465,18 @@ broader unit checks, and only then integration or container checks. Before handi
 inspect the final diff and report commands run and their results, checks not run with the reason,
 and residual risks.
 
-The `main` branch is the only stable branch and will never be force-pushed. Any other branch,
+The `master` branch is the only stable branch and will never be force-pushed. Any other branch,
 including release branches, may be rebased or force-pushed at any time.
 
 ## Releases
 
 A repository is one library and is released as one version: every distribution in it ships at
 every release, pinned to the others exactly.
-Releases are cut from `main` by a maintainer, and a release is a GitHub release: a draft opened by
+Releases are cut from `master` by a maintainer, and a release is a GitHub release: a draft opened by
 `just release X.Y.Z`, reviewed on GitHub, and published by a person. Publishing creates the tag
 `vX.Y.Z` and fires the publish workflow, which uploads the distributions to PyPI through
 [trusted publishing](https://docs.pypi.org/trusted-publishers/) with Sigstore-signed PEP 740
-attestations, so no API token is stored anywhere. A release commits nothing to `main`.
+attestations, so no API token is stored anywhere. A release commits nothing to `master`.
 
 ### Layout
 
@@ -519,7 +519,7 @@ attestations, so no API token is stored anywhere. A release commits nothing to `
    dated, and finalise the entries. Everything the release ships is settled in the tree before it
    is tagged.
 
-3. From a clean, pushed `main` checkout whose tree holds `X.Y.Z.devN`:
+3. From a clean, pushed `master` checkout whose tree holds `X.Y.Z.devN`:
 
    ```shell
    just release X.Y.Z

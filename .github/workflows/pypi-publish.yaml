@@ -19,6 +19,8 @@ jobs:
     needs: tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -34,6 +36,11 @@ jobs:
       - run: just tools::run conventions release "$TAG" --write
         env:
           TAG: ${{ github.event.release.tag_name }}
+      # The PyPI version of the tag: `vX.Y.Z` without the `v`, for the environment's link.
+      - id: version
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
       - run: uv build --all-packages --no-sources
       - uses: actions/upload-artifact@v4
         with:
@@ -46,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/funcparserlib/${{ github.event.release.name }}
+      url: https://pypi.org/project/funcparserlib/${{ needs.build.outputs.version }}
     permissions:
       contents: read
       # Required for PyPI trusted publishing + Sigstore-signed PEP 740 attestations

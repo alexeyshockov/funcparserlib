@@ -138,7 +138,8 @@ def ruff_reaches_the_shared_file(project: Project) -> Iterator[Finding]:
     Reason: an `extend` of a missing or empty file, or of one whose settings sit under a
     `[tool.ruff]` prefix ruff ignores there, lints with ruff's defaults.
 
-    Fix: restore the file from the main branch (`git checkout origin/main -- shared.ruff.toml`).
+    Fix: restore the file from the default branch
+    (`git checkout origin/<branch> -- shared.ruff.toml`).
     """
     text, data = _pyproject(project)
     ruff = data.get("tool", {}).get("ruff", {})

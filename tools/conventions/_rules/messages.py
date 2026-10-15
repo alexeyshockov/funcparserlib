@@ -424,7 +424,7 @@ def builders(project: Project) -> Iterator[Finding]:
     Reason: the note scan reads every message raised through it; a rename or a removal takes them
     all out of the scan without a sound.
 
-    Fix: restore `<package>/_commons.py` from the main branch.
+    Fix: restore `<package>/_commons.py` from the default branch.
 
     CON621: Every name in `[tool.conventions.messages] builders` is defined in `builders_home`.
 

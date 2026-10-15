@@ -54,13 +54,13 @@ release version:
         echo "working tree dirty; commit or stash first" >&2
         exit 1
     fi
-    if [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]; then
-        echo "not on main; checkout main first" >&2
+    if [ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]; then
+        echo "not on master; checkout master first" >&2
         exit 1
     fi
-    git fetch --quiet origin main
-    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-        echo "HEAD is not origin/main; push or pull first" >&2
+    git fetch --quiet origin master
+    if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/master)" ]; then
+        echo "HEAD is not origin/master; push or pull first" >&2
         exit 1
     fi
     {{ tools }} conventions release "v{{ version }}"

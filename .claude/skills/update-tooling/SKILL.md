@@ -47,7 +47,7 @@ Three invariants that must survive any update:
    `.pre-commit-config.yaml` are maintained upstream; do not bump them here; `just frozen-revs` checks them.
 2. Check `just frozen-revs` passed. Some revs are pinned on purpose: they are `frozen_revs` in the
    justfile, each with its reason commented beside its hook in `.pre-commit-config.yaml`. A failure
-   means a pinned rev moved; restore it from the main branch and report it in an issue.
+   means a pinned rev moved; restore it from the `master` branch and report it in an issue.
 3. `just tools-upgrade` moves `tools/uv.lock` within the constraints
    `tools/pyproject.toml` states. When several tools move at once and the fallout needs to be
    attributable, take them one at a time with `uv lock --project tools --upgrade-package <tool>`.
