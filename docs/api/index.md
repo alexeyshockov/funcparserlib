@@ -1,4 +1,4 @@
-# API Reference 
+# API Reference
 
 Funcparserlib consists of the following modules:
 

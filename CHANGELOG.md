@@ -1,0 +1,200 @@
+# Changelog
+
+## [Unreleased]
+
+Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib~=1.0`.
+
+The grammar-writing API of 1.0 keeps working: `tok`, `a`, `some`, `many`, `oneplus`, `maybe`, `skip`,
+`pure`, `finished`, `forward_decl`, `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `p.named()`, `p.parse()`,
+`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same results and error
+messages.
+
+### Added
+
+- Support for Python 3.12, 3.13 and 3.14, including the free-threaded 3.14t build
+- `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
+  and `~p` / `anything_but(p)`
+- `funcparserlib.util.expand_tuple_args()`, which adapts a function of N arguments to the tuple that
+  `p1 + ... + pN` produces
+- The `parser(name)` decorator, which makes a named `Parser` from a parsing function
+- `ParsingResult`, `ParsingSuccess` and `ParsingError`: the result a parsing function returns
+- `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
+- Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
+  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `IgnoredValue`, `State` (parser)
+- `funcparserlib.__version__`
+- `Token` is hashable, consistently with `==`: by type and value, ignoring positions
+
+### Changed
+
+- Dropped support for Python 2.7 and 3.7 to 3.11
+- A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
+  `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one
+  raises `NoParseError` when unpacked.
+- `Token`, `TokenSpec`, `State` and the parsing results are immutable to type checkers. Every exported
+  class except `Parser` is `@final` to type checkers.
+- The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
+  mypy, pyright and ty
+- Built with uv and `uv_build`
+
+### Removed
+
+- `with_forward_decls()`, deprecated since 0.3.1: use `forward_decl()` and `p.define()`
+- `Parser.define()` outside forward declarations: `define()` is a method of `ForwardDeclParser`
+- `funcparserlib.parser.log`: configure the `"funcparserlib"` logger by its name
+
+## 1.0.1 — 2022-11-04
+
+### Added
+
+- Added support for Python 3.11
+
+## 1.0.0 — 2022-05-02
+
+The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was released on
+2013-05-02, with a few bug fixes and small features.
+
+### Added
+
+- Added support for Python 3.10
+- Added support for Python 3.9
+  ([#63](https://github.com/vlasovskikh/funcparserlib/pull/63))
+  (Thanks to [@pkulev](https://github.com/pkulev))
+- Added support for Python 3.8
+- Added `-p` (the same as `skip(p)`) with more strict type hints for `-p` and `p1 + p2`
+- Added `tok(type[, value])` for more compact grammars, better error messages
+- Added `TokenSpec(type, pattern[, flags])` to simplify the use of `make_tokenizer()`
+- Added type hints for the public API
+- Added the new library homepage with the new Getting Started guide and the new API
+  reference
+
+### Changed
+
+- Parse exceptions now show expected tokens and grammar rules at the stopped position
+  ([#52](https://github.com/vlasovskikh/funcparserlib/issues/52))
+- Dropped support for Python 3.4, 3.5, 3.6 (end of life)
+- Dropped support for Python 2.5, 2.6, 3.3 (end of life), modernized code for Python
+  3 to run without obsolete `2to3`
+  ([#57](https://github.com/vlasovskikh/funcparserlib/pull/57))
+  (Thanks to [@jdufresne](https://github.com/jdufresne))
+- Removed documentation and unit tests from the distribution
+- Switched from setuptools to Poetry
+- Switched to poetry-core for lighter PEP 517 builds
+  ([#73](https://github.com/vlasovskikh/funcparserlib/pull/73))
+  (Thanks to [@fabaff](https://github.com/fabaff))
+- Run unit tests on GitHub Actions for all supported Pythons
+
+### Fixed
+
+- Fixed `TypeError` in `oneplus` when applying it `parser + parser`
+  ([#66](https://github.com/vlasovskikh/funcparserlib/issues/66))
+  (Thanks to [@martica](https://github.com/martica))
+- Fixed `AttributeError` when comparing `Token` objects to `None`
+  ([#58](https://github.com/vlasovskikh/funcparserlib/pull/58))
+  (Thanks to [@Halolegend94](https://github.com/Halolegend94))
+- Fixed doctests in the tutorial
+  ([#49](https://github.com/vlasovskikh/funcparserlib/issues/49))
+- Fixed several cases of wrong expected tokens in error messages
+
+## 0.3.6 — 2013-05-02
+
+### Changed
+
+- Python 3 compatibility
+- More info available in exception objects
+  ([#14](https://github.com/vlasovskikh/funcparserlib/issues/14))
+
+### Fixed
+
+- Fixed `many()` that consumed too many tokens in some cases
+  ([#31](https://github.com/vlasovskikh/funcparserlib/issues/31))
+
+## 0.3.5 — 2011-01-13
+
+### Changed
+
+- Python 2.4 compatibility
+- More readable terminal names for error reporting
+
+### Fixed
+
+- Fixed wrong token positions in lexer error messages
+
+## 0.3.4 — 2009-10-06
+
+### Changed
+
+- Switched from `setuptools` to `distutils`
+- Improved the `run-tests` utility
+
+### Fixed
+
+- Fixed importing all symbols from `funcparserlib.lexer`
+
+## 0.3.3 — 2009-08-03
+
+### Added
+
+- Added a FAQ question about infinite loops in parsers
+
+### Changed
+
+- Debug rule tracing can be enabled again
+
+### Fixed
+
+- Fixed a bug in results of skip + skip parsers
+
+## 0.3.2 — 2009-07-26
+
+### Added
+
+- Added the Parsing Stages Illustrated page
+
+### Fixed
+
+- Fixed some string and number encoding issues in examples
+
+## 0.3.1 — 2009-07-26
+
+Major optimizations (10x faster than the version 0.3).
+
+### Added
+
+- Added the `forward_decl` function, that performs better than `with_forward_decls`
+- Added the `pretty_tree` function for creating pseudo-graphic trees
+- Added the Nested Brackets Mini-HOWTO
+- Added `Makefile` and this `CHANGES.md` file
+
+### Changed
+
+- Use a single immutable input sequence in parsers
+- Call a wrapped parser directly using `run` (without `__call__`)
+- The slow `logging` is enabled only when the `debug` flag is set
+
+## 0.3 — 2009-07-23
+
+### Added
+
+- Added `pure` and `bind` functions on `Parser`s making them monads
+- Added the Funcparserlib Tutorial
+- Added a JSON parser as an example
+
+### Changed
+
+- Translated the docs from Russian into English
+
+## 0.2 — 2009-07-07
+
+### Added
+
+- Added the `with_forward_decls` combinator for dealing with forward declarations
+
+### Changed
+
+- Switched to the iterative implementation of `many`
+- Un-curried the parser function type in order to simplify things
+- Improvements to the DOT parser
+
+## 0.1 — 2009-06-26
+
+Initial release.

@@ -1,13 +1,14 @@
-Tokenizing Input
-================
+# Tokenizing Input
+
+<!-- Python-Markdown, which renders the site, nests a list only under a 4-space indent. -->
+<!-- markdownlint-configure-file {"MD007": {"indent": 4}} -->
 
 Parsing is usually split into two steps:
 
 1. Tokenizing the input string into a sequence of tokens
 2. Parsing the tokens into a parse tree
 
-
-```
+```text
          ┌────────────┐               ┌─────────┐
    str   │            │  List[Token]  │         │   Expr
 ─────────► tokenize() ├───────────────► parse() ├─────────►
@@ -15,19 +16,23 @@ Parsing is usually split into two steps:
          └────────────┘               └─────────┘
 ```
 
-**Tokens** are larger pieces of the input text such as words, punctuation marks, spaces, etc. It's easier to parse a list of tokens than a string, since you can skip auxiliary tokens (spaces, newlines, commments) during tokenizing and focus on the main ones. Tokens usually track their position in the text, which is helpful in parsing error messages.
+**Tokens** are larger pieces of the input text such as words, punctuation marks, spaces, etc. It's easier to parse a
+ list of tokens than a string, since you can skip auxiliary tokens (spaces, newlines, comments) during tokenizing and
+ focus on the main ones. Tokens usually track their position in the text, which is helpful in parsing error messages.
 
+## Tokenizing with `make_tokenizer()`
 
-Tokenizing with `make_tokenizer()`
-----------------------------------
+One of the most common ways to define tokens and tokenizing rules is via regular expressions. `funcparserlib` comes with
+the module [`funcparserlib.lexer`](../api/lexer.md) for creating regexp-based tokenizers.
 
-One of the most common ways to define tokens and tokenizing rules is via regular expressions. `funcparserlib` comes with the module [`funcparserlib.lexer`](../api/lexer.md) for creating regexp-based tokenizers.
+/// note
 
-!!! Note
+Parsers defined with `funcparserlib` can work with _any_ tokens. You can plug your custom tokenizers and token types or
+even parse raw strings as lists of character tokens.
 
-    Parsers defined with `funcparserlib` can work with _any_ tokens. You can plug your custom tokenizers and token types or even parse raw strings as lists of character tokens.
-
-    In this guide we will use the _recommended_ way of writing tokenizers: `make_tokenizer()` from the `funcparserlib.lexer` module.
+In this guide we will use the _recommended_ way of writing tokenizers: `make_tokenizer()` from the `funcparserlib.lexer`
+module.
+///
 
 Let's identify token types in our numeric expressions language:
 
@@ -40,7 +45,8 @@ Let's identify token types in our numeric expressions language:
 * Operators
     * `(`, `)`, `*`, `+`, `/`, `-`, `**`
 
-We will define our token specs and pass them to `make_tokenizer()` to generate our tokenizer. We will also drop whitespace tokens from the result, since we don't need them.
+We will define our token specs and pass them to `make_tokenizer()` to generate our tokenizer. We will also drop
+whitespace tokens from the result, since we don't need them.
 
 Some imports first:
 
@@ -65,12 +71,14 @@ The tokenizer itself:
 
 ```
 
-!!! Warning
+/// warning
 
-    Be careful with ordering your token specs and your regexps so that larger tokens come first before their smaller subparts. In our token specs:
+Be careful with ordering your token specs and your regexps so that larger tokens come first before their smaller
+subparts. In our token specs:
 
-    * _Float_ tokens should come before _int_ tokens
-    * `**` should come before `*`
+* _Float_ tokens should come before _int_ tokens
+* `**` should come before `*`
+///
 
 Let's try our tokenizer:
 
@@ -88,10 +96,9 @@ The `str()` form of the token shows its position in the input text, also availab
 
 ```
 
-
-Next
-----
+## Next
 
 We have tokenized an numeric expression string into a list of tokens.
 
-In [the next chapter](parsing.md) you will learn how to parse these tokens by defining a grammar for our numeric expressions language.
+In [the next chapter](parsing.md) you will learn how to parse these tokens by defining a grammar for our numeric
+expressions language.

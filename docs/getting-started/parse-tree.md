@@ -1,8 +1,6 @@
-Preparing the Parse Tree
-========================
+# Preparing the Parse Tree
 
 So far we have defined the parser for our calculator expressions language:
-
 
 ```pycon
 >>> from typing import List
@@ -39,18 +37,18 @@ So far we have defined the parser for our calculator expressions language:
 
 Here is how its parse results look so far:
 
-
 ```pycon
 >>> document.parse(tokenize("2 ** (3 ** 4)"))
 ('2', [('**', ('(', ('3', [('**', '4')]), ')'))], None)
 
 ```
 
+## `p >> f`: Transforming Parse Results
 
-`p >> f`: Transforming Parse Results
-------------------------------------
-
-Let's start improving our parse results by converting numbers from `str` to `int` or `float`. We will use the [`Parser.__rshift__`](../api/parser.md#funcparserlib.parser.Parser.__rshift__) combinator for that. `p >> f` takes a parser `p` and a function `f` of a single argument and returns a new parser, that applies `f` to the parse result of `p`.
+Let's start improving our parse results by converting numbers from `str` to `int` or `float`. We will use the
+[`Parser.__rshift__`](../api/parser.md#funcparserlib.parser.Parser.__rshift__) combinator for that. `p >> f` takes a
+parser `p` and a function `f` of a single argument and returns a new parser, that applies `f` to the parse result of
+`p`.
 
 An integer parser that returns `int` values:
 
@@ -59,19 +57,22 @@ An integer parser that returns `int` values:
 
 ```
 
-!!! Note
+/// note
 
-    We specify the type hint for the parser only for clarity here. We wanted to highlight that `>>` here changes the output type of the parser from `str` to `int`. You may omit type hints for parsers and rely on type inference features of your text editor and type checker to get code completion and linting warnings:
+We specify the type hint for the parser only for clarity here. We wanted to highlight that `>>` here changes the output
+type of the parser from `str` to `int`. You may omit type hints for parsers and rely on type inference features of your
+text editor and type checker to get code completion and linting warnings:
 
-    ```pycon
-    >>> int_num = tok("int") >> int
+```pycon
+>>> int_num = tok("int") >> int
 
-    ```
+```
 
-    The only combinator which type is not inferrable is `forward_decl()`. You should specify its type explicitly to get your parser fully type checked.
+The only combinator which type is not inferrable is `forward_decl()`. You should specify its type explicitly to get your
+parser fully type checked.
+///
 
 Try it:
-
 
 ```pycon
 >>> int_num.parse(tokenize("42"))
@@ -101,9 +102,7 @@ Test it:
 
 ```
 
-
-`-p`: Skipping Parse Results
-----------------------------
+## `-p`: Skipping Parse Results
 
 Let's recall our nested parenthesized numbers example:
 
@@ -121,7 +120,10 @@ Test it:
 
 ```
 
-We have successfully parsed numbers in nested parentheses, but we don't want to see parentheses in the parsing results. Let's skip them using the [`Parser.__neg__`](../api/parser.md#funcparserlib.parser.Parser.__neg__) combinator. It allows you to skip any parts of a sequence of parsers concatenated via `p1 + p2 + ... + pN` by using a unary `-p` operator on the ones you want to skip:
+We have successfully parsed numbers in nested parentheses, but we don't want to see parentheses in the parsing results.
+Let's skip them using the [`Parser.__neg__`](../api/parser.md#funcparserlib.parser.Parser.__neg__) combinator. It allows
+you to skip any parts of a sequence of parsers concatenated via `p1 + p2 + ... + pN` by using a unary `-p` operator on
+the ones you want to skip:
 
 ```pycon
 >>> p = forward_decl()
@@ -130,7 +132,6 @@ We have successfully parsed numbers in nested parentheses, but we don't want to 
 ```
 
 The result is cleaner now:
-
 
 ```pycon
 >>> p.parse(tokenize("1"))
@@ -144,7 +145,8 @@ The result is cleaner now:
 
 ```
 
-Let's re-define our grammar using the [`Parser.__neg__`](../api/parser.md#funcparserlib.parser.Parser.__neg__) combinator to get rid of extra parentheses in the parse results, as well as of extra `None` returned by `finished`:
+Let's re-define our grammar using the [`Parser.__neg__`](../api/parser.md#funcparserlib.parser.Parser.__neg__)
+combinator to get rid of extra parentheses in the parse results, as well as of extra `None` returned by `finished`:
 
 ```pycon
 >>> expr = forward_decl()
@@ -164,10 +166,10 @@ Test it:
 
 ```
 
-User-Defined Classes for the Parse Tree
----------------------------------------
+## User-Defined Classes for the Parse Tree
 
-We have many types of binary operators in our grammar, but we've defined only the `**` power operator so far. Let's define them for `*`, `/`, `+`, `-` as well:
+We have many types of binary operators in our grammar, but we've defined only the `**` power operator so far. Let's
+define them for `*`, `/`, `+`, `-` as well:
 
 ```pycon
 >>> expr = forward_decl()
@@ -181,10 +183,10 @@ We have many types of binary operators in our grammar, but we've defined only th
 
 ```
 
-Here we've introduced a hierarchy of nested parsers: `expr -> sum -> term -> power -> primary -> parenthesized -> expr -> ...` to reflect the order of calculations set by our operator priorities: `+` < `*` < `**` < `()`.
+Here we've introduced a hierarchy of nested parsers: `expr -> sum -> term -> power -> primary -> parenthesized -> expr
+-> ...` to reflect the order of calculations set by our operator priorities: `+` < `*` < `**` < `()`.
 
 Test it:
-
 
 ```pycon
 >>> document.parse(tokenize("1 * (2 + 0) ** 3"))
@@ -192,13 +194,15 @@ Test it:
 
 ```
 
-It's hard to understand the results without proper user-defined classes for our expression types. We actually have 3 expression types:
+It's hard to understand the results without proper user-defined classes for our expression types. We actually have 3
+expression types:
 
 * Integer numbers
 * Floating point numbers
 * Binary expressions
 
-For integers and floats we will use Python `int` and `float` classes. For binary expressions we'll introduce the `BinaryExpr` class:
+For integers and floats we will use Python `int` and `float` classes. For binary expressions we'll introduce the
+`BinaryExpr` class:
 
 ```pycon
 >>> from dataclasses import dataclass
@@ -212,15 +216,18 @@ For integers and floats we will use Python `int` and `float` classes. For binary
 
 ```
 
-Since we don't use a common base class for our expressions, we have to define `Expr` as a union of possible expression types:
+Since we don't use a common base class for our expressions, we have to define `Expr` as a union of possible expression
+types:
 
-
-```
+```text
 >>> Expr = Union[BinaryExpr, int, float]
 
 ```
 
-Now let's define a function to transform the parse results of our binary operators into `BinaryExpr` objects. Take a look at our parsers of various binary expressions. You can infer that each of them returns _(expression, list of (operator, expression))_. We will transform these nested tuples and lists into a tree of nested expressions by defining a function `to_expr(args)` and applying `>> to_expr` to our expression parsers:
+Now let's define a function to transform the parse results of our binary operators into `BinaryExpr` objects. Take a
+look at our parsers of various binary expressions. You can infer that each of them returns _(expression, list of
+(operator, expression))_. We will transform these nested tuples and lists into a tree of nested expressions by defining
+a function `to_expr(args)` and applying `>> to_expr` to our expression parsers:
 
 ```pycon
 >>> from typing import Tuple
@@ -236,7 +243,6 @@ Now let's define a function to transform the parse results of our binary operato
 ```
 
 Let's re-define our grammar using this transformation:
-
 
 ```pycon
 >>> expr: Parser[Token, Expr] = forward_decl()
@@ -265,19 +271,19 @@ Let's pretty-print it using the [`pretty_tree(x, kids, show)`](../api/util.md#fu
 
 
 >>> def pretty_expr(expr: Expr) -> str:
-... 
+...
 ...     def kids(expr: Expr) -> List[Expr]:
 ...         if isinstance(expr, BinaryExpr):
 ...             return [expr.left, expr.right]
 ...         else:
 ...             return []
-... 
+...
 ...     def show(expr: Expr) -> str:
 ...         if isinstance(expr, BinaryExpr):
 ...             return f"BinaryExpr({expr.op!r})"
 ...         else:
 ...             return repr(expr)
-... 
+...
 ...     return pretty_tree(expr, kids, show)
 
 ```
@@ -296,14 +302,9 @@ BinaryExpr('*')
 
 ```
 
-
-
 Finally, we have a proper parse tree that is easy to understand and work with!
 
-
-Next
-----
-
+## Next
 
 We've finished writing our numeric expressions parser.
 

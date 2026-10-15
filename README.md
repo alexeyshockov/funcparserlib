@@ -1,38 +1,40 @@
-Funcparserlib
-=============
+# Funcparserlib
+
+<!-- Python-Markdown, which renders the site, nests a list only under a 4-space indent. -->
+<!-- markdownlint-configure-file {"MD007": {"indent": 4}} -->
 
 Recursive descent parsing library for Python based on functional combinators.
 
 [![PyPI](https://img.shields.io/pypi/v/funcparserlib)](https://pypi.org/project/funcparserlib/)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/funcparserlib)](https://pypi.org/project/funcparserlib/)
 
-
-Description
------------
+## Description
 
 The primary focus of `funcparserlib` is **parsing little languages** or **external DSLs** (domain specific languages).
 
-Parsers made with `funcparserlib` are pure-Python LL(\*) parsers. It means that it's **very easy to write parsers** without thinking about lookaheads and other hardcore parsing stuff. However, recursive descent parsing is a rather slow method compared to LL(k) or LR(k) algorithms. Still, parsing with `funcparserlib` is **at least twice faster than PyParsing**, a very popular library for Python.
+Parsers made with `funcparserlib` are pure-Python LL(\*) parsers. It means that it's **very easy to write parsers**
+without thinking about lookaheads and other hardcore parsing stuff. However, recursive descent parsing is a rather slow
+method compared to LL(k) or LR(k) algorithms. Still, parsing with `funcparserlib` is **at least twice faster than
+PyParsing**, a very popular library for Python.
 
-The source code of `funcparserlib` is only 1.2K lines of code, with lots of comments. Its API is fully type hinted. It features the longest parsed prefix error reporting, as well as a tiny lexer generator for token position tracking.
+The source code of `funcparserlib` is only 1.2K lines of code, with lots of comments. Its API is fully type hinted. It
+features the longest parsed prefix error reporting, as well as a tiny lexer generator for token position tracking.
 
-The idea of parser combinators used in `funcparserlib` comes from the [Introduction to Functional Programming](https://www.cl.cam.ac.uk/teaching/Lectures/funprog-jrh-1996/) course. We have converted it from ML into Python.
+The idea of parser combinators used in `funcparserlib` comes from the [Introduction to Functional
+Programming](https://www.cl.cam.ac.uk/teaching/Lectures/funprog-jrh-1996/) course. We have converted it from ML into
+Python.
 
-
-Installation
-------------
+## Installation
 
 You can install `funcparserlib` from [PyPI](https://pypi.org/project/funcparserlib/):
 
 ```shell
-$ pip install funcparserlib
+pip install funcparserlib
 ```
 
 There are no dependencies on other libraries.
 
-
-Documentation
--------------
+## Documentation
 
 * [Getting Started](https://funcparserlib.pirx.ru/getting-started/)
     * Your **starting point** with `funcparserlib`
@@ -46,24 +48,21 @@ There are several examples available in the `tests/` directory:
 
 See also [the changelog](https://funcparserlib.pirx.ru/changes/).
 
+## Example
 
-Example
--------
+Let's consider a little language of **numeric expressions** with a syntax similar to Python expressions. Here are some
+expression strings in this language:
 
-Let's consider a little language of **numeric expressions** with a syntax similar to Python expressions. Here are some expression strings in this language:
-
-```
+```text
 0
 1 + 2 + 3
 -1 + 2 ** 32
 3.1415926 * (2 + 7.18281828e-1) * 42
 ```
 
-
 Here is **the complete source code** of the tokenizer and the parser for this language written using `funcparserlib`:
 
 ```python
-from typing import Union
 from dataclasses import dataclass
 
 from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
@@ -77,7 +76,7 @@ class BinaryExpr:
     right: "Expr"
 
 
-Expr = Union[BinaryExpr, int, float]
+type Expr = BinaryExpr | int | float
 
 
 def tokenize(s: str) -> list[Token]:
@@ -125,7 +124,7 @@ Now, consider this numeric expression: `3.1415926 * (2 + 7.18281828e-1) * 42`.
 
 Let's `tokenize()` it using the tokenizer we've created with `funcparserlib.lexer`:
 
-```
+```text
 [
     Token('float', '3.1415926'),
     Token('op', '*'),
@@ -141,7 +140,7 @@ Let's `tokenize()` it using the tokenizer we've created with `funcparserlib.lexe
 
 Let's `parse()` these tokens into an expression tree using our parser created with `funcparserlib.parser`:
 
-```
+```text
 BinaryExpr(
     op='*',
     left=BinaryExpr(
@@ -153,11 +152,10 @@ BinaryExpr(
 )
 ```
 
-Learn how to write this parser using `funcparserlib` in the [Getting Started](https://funcparserlib.pirx.ru/getting-started/) guide!
+Learn how to write this parser using `funcparserlib` in the [Getting
+Started](https://funcparserlib.pirx.ru/getting-started/) guide!
 
-
-Used By
--------
+## Used By
 
 Some open-source projects that use `funcparserlib` as an explicit dependency:
 
@@ -172,8 +170,6 @@ Some open-source projects that use `funcparserlib` as an explicit dependency:
 * [kll](https://github.com/kiibohd/kll), Keyboard Layout Language (KLL) compiler
     * 113 stars, copied source code, Python 3.5+
 
-
-Next
-----
+## Next
 
 Read the [Getting Started](https://funcparserlib.pirx.ru/getting-started/) guide to start learning `funcparserlib`.

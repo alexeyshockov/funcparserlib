@@ -1,0 +1,4 @@
+{
+  // Pages that are one `--8<--` include of a root file, which carries the heading.
+  "ignores": ["docs/index.md", "docs/changes.md"]
+}

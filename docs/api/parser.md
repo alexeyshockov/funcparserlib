@@ -1,42 +1,28 @@
 # `funcparserlib.parser` — Functional parsing combinators
 
+<!-- markdownlint-disable MD050 -- the `:::` identifiers name dunder methods, not bold text -->
+
 ::: funcparserlib.parser
-    rendering:
+    options:
         show_root_heading: false
 
 ::: funcparserlib.parser.Parser
 
 ::: funcparserlib.parser.Parser.parse
-    rendering:
-        heading_level: 3
 
-::: funcparserlib.parser.Parser.define
-    rendering:
-        heading_level: 3
+::: funcparserlib.parser.ForwardDeclParser.define
 
 ::: funcparserlib.parser.Parser.named
-    rendering:
-        heading_level: 3
 
-
-Primitive Parsers
------------------
+## Primitive Parsers
 
 ::: funcparserlib.parser.tok
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.a
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.some
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.forward_decl
-    rendering:
-        heading_level: 3
 
 ### `finished`
 
@@ -63,45 +49,25 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 
 ```
 
-
-Parser Combinators
-------------------
+## Parser Combinators
 
 ::: funcparserlib.parser.Parser.__add__
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.Parser.__neg__
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.Parser.__or__
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.Parser.__rshift__
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.maybe
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.many
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.oneplus
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.skip
-    rendering:
-        heading_level: 3
 
-
-Extra: Parser Monad
--------------------
+## Extra: Parser Monad
 
 As a functional programmer, you might be pleased to know, that parsers in funcparserlib
 form _a monad_ with `Parser.bind()` as `>>=` and `pure()` as `return`.
@@ -120,9 +86,5 @@ class Parser:
 ```
 
 ::: funcparserlib.parser.Parser.bind
-    rendering:
-        heading_level: 3
 
 ::: funcparserlib.parser.pure
-    rendering:
-        heading_level: 3

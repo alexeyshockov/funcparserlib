@@ -1,5 +1,4 @@
-Parsing Tokens
-==============
+# Parsing Tokens
 
 So far we have defined the tokenizer for our calculator expressions language:
 
@@ -39,17 +38,19 @@ It results a list of tokens which we want to parse according to our expressions 
 
 ```
 
+## Parser Combinators
 
-Parser Combinators
-------------------
+A **parser** is an object that takes input tokens and transforms them into a parse result. For example, a **primitive
+parser** [`tok(type, value)`](../api/parser.md#funcparserlib.parser.tok) parses a single token of a certain type and,
+optionally, with a certain value.
 
-A **parser** is an object that takes input tokens and transforms them into a parse result. For example, a **primitive parser** [`tok(type, value)`](../api/parser.md#funcparserlib.parser.tok) parses a single token of a certain type and, optionally, with a certain value.
+Parsing a single token is not exciting at all. The interesting part comes when you start combining parsers via **parser
+combinators** to build bigger parsers of complex token sequences.
 
-Parsing a single token is not exciting at all. The interesting part comes when you start combining parsers via **parser combinators** to build bigger parsers of complex token sequences.
+Parsers from [`funcparserlib.parser`](../api/parser.md) have a nice layered structure that allows you to express the
+grammar rules of the language you want to parse:
 
-Parsers from [`funcparserlib.parser`](../api/parser.md) have a nice layered structure that allows you to express the grammar rules of the langauge you want to parse:
-
-```
+```text
 ┌──────────┬──────────────────────┬───────────┐
 │          │ Primitive Parsers    │           │
 │          ├──────────────────────┘           │
@@ -76,51 +77,56 @@ Parsers from [`funcparserlib.parser`](../api/parser.md) have a nice layered stru
 └──────────┴──────────────────────────────────┘
 ```
 
-You get a new [`Parser`](../api/parser.md#funcparserlib.parser.Parser) object each time you apply a parser combinator to your parsers. Therefore, the set of all parsers it closed under the operations defined by parser combinators.
+You get a new [`Parser`](../api/parser.md#funcparserlib.parser.Parser) object each time you apply a parser combinator to
+your parsers. Therefore, the set of all parsers it closed under the operations defined by parser combinators.
 
-Parsers are regular Python objects of type [`Parser`](../api/parser.md#funcparserlib.parser.Parser). It means that you can write arbitrary Python code that builds parser objects: assign parsers to variables, pass parsers as call arguments, get them as the return values of calls, etc.
+Parsers are regular Python objects of type [`Parser`](../api/parser.md#funcparserlib.parser.Parser). It means that you
+can write arbitrary Python code that builds parser objects: assign parsers to variables, pass parsers as call arguments,
+get them as the return values of calls, etc.
 
-!!! Note
+/// note
 
-    The type [`Parser`](../api/parser.md#funcparserlib.parser.Parser) is actually parameterized as `Parser[T, V]` where:
+The type [`Parser`](../api/parser.md#funcparserlib.parser.Parser) is actually parameterized as `Parser[T, V]` where:
 
-    * `T` is the type of input tokens
-    * `V` is the type of the parse result
+* `T` is the type of input tokens
+* `V` is the type of the parse result
 
-    Your text editor or type checker will provide better code completion and error checking for your parsing code based on the types defined in `funcparserlib` and their type inference capabilities.
+Your text editor or type checker will provide better code completion and error checking for your parsing code based on
+the types defined in `funcparserlib` and their type inference capabilities.
+///
 
-
-`tok()`: Parsing a Single Token
--------------------------------
+## `tok()`: Parsing a Single Token
 
 Let's recall the expressions we would like to be able to parse:
 
-```
+```text
 0
 1 + 2 + 3
 -1 + 2 ** 32
 3.1415926 * (2 + 7.18281828e-1) * 42
 ```
 
-It looks like our grammar should have expressions that consist of numbers or nested expressions. Let's start with just numbers.
+It looks like our grammar should have expressions that consist of numbers or nested expressions. Let's start with just
+numbers.
 
-
-We'll use [`tok(type, value)`](../api/parser.md#funcparserlib.parser.tok) to create a primitive parser of a single integer token. Let's import it:
+We'll use [`tok(type, value)`](../api/parser.md#funcparserlib.parser.tok) to create a primitive parser of a single
+integer token. Let's import it:
 
 ```pycon
 >>> from funcparserlib.parser import tok
 
 ```
 
-Here is our parser of a single integer token. The string `"int"` is the type of the integer token spec for our tokenizer:
-
+Here is our parser of a single integer token. The string `"int"` is the type of the integer token spec for our
+tokenizer:
 
 ```pycon
 >>> int_str = tok("int")
 
 ```
 
-Let's try it in action. In order to invoke a parser, we should pass a sequence of tokens to its [`Parser.parse(tokens)`](../api/parser.md#funcparserlib.parser.Parser.parse) method:
+Let's try it in action. In order to invoke a parser, we should pass a sequence of tokens to its
+[`Parser.parse(tokens)`](../api/parser.md#funcparserlib.parser.Parser.parse) method:
 
 ```pycon
 >>> int_str.parse(tokenize("42"))
@@ -128,9 +134,11 @@ Let's try it in action. In order to invoke a parser, we should pass a sequence o
 
 ```
 
-!!! Note
+/// note
 
-    Our parser returns integer numbers as strings at the moment. We'll cover transforming parse results and creating a proper parse tree in the next chapter.
+Our parser returns integer numbers as strings at the moment. We'll cover transforming parse results and creating a
+proper parse tree in the next chapter.
+///
 
 If the first token in the input is _not_ of type `"int"`, our parser raises an exception:
 
@@ -142,9 +150,7 @@ NoParseError: 1,1-1,1: got unexpected token: '+', expected: int
 
 ```
 
-
-`p1 | p2`: Parsing Alternatives
--------------------------------
+## `p1 | p2`: Parsing Alternatives
 
 We want to support floating point numbers as well. We already know how to do it:
 
@@ -153,7 +159,8 @@ We want to support floating point numbers as well. We already know how to do it:
 
 ```
 
-Let's define our number expression as either an integer or a float number. We can parse alternatives using the [`Parser.__or__`](../api/parser.md#funcparserlib.parser.Parser.__or__) combinator:
+Let's define our number expression as either an integer or a float number. We can parse alternatives using the
+[`Parser.__or__`](../api/parser.md#funcparserlib.parser.Parser.__or__) combinator:
 
 ```pycon
 >>> number = int_str | float_str
@@ -176,17 +183,17 @@ NoParseError: 1,1-1,1: got unexpected token: '*', expected: int or float
 
 ```
 
+## `p1 + p2`: Parsing a Sequence
 
-`p1 + p2`: Parsing a Sequence
------------------------------
+Since we can parse numbers now, let's proceed with expressions. The first expression we will parse is the power
+operator:
 
-Since we can parse numbers now, let's proceeed with expressions. The first expression we will parse is the power operator:
-
-```
+```text
 2 ** 32
 ```
 
-We need a new parser combinator to parse sequences of tokens. We can combine parsers sequentially using the [`Parser.__add__`](../api/parser.md#funcparserlib.parser.Parser.__add__) combinator.
+We need a new parser combinator to parse sequences of tokens. We can combine parsers sequentially using the
+[`Parser.__add__`](../api/parser.md#funcparserlib.parser.Parser.__add__) combinator.
 
 Let's try it on sequences of numbers first:
 
@@ -203,7 +210,8 @@ Test it:
 
 ```
 
-The sequence combinator returns its results as a tuple of the parse results of its arguments. The size of the resulting tuple depends on the number of the parsers in the sequence. Let's try it for three numbers:
+The sequence combinator returns its results as a tuple of the parse results of its arguments. The size of the resulting
+tuple depends on the number of the parsers in the sequence. Let's try it for three numbers:
 
 ```pycon
 >>> p = number + number + number
@@ -218,7 +226,8 @@ Test it:
 
 ```
 
-Back to parsing the power operator of our calculator expressions language. We will need to parse several different operator tokens besides `"**"` in our grammar, so let's define a helper function:
+Back to parsing the power operator of our calculator expressions language. We will need to parse several different
+operator tokens besides `"**"` in our grammar, so let's define a helper function:
 
 ```pycon
 >>> from funcparserlib.parser import Parser
@@ -244,11 +253,11 @@ Test it:
 
 ```
 
+## `many()`: Parsing Repeated Parts
 
-`many()`: Parsing Repeated Parts
---------------------------------
-
-We want to allow sequences of power operators. Let's parse the first number, followed by zero or more pairs of the power operator and a number. We'll use the [`many(p)`](../api/parser.md#funcparserlib.parser.many) combinator for that. Let's import it:
+We want to allow sequences of power operators. Let's parse the first number, followed by zero or more pairs of the power
+operator and a number. We'll use the [`many(p)`](../api/parser.md#funcparserlib.parser.many) combinator for that. Let's
+import it:
 
 ```pycon
 >>> from funcparserlib.parser import many
@@ -270,7 +279,8 @@ Test it:
 
 ```
 
-The `many(p)` combinator applies its argument parser `p` to the input sequence of tokens many times until it fails, returning a list of the results. If `p` fails to parse any tokens, `many(p)` still succeeds and returns an empty list:
+The `many(p)` combinator applies its argument parser `p` to the input sequence of tokens many times until it fails,
+returning a list of the results. If `p` fails to parse any tokens, `many(p)` still succeeds and returns an empty list:
 
 ```pycon
 >>> power.parse(tokenize("1 + 2"))
@@ -278,9 +288,7 @@ The `many(p)` combinator applies its argument parser `p` to the input sequence o
 
 ```
 
-
-`forward_decl()`: Parsing Recursive Parts
------------------------------------------
+## `forward_decl()`: Parsing Recursive Parts
 
 We want to allow using parentheses to specify the order of calculations.
 
@@ -294,7 +302,8 @@ NameError: name 'expr' is not defined
 
 ```
 
-We will use the [`forward_decl()`](../api/parser.md#funcparserlib.parser.forward_decl) parser to solve the recursive assignment problem:
+We will use the [`forward_decl()`](../api/parser.md#funcparserlib.parser.forward_decl) parser to solve the recursive
+assignment problem:
 
 1. We create a forward declaration
 2. We use the declaration in other parsers
@@ -345,9 +354,7 @@ Test it:
 
 ```
 
-
-`finished`: Expecting No More Input
------------------------------------
+## `finished`: Expecting No More Input
 
 Surprisingly, our `expr` parser tolerates incomplete expressions by ignoring the incomplete parts:
 
@@ -357,7 +364,9 @@ Surprisingly, our `expr` parser tolerates incomplete expressions by ignoring the
 
 ```
 
-The problem is that its `many(p)` part parses the input while `p` succeeds, and it doesn't look any further than that. We can make a parser expect the end of the input via the [`finished`](../api/parser.md#finished) parser. Let's define a parser for the whole input document:
+The problem is that its `many(p)` part parses the input while `p` succeeds, and it doesn't look any further than that.
+We can make a parser expect the end of the input via the [`finished`](../api/parser.md#finished) parser. Let's define a
+parser for the whole input document:
 
 ```pycon
 >>> from funcparserlib.parser import finished
@@ -365,9 +374,11 @@ The problem is that its `many(p)` part parses the input while `p` succeeds, and 
 
 ```
 
-!!! Note
+/// note
 
-    Usually you finish the topmost parser of your grammar with `... + finished` to indicate that you expect no further input.
+Usually you finish the topmost parser of your grammar with `... + finished` to indicate that you expect no further
+input.
+///
 
 Let's try it for our grammar:
 
@@ -382,14 +393,18 @@ NoParseError: got unexpected end of input, expected: ')'
 
 ```
 
-Next
-----
+## Next
 
-We have created a parser for power operator expressions. Its parse results are correct, but they look hard to undersand and work with:
+We have created a parser for power operator expressions. Its parse results are correct, but they look hard to understand
+and work with:
 
 * Our integer and floating point numbers are strings, not `int` or `float` objects
-* The results contain `'('` and `')'` strings even though we need parentheses only temporarily to set the operator priorities
-* The results contain `None`, which is the parse result of [`finished`](../api/parser.md#finished), even though we don't need it
-* The results are lists of tuples of strings, not user-defined classes that reflect the grammar of our calculator expressions language
+* The results contain `'('` and `')'` strings even though we need parentheses only temporarily to set the operator
+  priorities
+* The results contain `None`, which is the parse result of [`finished`](../api/parser.md#finished), even though we don't
+  need it
+* The results are lists of tuples of strings, not user-defined classes that reflect the grammar of our calculator
+  expressions language
 
-In [the next chapter](parse-tree.md) you will learn how to transform parse results and prepare a proper, cleaned up parse tree.
+In [the next chapter](parse-tree.md) you will learn how to transform parse results and prepare a proper, cleaned up
+parse tree.
