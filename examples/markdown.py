@@ -150,8 +150,7 @@ emphasis = -token("em_open") + many(inline) + -token("em_close") >> Emphasis
 strong = -token("strong_open") + many(inline) + -token("strong_close") >> Strong
 link = token("link_open") + many(inline) + -token("link_close") >> make_link
 inline.define(text | code | softbreak | hardbreak | emphasis | strong | link)
-# mypy and pyright type `p + -finished` as Any; the annotation keeps the grammar's type.
-inlines: Parser[Token, list[Inline]] = many(inline) + -finished
+inlines = many(inline) + -finished
 # --8<-- [end:inline]
 
 
@@ -196,7 +195,7 @@ block.define(
     | indented_code
     | thematic_break
 )
-document: Parser[Token, list[Block]] = many(block) + -finished
+document = many(block) + -finished
 # --8<-- [end:block]
 
 # --8<-- [start:parse]

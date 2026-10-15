@@ -13,7 +13,10 @@ from funcparserlib.parser import (
     Parser,
     Tuple2Parser,
     Tuple3Parser,
+    Tuple4Parser,
+    Tuple5Parser,
     a,
+    finished,
     forward_decl,
     many,
     maybe,
@@ -62,3 +65,14 @@ def add(left: int, right: str) -> float:
 
 
 _ = assert_type(expand_tuple_args(add), Callable[[tuple[int, str]], float])
+
+# `+ -finished` drops the end-of-input value for every left-hand side; `+ finished` keeps it.
+_ = assert_type(x + -finished, Parser[str, str])
+_ = assert_type(many(n) + -finished, Parser[Token, list[int]])
+_ = assert_type(x + x + -finished, Tuple2Parser[str, str, str])
+_ = assert_type(x + x + x + -finished, Tuple3Parser[str, str, str, str])
+_ = assert_type(x + x + x + x + -finished, Tuple4Parser[str, str, str, str, str])
+_ = assert_type(x + x + x + x + x + -finished, Tuple5Parser[str, str, str, str, str, str])
+_ = assert_type(-x + -finished, IgnoredParser[str])
+_ = assert_type(-finished + x, Parser[str, str])
+_ = assert_type(x + finished, Tuple2Parser[str, str, None])

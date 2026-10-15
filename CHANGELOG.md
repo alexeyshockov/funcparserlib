@@ -20,7 +20,8 @@ messages.
 - `ParsingResult`, `ParsingSuccess` and `ParsingError`: the result a parsing function returns
 - `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
 - Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
-  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `IgnoredValue`, `State` (parser)
+  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`
+  (parser)
 - `funcparserlib.__version__`
 - `Token` is hashable, consistently with `==`: by type and value, ignoring positions
 
@@ -38,6 +39,9 @@ messages.
 
 ### Fixed
 
+- `p + -finished` is typed: mypy and pyright inferred `Any` for it (as in 1.0), because `-finished` was an
+  `IgnoredParser[Any]` and matched both overloads of `+`. `finished` is an `EndOfInput` now, and `-finished` an
+  `IgnoredEndOfInput`, whose value `+` drops
 - `many(p)` and `oneplus(p)` raise `ValueError` when `p` matches without consuming a token (`many(maybe(p))`,
   `many(pure(x))`, `many(many(p))`), instead of looping forever
 - `make_tokenizer()` raises `ValueError` for a token spec that matches the empty string, and a tokenizer raises it for a

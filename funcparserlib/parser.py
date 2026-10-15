@@ -70,6 +70,8 @@ __all__ = [
     "ParsingError",
     "IgnoredValue",
     "IgnoredParser",
+    "EndOfInput",
+    "IgnoredEndOfInput",
     "Tuple2Parser",
     "Tuple3Parser",
     "Tuple4Parser",
@@ -479,6 +481,9 @@ class Parser[A, B]:
         return _when
 
     @overload
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...  # type: ignore[overload-overlap]
+
+    @overload
     def __add__(  # type: ignore[overload-overlap]
         self, other: IgnoredParser[A]
     ) -> Self: ...
@@ -501,6 +506,7 @@ class Parser[A, B]:
         Overloaded types (lots of them to provide stricter checking for the quite dynamic return
         type of this method):
 
+        * `(self: Parser[A, B], IgnoredEndOfInput) -> Self`, for `p + -finished`
         * `(self: Parser[A, B], IgnoredParser[A]) -> Self`
         * `(self: IgnoredParser[A], Parser[A, C]) -> Parser[A, C]`
         * `(self: Parser[A, B], Parser[A, C]) -> Tuple2Parser[A, B, C]`
@@ -810,6 +816,9 @@ class Tuple2Parser[A, T1, T2](Parser[A, tuple[T1, T2]]):
     """The type of a sequence of 2 parsers, `p1 + ... + p2`; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...  # type: ignore[overload-overlap]
+
+    @overload
     def __add__(  # type: ignore[overload-overlap]
         self, other: IgnoredParser[A]
     ) -> Self: ...
@@ -834,6 +843,9 @@ class Tuple3Parser[A, T1, T2, T3](Parser[A, tuple[T1, T2, T3]]):
     """The type of a sequence of 3 parsers, `p1 + ... + p3`; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...  # type: ignore[overload-overlap]
+
+    @overload
     def __add__(  # type: ignore[overload-overlap]
         self, other: IgnoredParser[A]
     ) -> Self: ...
@@ -858,6 +870,9 @@ class Tuple4Parser[A, T1, T2, T3, T4](Parser[A, tuple[T1, T2, T3, T4]]):
     """The type of a sequence of 4 parsers, `p1 + ... + p4`; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...  # type: ignore[overload-overlap]
+
+    @overload
     def __add__(  # type: ignore[overload-overlap]
         self, other: IgnoredParser[A]
     ) -> Self: ...
@@ -882,6 +897,9 @@ class Tuple5Parser[A, T1, T2, T3, T4, T5](Parser[A, tuple[T1, T2, T3, T4, T5]]):
     """The type of a sequence of 5 parsers, `p1 + ... + p5`; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...
+
+    @overload
     def __add__(self, other: IgnoredParser[A]) -> Self: ...
 
     @overload
@@ -908,9 +926,7 @@ class IgnoredValue:
 _IGNORED = IgnoredValue()
 
 
-@parser("end of input")
-def finished(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
-    """A parser that throws an exception if there are any unparsed tokens left in the sequence."""
+def _end_of_input(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
     if s.pos >= len(tokens):
         return ParsingSuccess(None, s)
     else:
@@ -1154,6 +1170,9 @@ class IgnoredParser[A](Parser[A, IgnoredValue]):
     """The type of `-p` and `skip(p)`, whose value `+` drops; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
+    def __add__(self, other: IgnoredEndOfInput) -> Self: ...
+
+    @overload
     def __add__(self, other: IgnoredParser[A]) -> Self: ...
 
     @overload
@@ -1196,6 +1215,31 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         return ParsingSuccess([first.value, *rest.value], rest.state)
 
     return _oneplus
+
+
+@final
+class IgnoredEndOfInput(Parser[Any, IgnoredValue]):
+    """The type of `-finished`; a type for checkers, never built.
+
+    It is not an `IgnoredParser[Any]`: with `Any` there, `p + -finished` matches both of `+`'s
+    overloads and type checkers infer `Any`.
+    """
+
+    def __add__[P: Parser[Any, Any]](self, other: P) -> P:  # type: ignore[override]
+        raise NotImplementedError
+
+
+@final
+class EndOfInput(Parser[Any, None]):
+    """The type of `finished`: a parser of any tokens that succeeds only at the end of input."""
+
+    # A narrower `-` than Parser's: what makes `p + -finished` typed.
+    def __neg__(self) -> IgnoredEndOfInput:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        return cast("IgnoredEndOfInput", super().__neg__())
+
+
+finished: EndOfInput = EndOfInput(_end_of_input).named("end of input")
+"""A parser that throws an exception if there are any unparsed tokens left in the sequence."""
 
 
 @final

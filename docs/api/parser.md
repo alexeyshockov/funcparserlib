@@ -28,7 +28,7 @@
 
 A parser that throws an exception if there are any unparsed tokens left in the sequence.
 
-Type: `Parser[Any, None]`
+Type: `EndOfInput`, a `Parser[Any, None]`
 
 **Examples:**
 
