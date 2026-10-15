@@ -1,8 +1,10 @@
+import re
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from funcparserlib.lexer import LexerError, TokenSpec, make_tokenizer
+from funcparserlib.lexer import LexerError, TokenSpec, _combined, make_tokenizer
 
 
 @pytest.mark.parametrize("pattern", [r"a*", r"a?", r"", r"$"])
@@ -79,3 +81,42 @@ def test_the_error_is_at_the_first_character_no_spec_matches(before: str, after:
     with pytest.raises(LexerError) as e:
         list(make_tokenizer(SPECS)(text))
     assert e.value.place == place(text, len(before))
+
+
+# The first spec that matches at a position makes the token, whatever the specs' groups and flags.
+
+OVERLAPPING = [
+    TokenSpec("kw", r"if|in"),
+    TokenSpec("name", r"(?P<letters>[a-z]+)"),
+    TokenSpec("quoted", r"(['\"])[a-z]*\1"),
+    TokenSpec("upper", r"[a-z]+  # letters, any case", re.VERBOSE | re.IGNORECASE),
+    TokenSpec("space", r"\s+"),
+    TokenSpec("other", r"."),
+]
+
+
+def first_match(specs: list[TokenSpec], text: str) -> list[tuple[str, str]]:
+    """The tokens of trying each spec in turn at each position."""
+    compiled = [(spec.type, re.compile(spec.pattern, spec.flags)) for spec in specs]
+    tokens, i = [], 0
+    while i < len(text):
+        token_type, m = next((t, m) for t, r in compiled if (m := r.match(text, i)))
+        tokens.append((token_type, m.group()))
+        i = m.end()
+    return tokens
+
+
+@pytest.mark.parametrize(
+    "specs", [OVERLAPPING, OVERLAPPING[:2] + OVERLAPPING[3:]], ids=["back-reference", "joined"]
+)
+@given(st.text("ifnIFN'\" x\n", max_size=30))
+def test_the_first_spec_to_match_makes_the_token(specs: list[TokenSpec], text: str) -> None:
+    tokens = [(t.type, t.value) for t in make_tokenizer(specs)(text)]
+    assert tokens == first_match(specs, text)
+
+
+def test_specs_with_scoped_flags_join_into_one_pattern() -> None:
+    compiled = [(s.type, re.compile(s.pattern, s.flags)) for s in OVERLAPPING]
+    assert _combined(compiled[:2] + compiled[3:]) is not None
+    assert _combined(compiled) is None
+    assert _combined([("by_name", re.compile(r"(?P<q>')x(?P=q)"))]) is None

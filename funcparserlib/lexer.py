@@ -25,7 +25,7 @@ import dataclasses as dc
 import re
 from collections.abc import Callable, Iterable, Sequence
 from re import Pattern
-from typing import Any, final
+from typing import Any, cast, final
 
 from ._commons import valueclass, with_hint
 
@@ -36,6 +36,40 @@ type Spec = tuple[str, tuple[Any, ...]]
 """A legacy token spec: (_type_, _args_), where _args_ are the arguments of `re.compile()`."""
 
 _CompiledSpec = tuple[str, Pattern[str]]
+
+# The flags a group can scope, `(?i:...)`; any other flag keeps a spec out of a joined pattern.
+_NAMED_GROUP = re.compile(r"\(\?P<\w+>")
+_SCOPED_FLAGS = {re.IGNORECASE: "i", re.MULTILINE: "m", re.DOTALL: "s", re.VERBOSE: "x"}
+
+
+def _combined(specs: Sequence[_CompiledSpec]) -> Pattern[str] | None:
+    """One pattern for `specs`, its group `t<n>` matching where the n-th spec is the first to match.
+
+    A spec's named groups become non-capturing, as a token is the whole match. `None` when a spec
+    cannot be joined: it refers to a group, which joining would renumber or rename, or it has a flag
+    a group cannot scope.
+    """
+    parts = []
+    for n, (_, regexp) in enumerate(specs):
+        pattern = regexp.pattern
+        if re.search(r"\\[1-9]|\(\?P=|\(\?\(", pattern):
+            return None
+        # Each `(?P<` is a group only if they number as many as the groups the pattern names.
+        if len(_NAMED_GROUP.findall(pattern)) != len(regexp.groupindex):
+            return None
+        pattern = _NAMED_GROUP.sub("(?:", pattern)
+        flags = regexp.flags & ~re.UNICODE
+        letters = "".join(letter for flag, letter in _SCOPED_FLAGS.items() if flags & flag)
+        if flags & ~sum(_SCOPED_FLAGS):
+            return None
+        # A verbose pattern may end in a comment, which a newline closes.
+        end = "\n" if flags & re.VERBOSE else ""
+        parts.append(f"(?P<t{n}>(?{letters}:{pattern}{end}))")
+    try:
+        return re.compile("|".join(parts))
+    except re.error:
+        # Such as a global flag, `(?i)`, inside a spec's pattern.
+        return None
 
 
 class LexerError(Exception):
@@ -163,21 +197,31 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
             yield token_type, regexp
 
     compiled = tuple(compile_specs())
+    combined = _combined(compiled)
+    types = {f"t{n}": token_type for n, (token_type, _) in enumerate(compiled)}
 
     def match_specs(s: str, i: int, position: Place) -> Token:
         line, pos = position
-        for token_type, spec_regexp in compiled:
-            if m := spec_regexp.match(s, i):
-                value = m.group()
-                if not value:
-                    raise ValueError(
-                        f"the pattern of token {token_type!r} matched the empty string"
-                        f" at {line},{pos + 1}"
-                    )
-                nls = value.count("\n")
-                n_line = line + nls
-                n_pos = pos + len(value) if nls == 0 else len(value) - value.rfind("\n") - 1
-                return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
+        m: re.Match[str] | None = None
+        token_type = ""
+        if combined is not None:
+            if m := combined.match(s, i):
+                token_type = types[cast("str", m.lastgroup)]
+        else:
+            for token_type, spec_regexp in compiled:  # noqa: B007 — the matching spec's type
+                if m := spec_regexp.match(s, i):
+                    break
+        if m is not None:
+            value = m.group()
+            if not value:
+                raise ValueError(
+                    f"the pattern of token {token_type!r} matched the empty string"
+                    f" at {line},{pos + 1}"
+                )
+            nls = value.count("\n")
+            n_line = line + nls
+            n_pos = pos + len(value) if nls == 0 else len(value) - value.rfind("\n") - 1
+            return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
         # Lines are counted by "\n" alone, as the token positions are.
         err_line = s.split("\n")[line - 1].rstrip("\r")
         raise LexerError((line, pos + 1), err_line)
