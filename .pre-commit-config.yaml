@@ -7,27 +7,18 @@ repos:
     rev: "6.1.0"
     hooks:
       - id: flake8
-        args: ["--max-line-length=88"]
+        args: ["--max-line-length=100"]
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: "v1.9.0"
     hooks:
       - id: mypy
   - repo: local
     hooks:
-      - id: unittest
-        name: unittest
-        entry: poetry run python -m unittest discover
+      - id: pytest
+        name: pytest
+        entry: uv run --no-sync pytest -q
         language: system
-        types:
-          - python
-        pass_filenames: false
-  - repo: local
-    hooks:
-      - id: doctest
-        name: doctest
-        entry: poetry run python -m doctest
-        language: system
-        files: (^funcparserlib/|^docs/)
         types_or:
           - python
           - markdown
+        pass_filenames: false

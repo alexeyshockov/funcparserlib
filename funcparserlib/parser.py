@@ -514,7 +514,7 @@ class Parser(Generic[_A, _B]):
         >>> expr.parse("xz")
         Traceback (most recent call last):
             ...
-        parser.NoParseError: got unexpected token: 'z', expected: 'y'
+        funcparserlib.parser.NoParseError: got unexpected token: 'z', expected: 'y'
 
         ```
         """
@@ -546,7 +546,7 @@ class Parser(Generic[_A, _B]):
         >>> expr.parse("z")
         Traceback (most recent call last):
             ...
-        parser.NoParseError: got unexpected token: 'z', expected: 'x' or 'y'
+        funcparserlib.parser.NoParseError: got unexpected token: 'z', expected: 'x' or 'y'
 
         ```
         """
@@ -674,7 +674,7 @@ class Parser(Generic[_A, _B]):
         >>> expr.parse("yz")
         Traceback (most recent call last):
             ...
-        parser.NoParseError: got unexpected token: 'y', expected: 'x'
+        funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: 'x'
 
         ```
 
@@ -683,7 +683,7 @@ class Parser(Generic[_A, _B]):
         >>> expr.parse("xz")
         Traceback (most recent call last):
             ...
-        parser.NoParseError: got unexpected token: 'z', expected: 'y'
+        funcparserlib.parser.NoParseError: got unexpected token: 'z', expected: 'y'
 
         ```
 
@@ -984,7 +984,7 @@ def some(pred: Callable[[_A], bool]) -> Parser[_A, _A]:
     >>> expr.parse("1")
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected token: '1', expected: alpha
+    funcparserlib.parser.NoParseError: got unexpected token: '1', expected: alpha
 
     ```
 
@@ -1032,7 +1032,7 @@ def a(value: _A) -> Parser[_A, _A]:
     >>> expr.parse("y")
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected token: 'y', expected: 'x'
+    funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: 'x'
 
     ```
 
@@ -1076,7 +1076,7 @@ def tok(type: str, value: Optional[str] = None) -> Parser[Token, str]:
     >>> expr.parse([Token("op", "=")])
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected token: '=', expected: expr
+    funcparserlib.parser.NoParseError: got unexpected token: '=', expected: expr
 
     ```
 
@@ -1087,7 +1087,7 @@ def tok(type: str, value: Optional[str] = None) -> Parser[Token, str]:
     >>> expr.parse([Token("op", "+")])
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected token: '+', expected: '='
+    funcparserlib.parser.NoParseError: got unexpected token: '+', expected: '='
 
     ```
 
@@ -1193,7 +1193,7 @@ def oneplus(p: Parser[_A, _B]) -> Parser[_A, list[_B]]:
     >>> expr.parse("y")
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected token: 'y', expected: 'x'
+    funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: 'x'
 
     ```
     """
@@ -1249,7 +1249,7 @@ def forward_decl() -> ForwardDeclParser:
     >>> expr.parse("xxy")
     Traceback (most recent call last):
         ...
-    parser.NoParseError: got unexpected end of input, expected: 'y'
+    funcparserlib.parser.NoParseError: got unexpected end of input, expected: 'y'
 
     ```
 

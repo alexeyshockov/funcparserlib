@@ -1,34 +1,54 @@
-[tool.poetry]
+[build-system]
+requires = ["uv_build >=0.9.10, <0.14"]
+build-backend = "uv_build"
+
+[project.urls]
+Homepage = "https://funcparserlib.pirx.ru"
+Documentation = "https://funcparserlib.pirx.ru"
+Repository = "https://github.com/vlasovskikh/funcparserlib"
+Changelog = "https://github.com/vlasovskikh/funcparserlib/blob/master/CHANGELOG.md"
+
+[project]
 name = "funcparserlib"
-version = "2.0.0-dev9"
+version = "2.0.0b1.dev0"
 description = "Recursive descent parsing library based on functional combinators"
-authors = ["Andrey Vlasovskikh <andrey.vlasovskikh@gmail.com>"]
-license = "MIT"
+requires-python = ">=3.12"
 readme = "README.md"
-homepage = "https://funcparserlib.pirx.ru"
-repository = "https://github.com/vlasovskikh/funcparserlib"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Andrey Vlasovskikh", email = "andrey.vlasovskikh@gmail.com" },
+]
+keywords = ["parser", "parsing", "combinators", "recursive descent", "lexer"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    { include-group = "tests" },
+]
+lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
+tests = [
+    "pytest ~=9.0",
+    "pytest-timeout ~=2.3",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.9"
-typing-extensions = {version = ">=4.9.0", python = "<3.11"}
+[tool.uv]
+build-backend.module-root = ""
+build-backend.module-name = "funcparserlib"
 
-[tool.poetry.dev-dependencies]
-pre-commit = {version = "^3.5.0"}
-tox = {version = "^4.4.6"}
-mkdocs = {version = "^1.4.2"}
-mkdocs-material = {version = "^9.1.1"}
-mkdocstrings = {extras = ["python"], version = "^0.24.0"}
-
-[build-system]
-requires = ["poetry-core>=1.5.1"]
-build-backend = "poetry.core.masonry.api"
+[tool.pytest.ini_options]
+timeout = 30
+testpaths = ["tests", "funcparserlib", "docs"]
+addopts = ["--doctest-modules", "--doctest-glob=*.md"]
+filterwarnings = ["error"]

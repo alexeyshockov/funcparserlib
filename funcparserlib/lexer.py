@@ -144,7 +144,7 @@ def make_tokenizer(
     >>> list(tokenize(text))
     Traceback (most recent call last):
         ...
-    lexer.LexerError: cannot tokenize data: 1,4: "Bye?"
+    funcparserlib.lexer.LexerError: cannot tokenize data: 1,4: "Bye?"
 
     ```
     """
