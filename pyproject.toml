@@ -52,3 +52,16 @@ timeout = 30
 testpaths = ["tests", "funcparserlib", "docs"]
 addopts = ["--doctest-modules", "--doctest-glob=*.md"]
 filterwarnings = ["error"]
+
+[tool.interrogate]
+fail-under = 30
+
+[tool.ruff]
+extend = "shared.ruff.toml"
+
+[tool.deptry]
+known_first_party = ["funcparserlib"]
+
+[tool.slotscheck]
+strict-imports = true
+require-superclass = true

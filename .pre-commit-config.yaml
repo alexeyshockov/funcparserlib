@@ -1,24 +1,277 @@
+# The commit hooks.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# Run locally with `prek` (`just check`), and in the cloud by pre-commit.ci, which
+# reads this same file — `ci:` below is its configuration, and prek ignores it.
+#
+# EVERY HOOK HERE IS READ-ONLY. A gate that rewrites the file it is judging cannot be
+# trusted: prek notices a rewrite by diffing the worktree against git's index, so a
+# `--write`-shaped hook handed a file the index has never seen rewrites it and still
+# reports Passed (measured, prek 0.5.2 — `ruff-format` and `prettier` both did). A
+# checker has nothing to under-report.
+#
+# Each fixing tool therefore appears twice: once in check mode at the `pre-commit`
+# stage (the gate, and what the commit hook and pre-commit.ci run), and once in write
+# mode at the `manual` stage, which only `just fix` invokes. `stages:` is written out
+# on every gate hook rather than left to `default_stages`, because a hook whose own
+# upstream manifest declares `stages` ignores the default — `typos` and
+# `check-added-large-files` declare `manual` and leaked into `just fix` until they
+# were pinned here.
+minimum_pre_commit_version: "3.5.0"
+default_stages: [pre-commit]
+
+ci:
+  # Hook revs are updated by the maintainers. pre-commit.ci has no off switch for its own
+  # autoupdate, so it is pointed at a branch that does not exist and opens no PR.
+  autoupdate_branch: pre-commit-ci-autoupdate
+  autoupdate_schedule: quarterly
+
 repos:
-  - repo: https://github.com/psf/black
-    rev: "23.11.0"
+  # Docstrings only: comments and Markdown fences are pydocformatter defaults this does not take.
+  # The selection is the layout rules (whitespace, indentation, blank lines, quote placement,
+  # reflow), each with a fix; ruff's `D` and `DOC` rules own what a docstring says. Every setting
+  # is an argument, so a project needs no `[tool.pydocfmt]`. The template's own prose (`tools/`,
+  # `_commons.py`, `noxfile.py`) is written at 100 columns and judged at 100 whatever the
+  # project's width. The width is inline `--config` rather than `--line-length`, because the
+  # flag outranks `per-file-settings`.
+  #
+  # A one-line summary within three columns of the width keeps its closing quotes on a line of
+  # their own here (PDF109) and on the summary line under ruff format, so the two disagree until
+  # the summary is shortened; ruff's E501 names it. An inline code span split across two lines
+  # is reported without a fix, and one in double backticks can be split by the reflow itself;
+  # either is put on one line by hand.
+  - repo: https://github.com/pallgeuer/pydocformatter
+    rev: v1.2.1
     hooks:
-      - id: black
-  - repo: https://github.com/PyCQA/flake8
-    rev: "6.1.0"
+      # Findings rather than `--diff`, which counts a finding the fixer cannot apply without
+      # saying where it is.
+      - id: pydocfmt-check
+        # `--no-cache`: the cache is a directory in the repository. `--parallelism=1`: prek
+        # already runs the hook's file batches side by side.
+        args: &pydocfmt_args
+          - --no-cache
+          - --parallelism=1
+          - --docstring-convention=google
+          - >-
+            --config=select = ["PDF000", "PDF001", "PDF100", "PDF101", "PDF102", "PDF103", "PDF104",
+            "PDF105", "PDF109", "PDF110", "PDF200", "PDF201", "PDF204", "PDF208", "PDF211"]
+          - "--config=line-length = 100"
+          - >-
+            --config=per-file-settings = { "tools/**" = { line-length = 100 },
+            "**/_commons.py" = { line-length = 100 }, "noxfile.py" = { line-length = 100 } }
+        types_or: &pydocfmt_types [python, pyi]
+        stages: [pre-commit]
+        # `openspec/changes/archive/` is a record of what was decided then; the skills
+        # forbid hand-editing it, and a hook is not an exception.
+        exclude: &pydocfmt_exclude ^openspec/changes/archive/
+      - id: pydocfmt-fix
+        args: *pydocfmt_args
+        types_or: *pydocfmt_types
+        stages: [manual]
+        exclude: *pydocfmt_exclude
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.10
     hooks:
-      - id: flake8
-        args: ["--max-line-length=100"]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: "v1.9.0"
+      # `ruff check` is read-only unless asked otherwise, so the gate is the bare hook:
+      # no `--fix`, and no `--exit-non-zero-on-fix` to absorb, which is why nothing here
+      # needs just's `-` prefix any more.
+      - id: ruff-check
+        args: []
+        stages: [pre-commit]
+      - id: ruff-format
+        args: [--check]
+        stages: [pre-commit]
+        # `types_or` pinned to the hook's pre-v0.16.6 default, which since adds `markdown`.
+        # That default has ruff format the Python inside every fenced block in README.md
+        # and the docs — and those are not modules. Examples are hand-aligned into comment
+        # columns to be read as a table, and some are deliberate fragments: a keyword
+        # argument on its own line is reformatted into an assignment statement, which
+        # changes what the line says. Off; fences that are all real modules stay clean
+        # under it anyway.
+        types_or: &py_only [python, pyi, jupyter]
+      - id: ruff-check
+        alias: ruff-check-fix
+        name: ruff check (fix)
+        args: [--fix]
+        stages: [manual]
+      - id: ruff-format
+        alias: ruff-format-fix
+        name: ruff format (fix)
+        stages: [manual]
+        types_or: *py_only
+
+  - repo: https://github.com/econchick/interrogate
+    rev: 1.7.0
     hooks:
-      - id: mypy
-  - repo: local
+      # Read-only by nature: it counts docstrings, it never writes one.
+      - id: interrogate
+        stages: [pre-commit]
+        # The toolbox is not the documented surface this counts.
+        exclude: ^tools/
+        # The floor is `[tool.interrogate] fail-under` in pyproject.toml: a regression floor,
+        # not a target. The house style is minimal docstrings — a summary line where the name
+        # does not already say it — so the number will never approach 100 and should not.
+        # Raise it when a batch of real prose lands. (The hook counts stricter than a bare
+        # `interrogate` run — trust this number, not that one.)
+        # `--config` names the root's: without it interrogate walks up from the alphabetically first
+        # path it is given, and the nearest `pyproject.toml` with no `[tool.interrogate]` (the
+        # toolbox's, a workspace member's) silences the floor and the built-in 80% applies.
+        args:
+          - --config=pyproject.toml
+          - funcparserlib
+
+  # Held at a concrete tag: upstream also publishes a moving `v1` tag, which
+  # `pre-commit autoupdate` prefers — and a floating major would let the hook's
+  # dictionary change with no diff to review. Bump the patch by hand.
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.50.3
     hooks:
-      - id: pytest
-        name: pytest
-        entry: uv run --no-sync pytest -q
-        language: system
-        types_or:
-          - python
-          - markdown
-        pass_filenames: false
+      # The hook's manifest default is `--write-changes`; the gate drops it. `stages:` is
+      # mandatory here — this hook's manifest declares `manual`, so `default_stages` alone
+      # would let the gate run inside `just fix`.
+      - id: typos
+        args: [--force-exclude]
+        stages: [pre-commit]
+        # Files a fixing hook must not rewrite: `openspec/changes/archive/` is a record
+        # of what was decided then, a lockfile pins what an edit would unpin, and the
+        # rest are recorded or vendored bytes (`preserve_bytes`).
+        exclude: &do_not_rewrite |-
+          (?x)^(
+            openspec/changes/archive/
+            | uv\.lock
+          )
+      - id: typos
+        alias: typos-fix
+        name: typos (fix)
+        stages: [manual]
+        exclude: *do_not_rewrite
+
+  # Whitespace, line endings and encoding, checked against `.editorconfig` — one
+  # declaration for editors, humans and the gate, instead of the rules living invisibly
+  # inside two fixer scripts. It replaces `trailing-whitespace` and `end-of-file-fixer`
+  # as the *gate* (they have no check mode at all, so they stay below as fix-only), and
+  # it covers what they never reached: `.toml`, dotfiles, and every other text file.
+  #
+  # Line length and indent size, per file type: ruff checks Python, markdownlint checks
+  # Markdown, and the second run below checks TOML, JSON, shell and YAML (prettier
+  # formats YAML but passes a line it cannot break). Markdown has no indent-size check:
+  # a list continuation is indented by its marker's width, 2 or 3, and markdownlint's
+  # MD005/MD007 check list indentation.
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3.11.1
+    hooks:
+      - id: editorconfig-checker
+        args: [-disable-indent-size, -disable-max-line-length]
+        stages: [pre-commit]
+        exclude: *do_not_rewrite
+      - id: editorconfig-checker
+        alias: editorconfig-checker-layout
+        name: editorconfig-checker (line length, indent size)
+        args:
+          - -disable-end-of-line
+          - -disable-insert-final-newline
+          - -disable-trim-trailing-whitespace
+        stages: [pre-commit]
+        files: \.(toml|json|sh|ya?ml)$
+        exclude: *do_not_rewrite
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-toml
+        stages: [pre-commit]
+      - id: check-yaml
+        stages: [pre-commit]
+      - id: check-merge-conflict
+        stages: [pre-commit]
+      - id: check-case-conflict
+        stages: [pre-commit]
+      # `stages:` mandatory — manifest declares `manual`, as with `typos` above.
+      - id: check-added-large-files
+        stages: [pre-commit]
+        exclude: *do_not_rewrite
+      # Fix-only, by nature: these three have no check mode, which is exactly why
+      # editorconfig-checker is the gate and they are its repair side.
+      - id: trailing-whitespace
+        stages: [manual]
+        exclude: *do_not_rewrite
+      - id: end-of-file-fixer
+        stages: [manual]
+        exclude: *do_not_rewrite
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        stages: [manual]
+        exclude: *do_not_rewrite
+
+  - repo: https://github.com/abravalheri/validate-pyproject
+    rev: "0.26"
+    hooks:
+      - id: validate-pyproject
+        stages: [pre-commit]
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.12.22
+    hooks:
+      - id: uv-lock
+        args: [--check]
+        stages: [pre-commit]
+      - id: uv-lock
+        alias: uv-lock-fix
+        name: uv-lock (fix)
+        args: []
+        stages: [manual]
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        stages: [pre-commit]
+
+  # GitHub Actions security audit — complements actionlint (syntax/semantics).
+  # Config (unpinned-uses policy) lives in .github/zizmor.yml. Runs offline on
+  # pre-commit.ci, so its online-only audits are skipped there.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.1
+    hooks:
+      - id: zizmor
+        stages: [pre-commit]
+
+  # YAML formatter — matches Zed's built-in Prettier. Reads .editorconfig
+  # for indent/line-length.
+  #
+  # The gate overrides `entry`, not `args`: this hook bakes `--write` into its entry, so
+  # `args: [--check]` leaves `--write` in place — prettier rewrites the file and reports
+  # Passed. The only hook here that needs the whole command line restated.
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.9.9
+    hooks:
+      - id: prettier
+        entry: prettier --check --ignore-unknown
+        stages: [pre-commit]
+        types_or: &yaml_only [yaml]
+      - id: prettier
+        alias: prettier-fix
+        name: prettier (fix)
+        stages: [manual]
+        types_or: *yaml_only
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.23.3
+    hooks:
+      # Read-only unless `--fix` is passed, so the gate is the bare hook.
+      - id: markdownlint-cli2
+        stages: [pre-commit]
+        # Machine-written markdown: `openspec/` is written in the OpenSpec skills' own
+        # shape (h2-first artifacts, headings and lists without surrounding blank lines)
+        # and its `changes/archive` is immutable by their rules. Linting generated output
+        # is churn the generator undoes. A project's own machine-written paths go in its
+        # `.markdownlint-cli2.jsonc` under `ignores` (a `.markdownlintignore` is not applied
+        # to the paths pre-commit passes explicitly; that one is).
+        exclude: &openspec ^openspec/
+      - id: markdownlint-cli2
+        alias: markdownlint-cli2-fix
+        name: markdownlint-cli2 (fix)
+        args: [--fix]
+        stages: [manual]
+        exclude: *openspec

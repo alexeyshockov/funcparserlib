@@ -1,0 +1,67 @@
+name: Publish to PyPI
+
+# A published GitHub release `vX.Y.Z` ships the commit its tag names. The tree there holds
+# X.Y.Z.devN; the build job checks that, writes X.Y.Z into every distribution and pin in its own
+# checkout, and builds them. Nothing is pushed back.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    # `./` names this repository at the release's commit.
+    uses: ./.github/workflows/tests.yaml # zizmor: ignore[self-repository]
+
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          # No cache on the path to a release: a cache a lower-privileged PR run wrote must not
+          # reach the artifacts (zizmor cache-poisoning). setup-uv defaults to "auto", so off.
+          enable-cache: false
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - run: just tools::run conventions release "$TAG" --write
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+      - run: uv build --all-packages --no-sources
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/funcparserlib/${{ github.event.release.name }}
+    permissions:
+      contents: read
+      # Required for PyPI trusted publishing + Sigstore-signed PEP 740 attestations
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      # uv publish (as of 0.11) only uploads pre-existing attestations; it does
+      # not generate them. Use the official PyPA action, which generates PEP 740
+      # PyPI Publish Attestations via Sigstore and uploads them alongside the
+      # distributions. Track astral-sh/uv#15618 — once landed we can swap back
+      # to a single `uv publish` step.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          attestations: true

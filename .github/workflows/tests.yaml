@@ -1,0 +1,69 @@
+# The CI test matrix.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# The noxfile defines every environment the tests run in, and its sessions tagged `ci` are this
+# matrix, one job each: `just tools::ci-matrix` lists them, and a job runs one session by name.
+# `ci.yaml` calls this workflow; its aggregate job, which needs this one, is the required check.
+name: tests
+
+on:
+  workflow_call:
+    inputs:
+      artifacts:
+        description: Artifacts downloaded into `dist/` before each session (a name pattern); empty for none
+        type: string
+        default: ""
+
+permissions: {}
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sessions: ${{ steps.list.outputs.sessions }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - id: list
+        run: echo "sessions=$(just tools::ci-matrix)" >> "$GITHUB_OUTPUT"
+
+  session:
+    needs: matrix
+    name: ${{ matrix.session }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.sessions) }}
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.2.0
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - if: inputs.artifacts != ''
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ inputs.artifacts }}
+          path: dist
+          merge-multiple: true
+      - run: just tools::nox --session "$SESSION"
+        env:
+          SESSION: ${{ matrix.session }}
+          ARTIFACTS_DIR: ${{ inputs.artifacts != '' && 'dist' || '' }}

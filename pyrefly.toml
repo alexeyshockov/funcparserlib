@@ -1,0 +1,14 @@
+# pyrefly's configuration.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# pyrefly is a second opinion (`just types-info`, `just types-api`) and never blocks; mypy is the
+# gate, configured in `mypy.ini`. Without this file pyrefly imports `mypy.ini` as a one-off
+# migration and maps `strict` to its annotation-presence rules, which `mypy.ini` opts out of.
+#
+# The `default` preset: correctness diagnostics without annotation-presence or implicit-`Any` rules.
+# No `python-version`: the recipes pass `--python-version` from `requires-python`.
+preset = "default"
+project-includes = [
+    "funcparserlib",
+    "examples",
+]

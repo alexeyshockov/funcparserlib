@@ -1,0 +1,96 @@
+# The pinned tool environment: every tool the recipes run that is not a commit hook.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# A separate project, so these versions do not take part in the project's own resolution and keep
+# working on interpreters they do not support. Versions in force are uv.lock's; regenerate it with
+# `just tools-upgrade` after its requirements below change.
+#
+# A tool that has to run inside the project's environment is not here: slotscheck imports the
+# package, and deptry reads the standard-library list and the installed distributions of the
+# interpreter it runs on. Those are in the project's `lint` dependency group instead.
+#
+# Linters with a commit hook are pinned by rev in `.pre-commit-config.yaml` instead.
+[project]
+name = "tools"
+version = "0"
+# The toolbox's own interpreter, independent of the project's `.python-version`: every tool here
+# reads the project's code or the project's `.venv` without running on its interpreter. One minor
+# version, because uv picks the interpreter from this line and nothing else pins it.
+requires-python = "==3.14.*"
+dependencies = [
+    # --- Type checkers ---
+    "ty >=0.0.81",           # informational over the package, blocking at the tests level
+    "basedpyright >=1.40.1", # the typesafety suite (`types-api`, the gate there)
+    "mypy >=2.3.1",          # the whole-package gate, over mypy.ini's file list
+    "pyrefly >=1.3.2",       # `coverage` gates the public API at 100%; informational as a checker
+
+    # --- The conventions ---
+    # `conventions/` is this project's own package, installed as the `conventions` command; it
+    # reads the tree with `ast` and `git` and imports nothing from the package. `checks/` holds
+    # the repository's own rules as pytest files. Both run here, on this floor, rather than from
+    # the project's suite: they answer questions about the repository, not the library.
+    "click >=8.2",
+    # PEP 440 versions and requirements, for the version rules and the release commands.
+    "packaging >=24",
+    "pytest >=9.0",
+
+    # --- Test sessions ---
+    # The noxfile defines every environment the tests run in; `just tests` runs the sessions
+    # tagged `local`, and `.github/workflows/tests.yaml` the ones tagged `ci`. Sessions use uv
+    # environments under `.nox/`, never this one.
+    "nox >=2026.8.17",
+
+    # --- Structure ---
+    "import-linter >=2.13",
+    "vulture >=2.14",
+
+    # --- API surface ---
+    "griffe >=1.5", # `just api-diff`, and mkdocstrings' parser
+
+    # --- Docs ---
+    "zensical >=0.0.40, <0.1",     # replaces mkdocs + mkdocs-material
+    "mkdocstrings[python] >=0.27", # API reference autogen (via zensical's compat shim)
+]
+
+[project.scripts]
+conventions = "conventions._cli:main"
+# A tool run with what it needs to know about the workspace: its files, its distributions, ty's
+# search path, the interpreter and the floor. The recipes call it; see `conventions/_toolbox.py`.
+toolbox = "conventions._toolbox:main"
+
+# The package is `conventions/` alone; `checks/` and the scripts beside it are not built.
+[build-system]
+requires = ["uv_build >=0.12.21, <0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "conventions"
+module-root = ""
+
+[tool.uv]
+package = true
+
+# ruff resolves this config by walking up from each file under tools/. 100 columns and a reduced
+# rule set regardless of the project's own; scripts here print and call subprocesses, so `T20`,
+# `S`, `PTH`, `PL` and `TRY` are off.
+#
+# No recipe in `just gate` covers tools/ — each checker names its own targets.
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.pyupgrade]
+keep-runtime-typing = true
+
+
+# The checks run under this file rather than the project's, which is what keeps the two apart:
+# the project's `[tool.pytest.ini_options]` names `anyio_mode` and `timeout`, options that belong to
+# plugins the toolbox does not have, and pytest reports each as an unknown config option. Read with
+# `-c tools/pyproject.toml`, so neither config has to know about the other. The path is named on the
+# command line rather than by `testpaths`, which resolves against a rootdir this file does not fix.
+[tool.pytest.ini_options]
+# The files are `*_check.py`, not `test_*.py`: they check the shape of the repository rather than
+# the behaviour of the library.
+python_files = ["*_check.py"]

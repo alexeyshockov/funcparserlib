@@ -1,0 +1,8 @@
+* text=auto eol=lf
+
+poetry.lock linguist-generated -diff merge=binary
+pdm.lock linguist-generated -diff merge=binary
+uv.lock linguist-generated -diff merge=binary
+
+# Generated: collapsed in review, and still diffed and merged as text.
+tools/conventions/** linguist-generated

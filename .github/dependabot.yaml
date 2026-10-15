@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    # Wait a week after an action release before opening the bump PR, so a
+    # compromised/yanked release has time to surface first (zizmor
+    # dependabot-cooldown).
+    cooldown:
+      default-days: 7

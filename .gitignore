@@ -9,3 +9,10 @@ build/
 dist/
 site/
 venv/
+.venv/
+.venv-*/
+.cache/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.copier-answers.yml

@@ -1,0 +1,143 @@
+# Ruff's lint and format configuration.
+# Generated; propose changes in an issue rather than editing this file.
+#
+# Reached from `pyproject.toml` through `[tool.ruff] extend = "shared.ruff.toml"`, and only that
+# way: this is deliberately NOT named `ruff.toml` / `.ruff.toml`, which ruff discovers on its own
+# and which would then *shadow* `[tool.ruff]` instead of extending it — the failure class a root
+# `_typos.toml` once caused, silently switching four allowances off. A project adds to what is here
+# with `extend-select`, `extend-ignore` and `extend-per-file-ignores`; the bare `select` /
+# `ignore` / `per-file-ignores` keys replace this file's lists wholesale, and
+# the conventions runner (CON803) refuses them. Rules: https://docs.astral.sh/ruff/rules/
+
+line-length = 100
+# Codes in diagnostics, not rule names: `# noqa` comments are written with codes, and ruff's
+# migration toward names in its output must not pull them along.
+output-prefer-rule-codes = true
+
+[format]
+docstring-code-format = true
+# Layout follows the width alone. A trailing comma left after a list shrank otherwise keeps it one
+# item per line, and nothing ever collapses it.
+skip-magic-trailing-comma = true
+
+[lint]
+# The DOC1xx/2xx/4xx rules (pydoclint port) and PLC2701 are preview-only. `explicit-preview-rules`
+# opts in ONLY the exact codes named in `select` and keeps every other preview rule off, so the
+# broad prefix selectors (F, PL, RUF, …) stay on their stable set.
+preview = true
+explicit-preview-rules = true
+select = [
+    "F",  # pyflakes
+    "E", "W",  # pycodestyle
+    "I",  # isort
+    "Q",  # flake8-quotes
+    "UP",  # pyupgrade
+    "YTT",  # flake8-2020
+    # The "ANN" rules are covered by mypy, except "ANN204" (missing return type on a special
+    # method), which stays off until every module is annotated.
+    "ASYNC",  # flake8-async
+    "S",  # flake8-bandit
+    "BLE",  # flake8-blind-except
+    "B",  # flake8-bugbear
+    "A",  # flake8-builtins
+    "C4",  # flake8-comprehensions
+    "DTZ",  # flake8-datetimez
+    "T10",  # flake8-debugger
+    "EXE",  # flake8-executable
+    "FA",  # flake8-future-annotations
+    # Causes a warning, https://github.com/astral-sh/ruff/issues/8272 — kept on regardless.
+    "ISC",  # flake8-implicit-str-concat
+    "G",  # flake8-logging-format
+    "INP",  # flake8-no-pep420
+    "PIE",  # flake8-pie
+    "T20",  # flake8-print
+    "PT",  # flake8-pytest-style
+    # The rest of the RET rules do not improve code and may even worsen readability.
+    "RET501", "RET502", "RET503",  # flake8-return
+    "SLOT",  # flake8-slots
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    # flake8-type-checking, cherry-picked: only the codes that DON'T push runtime imports into
+    # `if TYPE_CHECKING:` blocks (TC001/002/003), which fight the "no TYPE_CHECKING unless needed"
+    # rule in CONVENTIONS.md.
+    "TC006",  # runtime-cast-value — quote the type expression in `typing.cast()` (dead at runtime)
+    "TC008",  # quoted-type-alias — drop needless quotes from a `type X = ...` alias (RHS is lazy)
+    "PTH",  # flake8-use-pathlib
+    "PGH",  # pygrep-hooks
+    "PL",  # Pylint
+    # Preview (gated by `explicit-preview-rules`): the only tool that enforces "don't import `_*`
+    # from another package" — SLF001 covers `obj._attr` but is blind to imports, and no type
+    # checker treats a leading underscore as more than a naming convention. The shipped package
+    # is clean; tests and benchmarks are carved out below, since reaching into internals is their
+    # job.
+    "PLC2701",  # Private name import from an external module
+    "TRY",  # tryceratops
+    "PERF",  # Perflint
+    "LOG",  # flake8-logging
+    "RUF",  # Ruff-specific
+    # pydoclint port (preview; gated by explicit-preview-rules above): flag a docstring that
+    # documents a parameter / return / yield absent from the signature — e.g. an `Args:` entry
+    # for a param that does not exist. The `missing-*` family (DOC201/402/501) stays off: it would
+    # demand documenting every return/yield/raise and fights the minimal-docstring style. So does
+    # DOC502 (extraneous-exception), which false-positives on indirectly-raised exceptions.
+    "DOC102",  # docstring-extraneous-parameter
+    "DOC202",  # docstring-extraneous-returns
+    "DOC403",  # docstring-extraneous-yields
+]
+# What is ignored everywhere. A project that also ignores the complexity family (PLR0911/0912/0915)
+# or anything else of its own says so in its `extend-ignore`, with the reason.
+ignore = [
+    "ASYNC109",  # Async function definition with a `timeout` parameter
+    # `__all__` is not sorted — the export list is grouped by hand, and the groups are the point
+    "RUF022",
+    "PGH003", "PGH004",  # Use specific rule codes when ignoring type issues
+    "RUF005",  # Consider unpacking instead of concatenation
+    # `try`/`except` in a loop — readability >> the micro-cost of zero-cost exceptions on 3.12+
+    "PERF203",
+    "S101",  # Use of `assert` detected
+    "S311",  # Standard pseudo-random generators are not suitable for cryptographic purposes
+    "B011",  # Do not `assert False`
+    "SIM105",  # Use `contextlib.suppress(...)` instead of `try`-`except`-`pass`
+    # Use a single `with` statement with multiple contexts — wide-cast nesting reads cleaner nested
+    "SIM117",
+    "PLR0913",  # Too many arguments in function definition
+    "PLR2004",  # Magic value used in comparison
+    # Too many false positives:
+    "PLW2901",  # ... loop variable ... overwritten by assignment target
+    "TRY003",  # Avoid specifying long messages outside the exception class
+    "TRY400",  # Use `logging.exception` instead of `logging.error`
+    "RUF012",  # Mutable class attributes should be annotated with `typing.ClassVar`
+]
+
+# The standard directories, and what each may do that the package may not. A project's own paths
+# go in its `extend-per-file-ignores`; ruff merges the two, so a path
+# named in both gets the union.
+[lint.per-file-ignores]
+# Tests legitimately use lazy/conditional imports inside test bodies (optional extras, internals
+# under test), and testing internals is the job — PLC2701 is there to gate the package.
+"**/tests/**" = ["PLC0415", "PLC2701"]
+# Runnable programs print their result.
+"examples/*" = ["T201"]
+# Benchmarks are white-box on purpose: they time internal primitives. Each distribution's
+# `benchmarks/` and the root's.
+"**/benchmarks/**" = ["T201", "PLC2701"]
+# The generated `_commons.py` spells generics with `TypeVar` so it parses on the oldest supported
+# Python.
+"funcparserlib/_commons.py" = ["UP047"]
+
+[lint.isort]
+# The import-sorting twin of `skip-magic-trailing-comma`: an import fits one line whenever it can.
+split-on-trailing-comma = false
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.pylint]
+# PLR0917's default of 5 is too tight for private helpers that thread state through an internal call
+# chain — several of which are invoked via `anyio.to_thread.run_sync`, whose API passes arguments
+# positionally, so keyword-only params are not even expressible without a `partial` wrapper. 8 still
+# flags unbounded growth; public API surface stays keyword-heavy by convention, not by lint.
+max-positional-args = 8
+
+[lint.pyupgrade]
+keep-runtime-typing = true
