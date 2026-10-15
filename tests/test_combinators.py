@@ -212,3 +212,12 @@ def test_a_parsing_function_returning_a_result_does_not_warn() -> None:
         return ParsingError(s.expect(digit))
 
     assert many(digit).parse("12") == ["1", "2"]
+
+
+def test_a_parsing_function_of_parser_raises_as_it_is() -> None:
+    @parser("digit")
+    def digit(tokens: Sequence[str], s: State) -> ParsingResult[str]:
+        raise NoParseError("no digits here", s)
+
+    with pytest.raises(NoParseError, match=r"^no digits here$"):
+        (digit | a("x")).parse("x")

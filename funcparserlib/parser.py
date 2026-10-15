@@ -1029,9 +1029,9 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     Type: `(str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]`
 
     The decorated function takes the tokens and the current `State` and returns a `ParsingSuccess`
-    or a `ParsingError`. A success carries the state moved past what it parsed, `s.reset_pos(pos)`;
-    a failure carries `s.expect(p)`, where `p` is the parser that failed, so that the error names
-    it.
+    or a `ParsingError`; unlike `Parser(f)`, it does not adapt a 1.0 parsing function. A success
+    carries the state moved past what it parsed, `s.reset_pos(pos)`; a failure carries
+    `s.expect(p)`, where `p` is the parser that failed, so that the error names it.
 
     Examples:
         ```pycon
@@ -1051,7 +1051,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     """
 
     def decorator(f: ParserFn[A, B]) -> Parser[A, B]:
-        return Parser(f).named(name)
+        return _built(Parser, f).named(name)
 
     return decorator
 
@@ -1074,7 +1074,7 @@ def _parser[A, B](
 
 
 def _built[P: Parser[Any, Any]](cls: type[P], f: ParserFn[Any, Any]) -> P:
-    """A parser of `cls` running `f`, a parsing function of this module, without the 1.0 adapter."""
+    """A parser of `cls` running `f` as it is, without the 1.0 adapter."""
     p = cls.__new__(cls)
     p._define(f, adapt=False)
     return p

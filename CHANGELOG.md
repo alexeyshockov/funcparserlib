@@ -61,8 +61,8 @@ messages name what was expected more precisely; see Changed.
 
 ### Deprecated
 
-- A parsing function that returns a `(value, state)` tuple or raises `NoParseError`, as in 1.0: `Parser(f)`,
-  `parser()` and `ForwardDeclParser.define()` read its tuple as a success and its `NoParseError` as a failure that
+- A parsing function that returns a `(value, state)` tuple or raises `NoParseError`, as in 1.0: `Parser(f)` and
+  `ForwardDeclParser.define()` read its tuple as a success and its `NoParseError` as a failure that
   `|` backtracks from, and warn with a `DeprecationWarning` the first time each parser gets such a result
 
 ### Fixed
