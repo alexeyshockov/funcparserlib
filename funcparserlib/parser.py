@@ -47,6 +47,8 @@ of `Parser` objects is closed under the means of combination.
   [1]: https://www.cl.cam.ac.uk/teaching/Lectures/funprog-jrh-1996/
 """
 
+from __future__ import annotations
+
 __all__ = [
     "some",
     "pure",
@@ -108,26 +110,26 @@ class State:
 
     pos: int
     max: int
-    parser: "ParserObjOrFn[Any, Any] | None" = None
+    parser: ParserObjOrFn[Any, Any] | None = None
 
-    def reset_pos_to(self, s: "State") -> "State":
+    def reset_pos_to(self, s: State) -> State:
         """This state with the position of `s`."""
         # dataclasses.replace() hits performance, as it performs additional validation
         return State(s.pos, self.max, self.parser)
 
-    def reset_pos(self, pos: int) -> "State":
+    def reset_pos(self, pos: int) -> State:
         """This state at `pos`, with `max` moved up to `pos` if it is further."""
         return State(pos, max(pos, self.max), self.parser)
 
-    def replace_rest_from(self, s: "State") -> "State":
+    def replace_rest_from(self, s: State) -> State:
         """This position, with the rightmost position and the parser of `s`."""
         return State(self.pos, s.max, s.parser)
 
-    def replace_rest(self, max_pos: int, p: "ParserObjOrFn[Any, Any]") -> "State":
+    def replace_rest(self, max_pos: int, p: ParserObjOrFn[Any, Any]) -> State:
         """This position, with the rightmost position `max_pos` reached by the parser `p`."""
         return State(self.pos, max_pos, p)
 
-    def replace_parser_if_not_observed_further(self, p: "ParserObjOrFn[Any, Any]") -> "State":
+    def replace_parser_if_not_observed_further(self, p: ParserObjOrFn[Any, Any]) -> State:
         """This state with the parser `p`, unless a parser got further than this position."""
         if self.pos == self.max:
             return State(self.pos, self.max, p)
@@ -168,19 +170,19 @@ class ParsingResult[R](Iterable[Any], Protocol):
         """The parsing state after this result."""
         ...
 
-    def map[C](self, f: Callable[[R], C]) -> "ParsingResult[C]":
+    def map[C](self, f: Callable[[R], C]) -> ParsingResult[C]:
         """Apply `f` to the parsed value of a success; a failure is returned as it is."""
         ...
 
-    def starmap[C](self, f: Callable[..., C]) -> "ParsingResult[C]":
+    def starmap[C](self, f: Callable[..., C]) -> ParsingResult[C]:
         """Assume that the value is a tuple and apply the function to its elements."""
         ...
 
-    def bind[C](self, f: Callable[[R, State], "ParsingResult[C]"]) -> "ParsingResult[C]":
+    def bind[C](self, f: Callable[[R, State], ParsingResult[C]]) -> ParsingResult[C]:
         """Continue a success with `f`, given its value and state; a failure is returned as is."""
         ...
 
-    def __add__[C](self, other: "ParsingResult[C]") -> "ParsingResult[Any]":
+    def __add__[C](self, other: ParsingResult[C]) -> ParsingResult[Any]:
         """Combine two results in sequence, as `Parser.__add__()` combines their parsers."""
         ...
 
@@ -231,7 +233,7 @@ class ParsingError[R](ParsingResult[R]):
     state: State = dc.field()
     message: str = "got unexpected token"
 
-    def replace_state(self, s: State) -> "ParsingError[R]":
+    def replace_state(self, s: State) -> ParsingError[R]:
         """The same failure at the state `s`."""
         return ParsingError(s, self.message)
 
@@ -413,7 +415,7 @@ class Parser[A, B]:
             raise
         return cast("B", tree)
 
-    def but_not(self, other: "Parser[A, Any]") -> "Parser[A, B]":
+    def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
 
         Type: `(Parser[A, B], Parser[A, Any]) -> Parser[A, B]`
@@ -444,7 +446,7 @@ class Parser[A, B]:
 
         return _but_not
 
-    def when(self, pred: Callable[[B], bool]) -> "Parser[A, B]":
+    def when(self, pred: Callable[[B], bool]) -> Parser[A, B]:
         """Wrap the parser to a new one, that parses a token if it satisfies the predicate `pred`.
 
         Type: `(Parser[A, B], Callable[[B], bool]) -> Parser[A, B]`
@@ -474,13 +476,13 @@ class Parser[A, B]:
 
     @overload
     def __add__(  # type: ignore[overload-overlap]
-        self, other: "IgnoredParser[A]"
+        self, other: IgnoredParser[A]
     ) -> Self: ...
 
     @overload
-    def __add__[C](self, other: "Parser[A, C]") -> "Tuple2Parser[A, B, C]": ...
+    def __add__[C](self, other: Parser[A, C]) -> Tuple2Parser[A, B, C]: ...
 
-    def __add__(self, other: "Parser[A, Any]") -> "Parser[A, Any]":
+    def __add__(self, other: Parser[A, Any]) -> Parser[A, Any]:
         """Sequential combination of parsers. It runs this parser, then the other parser.
 
         The return value of the resulting parser is a tuple of each parsed value in the sum of
@@ -538,7 +540,7 @@ class Parser[A, B]:
 
         return _add
 
-    def __or__[C](self, other: "Parser[A, C]") -> "Parser[A, B | C]":
+    def __or__[C](self, other: Parser[A, C]) -> Parser[A, B | C]:
         """Choice combination of parsers.
 
         It runs this parser and returns its result. If the parser fails, it runs the other parser.
@@ -576,7 +578,7 @@ class Parser[A, B]:
 
         return _or
 
-    def map[C](self, f: Callable[[B], C]) -> "Parser[A, C]":
+    def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
 
         @parser(self.name)
@@ -586,7 +588,7 @@ class Parser[A, B]:
 
         return _map
 
-    def starmap[C](self, f: Callable[..., C]) -> "Parser[A, C]":
+    def starmap[C](self, f: Callable[..., C]) -> Parser[A, C]:
         """Transform the parsing results (tuple) by applying the specified function."""
 
         @parser(self.name)
@@ -596,7 +598,7 @@ class Parser[A, B]:
 
         return _map
 
-    def __rshift__[C](self, f: Callable[[B], C]) -> "Parser[A, C]":
+    def __rshift__[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function.
 
         Type: `(Callable[[B], C]) -> Parser[A, C]`
@@ -618,7 +620,7 @@ class Parser[A, B]:
         """
         return self.map(f)
 
-    def bind[C](self, f: Callable[[B], "Parser[A, C]"]) -> "Parser[A, C]":
+    def bind[C](self, f: Callable[[B], Parser[A, C]]) -> Parser[A, C]:
         """Bind the parser to a monadic function that returns a new parser.
 
         Type: `(Callable[[B], Parser[A, C]]) -> Parser[A, C]`
@@ -638,7 +640,7 @@ class Parser[A, B]:
 
         return _bind
 
-    def __neg__(self) -> "IgnoredParser[A]":
+    def __neg__(self) -> IgnoredParser[A]:
         """Return a parser that parses the same tokens, but its parsing result is ignored by the
         sequential `+` combinator.
 
@@ -710,7 +712,7 @@ class Parser[A, B]:
 
         return cast("IgnoredParser[A]", _ignored)
 
-    def __invert__(self) -> "Parser[A, A]":
+    def __invert__(self) -> Parser[A, A]:
         """Return a parser that parses one token, any token this parser does not parse.
 
         Type: `(Parser[A, B]) -> Parser[A, A]`
@@ -808,16 +810,16 @@ class Tuple2Parser[A, T1, T2](Parser[A, tuple[T1, T2]]):
 
     @overload  # type: ignore[override]
     def __add__(  # type: ignore[overload-overlap]
-        self, other: "IgnoredParser[A]"
+        self, other: IgnoredParser[A]
     ) -> Self: ...
 
     @overload
-    def __add__[C](self, other: Parser[A, C]) -> "Tuple3Parser[A, T1, T2, C]": ...
+    def __add__[C](self, other: Parser[A, C]) -> Tuple3Parser[A, T1, T2, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
         raise NotImplementedError
 
-    def starmap[C](self, f: Callable[[T1, T2], C]) -> "Parser[A, C]":
+    def starmap[C](self, f: Callable[[T1, T2], C]) -> Parser[A, C]:
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
@@ -832,16 +834,16 @@ class Tuple3Parser[A, T1, T2, T3](Parser[A, tuple[T1, T2, T3]]):
 
     @overload  # type: ignore[override]
     def __add__(  # type: ignore[overload-overlap]
-        self, other: "IgnoredParser[A]"
+        self, other: IgnoredParser[A]
     ) -> Self: ...
 
     @overload
-    def __add__[C](self, other: Parser[A, C]) -> "Tuple4Parser[A, T1, T2, T3, C]": ...
+    def __add__[C](self, other: Parser[A, C]) -> Tuple4Parser[A, T1, T2, T3, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
         raise NotImplementedError
 
-    def starmap[C](self, f: Callable[[T1, T2, T3], C]) -> "Parser[A, C]":
+    def starmap[C](self, f: Callable[[T1, T2, T3], C]) -> Parser[A, C]:
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
@@ -856,16 +858,16 @@ class Tuple4Parser[A, T1, T2, T3, T4](Parser[A, tuple[T1, T2, T3, T4]]):
 
     @overload  # type: ignore[override]
     def __add__(  # type: ignore[overload-overlap]
-        self, other: "IgnoredParser[A]"
+        self, other: IgnoredParser[A]
     ) -> Self: ...
 
     @overload
-    def __add__[C](self, other: Parser[A, C]) -> "Tuple5Parser[A, T1, T2, T3, T4, C]": ...
+    def __add__[C](self, other: Parser[A, C]) -> Tuple5Parser[A, T1, T2, T3, T4, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
         raise NotImplementedError
 
-    def starmap[C](self, f: Callable[[T1, T2, T3, T4], C]) -> "Parser[A, C]":
+    def starmap[C](self, f: Callable[[T1, T2, T3, T4], C]) -> Parser[A, C]:
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
@@ -879,15 +881,15 @@ class Tuple5Parser[A, T1, T2, T3, T4, T5](Parser[A, tuple[T1, T2, T3, T4, T5]]):
     """The type of a sequence of 5 parsers, `p1 + ... + p5`; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
-    def __add__(self, other: "IgnoredParser[A]") -> Self: ...
+    def __add__(self, other: IgnoredParser[A]) -> Self: ...
 
     @overload
-    def __add__[C](self, other: Parser[A, C]) -> "Parser[A, Any]": ...
+    def __add__[C](self, other: Parser[A, C]) -> Parser[A, Any]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
         raise NotImplementedError
 
-    def starmap[C](self, f: Callable[[T1, T2, T3, T4, T5], C]) -> "Parser[A, C]":
+    def starmap[C](self, f: Callable[[T1, T2, T3, T4, T5], C]) -> Parser[A, C]:
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
@@ -1130,7 +1132,7 @@ def maybe[A, B](p: Parser[A, B]) -> Parser[A, B | None]:
     return (p | pure(None)).named(f"[ {p.name} ]")
 
 
-def skip[A](p: Parser[A, Any]) -> "IgnoredParser[A]":
+def skip[A](p: Parser[A, Any]) -> IgnoredParser[A]:
     """An alias for `-p`.
 
     See also docs for `Parser.__neg__()`.
@@ -1151,7 +1153,7 @@ class IgnoredParser[A](Parser[A, IgnoredValue]):
     """The type of `-p` and `skip(p)`, whose value `+` drops; a type for checkers, never built."""
 
     @overload  # type: ignore[override]
-    def __add__(self, other: "IgnoredParser[A]") -> Self: ...
+    def __add__(self, other: IgnoredParser[A]) -> Self: ...
 
     @overload
     def __add__[P: Parser[Any, Any]](self, other: P) -> P: ...
