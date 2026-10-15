@@ -80,10 +80,9 @@ __all__ = [
     "debug",
 ]
 
-import dataclasses as dc
 import logging
 from collections.abc import Callable, Iterable, Iterator, Sequence
-from typing import Any, Protocol, Self, cast, final, overload
+from typing import Any, NoReturn, Protocol, Self, cast, final, overload
 
 from ._commons import valueclass, with_hint
 from .lexer import Place, Token
@@ -160,10 +159,14 @@ class NoParseError(Exception):
 class ParsingResult[R](Iterable[Any], Protocol):
     """Result monad for parsing combinators.
 
-    Immutable (object's data should not be changed after creation).
+    Immutable (object's data should not be changed after creation). `ParsingSuccess` and
+    `ParsingError` implement it structurally.
     """
 
-    __slots__ = ()
+    @property
+    def value(self) -> R:
+        """The parsed value; raises `NoParseError` for a failure."""
+        ...
 
     @property
     def state(self) -> State:
@@ -189,22 +192,22 @@ class ParsingResult[R](Iterable[Any], Protocol):
 
 @final
 @valueclass
-class ParsingSuccess[R](ParsingResult[R]):
+class ParsingSuccess[R]:
     """A successful parsing result: the parsed `value` and the `state` after it."""
 
     value: R
-    state: State = dc.field()
+    state: State
 
     def __iter__(self) -> Iterator[Any]:
         yield self.value
         yield self.state
 
     def map[C](self, f: Callable[[R], C]) -> ParsingResult[C]:
-        return ParsingSuccess(f(self.value), self.state)
+        # mypy checks ParsingSuccess against ParsingResult through this very method, and fails.
+        return ParsingSuccess(f(self.value), self.state)  # type: ignore[return-value]
 
     def starmap[C](self, f: Callable[..., C]) -> ParsingResult[C]:
-        values = cast("tuple[Any, ...]", self.value)
-        return ParsingSuccess(f(*values), self.state)
+        return ParsingSuccess(f(*cast("tuple[Any, ...]", self.value)), self.state)
 
     def bind[C](self, f: Callable[[R, State], ParsingResult[C]]) -> ParsingResult[C]:
         return f(self.value, self.state)
@@ -212,28 +215,29 @@ class ParsingSuccess[R](ParsingResult[R]):
     def __add__[C](self, other: ParsingResult[C]) -> ParsingResult[Any]:
         # Assume that the other state is further away from the current one
         # (matches Parser.__add__() behavior)
-        if isinstance(other, ParsingSuccess):
-            v1, v2, s2 = self.value, other.value, other.state
-            if isinstance(v1, IgnoredValue):
-                return other
-            if isinstance(v2, IgnoredValue):
-                return ParsingSuccess(v1, s2)
-            return ParsingSuccess(_Tuple.combine(v1, v2), s2)
-        return cast("ParsingError[Any]", other)
+        if isinstance(other, ParsingError):
+            return other
+        v1, v2, s2 = self.value, other.value, other.state
+        if isinstance(v1, IgnoredValue):
+            return other
+        if isinstance(v2, IgnoredValue):
+            return ParsingSuccess(v1, s2)
+        return ParsingSuccess(_Tuple.combine(v1, v2), s2)
 
 
 @final
 @valueclass
-class ParsingError[R](ParsingResult[R]):
+class ParsingError:
     """A failed parsing result: where parsing stopped, and why.
 
-    Its `value` raises `NoParseError`.
+    It carries no value, so it is a `ParsingResult` of any value type; its `value` raises
+    `NoParseError`.
     """
 
-    state: State = dc.field()
+    state: State
     message: str = "got unexpected token"
 
-    def replace_state(self, s: State) -> ParsingError[R]:
+    def replace_state(self, s: State) -> ParsingError:
         """The same failure at the state `s`."""
         return ParsingError(s, self.message)
 
@@ -242,22 +246,22 @@ class ParsingError[R](ParsingResult[R]):
         return NoParseError(self.message, self.state)
 
     @property
-    def value(self) -> R:
+    def value(self) -> NoReturn:
         raise self._error
 
     def __iter__(self) -> Iterator[Any]:
         raise self._error
 
-    def map[C](self, f: Callable[[R], C]) -> ParsingResult[C]:
-        return cast("ParsingError[C]", self)
+    def map(self, f: Callable[[Any], object]) -> ParsingError:
+        return self
 
-    def starmap[C](self, f: Callable[..., C]) -> ParsingResult[C]:
-        return cast("ParsingError[C]", self)
+    def starmap(self, f: Callable[..., object]) -> ParsingError:
+        return self
 
-    def bind[C](self, f: Callable[[R, State], ParsingResult[C]]) -> ParsingResult[C]:
-        return cast("ParsingError[C]", self)
+    def bind(self, f: Callable[[Any, State], object]) -> ParsingError:
+        return self
 
-    def __add__[C](self, other: ParsingResult[C]) -> ParsingResult[Any]:
+    def __add__(self, other: object) -> ParsingError:
         return self
 
 
@@ -468,7 +472,7 @@ class Parser[A, B]:
         @parser("when(...)")
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError) or pred(cast("ParsingSuccess[B]", res).value):
+            if isinstance(res, ParsingError) or pred(res.value):
                 return res
             return ParsingError(s.replace_parser_if_not_observed_further(_when))
 
@@ -536,7 +540,7 @@ class Parser[A, B]:
             if isinstance(res_l, ParsingSuccess):
                 res_r = other.run(tokens, res_l.state)
                 return res_l + res_r
-            return cast("ParsingError[Any]", res_l)
+            return res_l
 
         return _add
 
@@ -562,19 +566,16 @@ class Parser[A, B]:
 
         @parser(f"{self.name} or {other.name}")
         def _or(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
-            res: ParsingResult[Any] = self.run(tokens, s)
+            res = self.run(tokens, s)
             if isinstance(res, ParsingSuccess):
                 return res
 
             s = res.state.reset_pos_to(s)
-            res = other.run(tokens, s)
-            if isinstance(res, ParsingSuccess):
-                return res
-
-            err = cast("ParsingError[B | C]", res)
-            if s.pos == err.state.max:
-                return ParsingError(State(err.state.pos, err.state.max, _or), err.message)
-            return err
+            res_other = other.run(tokens, s)
+            if isinstance(res_other, ParsingError) and s.pos == res_other.state.max:
+                state = res_other.state
+                return ParsingError(State(state.pos, state.max, _or), res_other.message)
+            return res_other
 
         return _or
 
@@ -706,9 +707,9 @@ class Parser[A, B]:
         @parser(self.name)
         def _ignored(tokens: Sequence[A], s: State) -> ParsingResult[IgnoredValue]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingSuccess):
-                return ParsingSuccess(_IGNORED, res.state)
-            return cast("ParsingError[IgnoredValue]", res)
+            if isinstance(res, ParsingError):
+                return res
+            return ParsingSuccess(_IGNORED, res.state)
 
         return cast("IgnoredParser[A]", _ignored)
 
@@ -1186,13 +1187,13 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
 
     @parser(f"({p.name}, {{ {p.name} }})")
     def _oneplus(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
-        res: ParsingResult[Any]
-        res = first = p.run(tokens, s)
-        if isinstance(first, ParsingSuccess):
-            res = rest = many_p.run(tokens, first.state)
-            if isinstance(rest, ParsingSuccess):
-                res = ParsingSuccess([first.value] + rest.value, rest.state)
-        return cast("ParsingError[Any]", res)
+        first = p.run(tokens, s)
+        if isinstance(first, ParsingError):
+            return first
+        rest = many_p.run(tokens, first.state)
+        if isinstance(rest, ParsingError):
+            return rest
+        return ParsingSuccess([first.value, *rest.value], rest.state)
 
     return _oneplus
 
