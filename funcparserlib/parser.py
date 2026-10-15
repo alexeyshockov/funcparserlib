@@ -449,7 +449,8 @@ class Parser[A, B]:
 
         The name is a label for error messages: when the parser fails without getting past its first
         token, the message says it expected `name` rather than what the parser is made of. It is
-        also used in the debug-level parsing log, and is the `Parser.name` attribute.
+        also used in the debug-level parsing log, and is the `Parser.name` attribute. `named(None)`
+        removes both the name and the label.
 
         Examples:
             ```pycon
@@ -482,7 +483,7 @@ class Parser[A, B]:
                 The way to enable the parsing log may be changed in future versions.
         """
         self.name = name
-        self._label = True
+        self._label = name is not None
         self._update_run()
         return self
 
@@ -508,7 +509,7 @@ class Parser[A, B]:
             if isinstance(res, ParsingError) and res.state.max == s.pos:
                 # Nothing got past this parser's start: it, not its parts, is what was expected.
                 st = res.state
-                expected = (*s.expected, (self, s.context)) if s.max == s.pos else st.expected
+                expected = (*s.expected, (self, s.context))
                 failed = State(st.pos, st.max, expected, st.context, st.problems)
                 return ParsingError(failed, res.message, res.committed)
             return res
@@ -929,7 +930,7 @@ class Parser[A, B]:
 
                 You **should not** pass the resulting parser to any combinators other than
                 `+`. You **should** have at least one non-skipped value in your
-                `p1 + p2 + ... + pN`. The parsed value of `-p` is an **internal** `_Ignored`
+                `p1 + p2 + ... + pN`. The parsed value of `-p` is an `IgnoredValue`
                 object, not intended for actual use.
         """
 
@@ -1539,8 +1540,7 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
 class IgnoredEndOfInput(Parser[Any, IgnoredValue]):
     """The type of `-finished`; a type for checkers, never built.
 
-    It is not an `IgnoredParser[Any]`: with `Any` there, `p + -finished` matches both of `+`'s
-    overloads and type checkers infer `Any`.
+    `p + -finished` has the type of `p`.
     """
 
     def __add__[P: Parser[Any, Any]](self, other: P) -> P:  # type: ignore[override]

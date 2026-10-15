@@ -70,6 +70,10 @@ def test_a_label_does_not_hide_a_failure_past_its_start() -> None:
     assert error(pair, "xz").expected == ("'y'",)
 
 
+def test_a_parser_named_none_is_no_label() -> None:
+    assert error((x + y).named(None) + z, "w").expected == ("'x'",)
+
+
 def test_the_error_holds_the_token_it_stopped_at() -> None:
     e = error(x + y, "xz")
     assert (e.token, e.state.max) == ("z", 1)
