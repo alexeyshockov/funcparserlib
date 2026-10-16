@@ -16,7 +16,7 @@ PYPROJECT = "pyproject.toml"
 SHARED_RUFF = "shared.ruff.toml"
 
 # The shapes a tool's own configuration file takes. `<name>` is filled from each `[tool.<name>]`
-# section, so the list is about file conventions rather than any particular tool.
+# section.
 FILENAMES = (
     "{name}.toml",
     ".{name}.toml",

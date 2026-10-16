@@ -28,14 +28,12 @@ INCLUDE = re.compile(r'^\s*-{2}8<-{2}\s*"([^":]+):([\w.\-]+)"\s*$')
 INCLUDE_FILE = re.compile(r'^\s*-{2}8<-{2}\s*"([^":]+)"\s*$')
 # Anything meant to be an include: two dashes, an 8 and a chevron, however spaced.
 NEAR_INCLUDE = re.compile(r'^\s*-\s*-\s*8\s*<\s*-\s*-\s*"')
-# The `<!-- hl: task1 -->` steering comment.
 HL_COMMENT = re.compile(r"^\s*<!--\s*hl:\s*([\w.\-]+)\s*-->\s*$")
 # A fenced code block opener with an info string: ```python hl_lines="7-11"
 FENCE = re.compile(r"^\s*```+\s*([\w-]*)\s*(.*)$")
 HL_ATTR = re.compile(r'hl_lines="([^"]*)"')
 # An inline code span, stripped before a line is read for links.
 CODE_SPAN = re.compile(r"`+[^`]*`+")
-# An inline Markdown link: [text](target).
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 FENCE_EDGE = re.compile(r"^\s*(`{3,}|~{3,})")
 # A python fence, however its info string grows: `python`, `{.python}`, `python title="x.py"`.

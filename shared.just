@@ -30,7 +30,7 @@
 # rewriting it. `env -u VIRTUAL_ENV` silences uv's warning about an activated .venv.
 #
 # `UV_PROJECT_ENVIRONMENT` puts the toolbox's environment at `.venv-tools` in the repository root
-# rather than nesting one inside `tools/`. It is resolved against the *project* directory, so
+# rather than nesting one inside `tools/`. It is resolved against the project directory, so
 # `../.venv-tools` lands beside `.venv`, which is where `.gitignore` and `.claudeignore` already
 # expect a `.venv-*` to be. It is set per invocation and never exported: exported, it would send
 # `just venv` — an ordinary `uv sync` of the project — to the same place.
@@ -66,14 +66,11 @@ mod bench 'benchmarks/justfile'
 doctor:
     @just tools::doctor
 
-# Named for what it builds, not for what it installs: it does not check or fetch dependencies,
-# it makes `.venv` match the lock. `deps` is the recipe that judges the dependencies, and it
-# could not have that name while this one held it.
+# Makes `.venv` match the lock; it does not check or fetch dependencies. `deps` judges them.
 [doc("Build .venv from the lock (uv sync, every group and extra)")]
 venv:
     uv sync --all-groups --all-extras
 
-# Named for the environment it moves. `deps` is deptry, the recipe that checks the dependencies.
 [doc("Upgrade the locked dependency versions, then rebuild .venv")]
 venv-upgrade:
     uv lock --upgrade
@@ -107,7 +104,7 @@ types:
     {{ tools }} toolbox mypy
 
 # `-` is just's ignore-failure prefix, and it is the point: ty and pyrefly run so a disagreement
-# is *seen*, not so it can block.
+# is seen, not so it can block.
 [doc("Second opinions on the package from ty and pyrefly (informational, never blocks)")]
 types-info:
     -{{ tools }} toolbox ty -- {{ packages }}
@@ -120,10 +117,9 @@ types-info:
 types-examples:
     {{ tools }} toolbox ty -- examples
 
-# The repository's own checks import pytest and the standard library and nothing else, and they
-# are the one place here that walks `ast` — a wide union where reading an attribute off the wrong
-# node is the mistake to make, and the one a checker is actually good at. It runs from inside
-# `tools/`; see the module.
+# The repository's own checks import pytest and the standard library only. They walk `ast`, where
+# reading an attribute off the wrong node is the likely mistake and a checker catches it. They run
+# from inside `tools/`; see the module.
 [doc("Check the repository's own checks with ty (blocking)")]
 types-checks:
     @just tools::types-checks

@@ -4,7 +4,7 @@
 # Run locally with `prek` (`just check`), and in the cloud by pre-commit.ci, which
 # reads this same file — `ci:` below is its configuration, and prek ignores it.
 #
-# EVERY HOOK HERE IS READ-ONLY. A gate that rewrites the file it is judging cannot be
+# Every hook here is read-only. A gate that rewrites the file it is judging cannot be
 # trusted: prek notices a rewrite by diffing the worktree against git's index, so a
 # `--write`-shaped hook handed a file the index has never seen rewrites it and still
 # reports Passed (measured, prek 0.5.2 — `ruff-format` and `prettier` both did). A
@@ -15,8 +15,7 @@
 # mode at the `manual` stage, which only `just fix` invokes. `stages:` is written out
 # on every gate hook rather than left to `default_stages`, because a hook whose own
 # upstream manifest declares `stages` ignores the default — `typos` and
-# `check-added-large-files` declare `manual` and leaked into `just fix` until they
-# were pinned here.
+# `check-added-large-files` declare `manual`.
 minimum_pre_commit_version: "3.5.0"
 default_stages: [pre-commit]
 
@@ -74,8 +73,8 @@ repos:
     rev: v0.16.10
     hooks:
       # `ruff check` is read-only unless asked otherwise, so the gate is the bare hook:
-      # no `--fix`, and no `--exit-non-zero-on-fix` to absorb, which is why nothing here
-      # needs just's `-` prefix any more.
+      # no `--fix`, and no `--exit-non-zero-on-fix` to absorb, so nothing here
+      # needs just's `-` prefix.
       - id: ruff-check
         args: []
         stages: [pre-commit]
@@ -150,7 +149,7 @@ repos:
   # Whitespace, line endings and encoding, checked against `.editorconfig` — one
   # declaration for editors, humans and the gate, instead of the rules living invisibly
   # inside two fixer scripts. It replaces `trailing-whitespace` and `end-of-file-fixer`
-  # as the *gate* (they have no check mode at all, so they stay below as fix-only), and
+  # as the gate (they have no check mode at all, so they stay below as fix-only), and
   # it covers what they never reached: `.toml`, dotfiles, and every other text file.
   #
   # Line length and indent size, per file type: ruff checks Python, markdownlint checks

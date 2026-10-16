@@ -25,8 +25,8 @@ REFUSED = 2
 PYTHON = ".venv"
 INTERPRETER = ".venv/bin/python"
 
-# What ty reads as Python. It has no file filter of its own: handed a Markdown file it reported 1655
-# diagnostics, a workflow 438, `pyproject.toml` 112.
+# What ty reads as Python. It has no file filter of its own and reports diagnostics for any file
+# handed to it.
 PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 
 # Where a distribution's typesafety suite lives: `assert_type` cases that exist to be judged by
@@ -35,7 +35,7 @@ TYPESAFETY = "tests/typesafety"
 
 # The toolbox's own files run on the toolbox's interpreter, which `just types-checks` checks them
 # at. From the repository root ty reads the project's `requires-python` and `.venv` instead, and
-# reported `ast.TypeAlias` missing in a file that only ever runs on the toolbox's interpreter.
+# reports `ast.TypeAlias` missing in a file that only ever runs on the toolbox's interpreter.
 TOOLBOX = "tools"
 
 # The noxfile imports nox, which the tool environment installs and `.venv` does not: ty checks it

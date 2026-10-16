@@ -2,9 +2,8 @@
 # Generated; propose changes in an issue rather than editing this file.
 #
 # Reached from `pyproject.toml` through `[tool.ruff] extend = "shared.ruff.toml"`, and only that
-# way: this is deliberately NOT named `ruff.toml` / `.ruff.toml`, which ruff discovers on its own
-# and which would then *shadow* `[tool.ruff]` instead of extending it — the failure class a root
-# `_typos.toml` once caused, silently switching four allowances off. A project adds to what is here
+# way: this is deliberately not named `ruff.toml` / `.ruff.toml`, which ruff discovers on its own
+# and which would then shadow `[tool.ruff]` instead of extending it. A project adds to what is here
 # with `extend-select`, `extend-ignore` and `extend-per-file-ignores`; the bare `select` /
 # `ignore` / `per-file-ignores` keys replace this file's lists wholesale, and
 # the conventions runner (CON803) refuses them. Rules: https://docs.astral.sh/ruff/rules/
@@ -22,7 +21,7 @@ skip-magic-trailing-comma = true
 
 [lint]
 # The DOC1xx/2xx/4xx rules (pydoclint port) and PLC2701 are preview-only. `explicit-preview-rules`
-# opts in ONLY the exact codes named in `select` and keeps every other preview rule off, so the
+# opts in only the exact codes named in `select` and keeps every other preview rule off, so the
 # broad prefix selectors (F, PL, RUF, …) stay on their stable set.
 preview = true
 explicit-preview-rules = true
@@ -57,7 +56,7 @@ select = [
     "SLOT",  # flake8-slots
     "SIM",  # flake8-simplify
     "TID",  # flake8-tidy-imports
-    # flake8-type-checking, cherry-picked: only the codes that DON'T push runtime imports into
+    # flake8-type-checking, cherry-picked: only the codes that don't push runtime imports into
     # `if TYPE_CHECKING:` blocks (TC001/002/003), which fight the "no TYPE_CHECKING unless needed"
     # rule in CONVENTIONS.md.
     "TC006",  # runtime-cast-value — quote the type expression in `typing.cast()` (dead at runtime)

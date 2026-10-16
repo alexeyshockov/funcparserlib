@@ -63,8 +63,7 @@ def _gate_dependencies(project: Project, path: Path) -> list[_Listed]:
 def _job_steps(text: str, job: str) -> list[_Listed] | None:
     """The recipes one named workflow job runs, in order; `None` when there is no such job.
 
-    Read with a regular expression rather than a YAML parser: the runner has no YAML dependency, and
-    a line-oriented scan of a file the repository writes reads the one field it needs.
+    Read by a line scan: the runner has no YAML dependency.
     """
     header = f"\n  {job}:\n"
     if header not in text:

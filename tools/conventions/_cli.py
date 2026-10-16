@@ -26,8 +26,7 @@ from ._versions import TAG, changelog_section, distributions, write_version
 
 CLEAN, FINDINGS, NO_VERDICT = 0, 1, 2
 
-# Seconds a run may take. The largest attached repository takes under 2s; the docs vocabulary,
-# which runs basedpyright, adds a few more.
+# Seconds a run may take, with room for the docs vocabulary, which runs basedpyright.
 DEADLINE = 120.0
 
 

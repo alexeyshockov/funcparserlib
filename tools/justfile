@@ -18,7 +18,7 @@ set working-directory := '..'
 # rewriting it. `env -u VIRTUAL_ENV` silences uv's warning about an activated .venv.
 #
 # `UV_PROJECT_ENVIRONMENT` puts the toolbox's environment at `.venv-tools` in the repository root
-# rather than nesting one inside `tools/`. It is resolved against the *project* directory, so
+# rather than nesting one inside `tools/`. It is resolved against the project directory, so
 # `../.venv-tools` lands beside `.venv`, which is where `.gitignore` and `.claudeignore` already
 # expect a `.venv-*` to be. It is set per invocation and never exported: exported, it would send
 # `just venv` — an ordinary `uv sync` of the project — to the same place.
@@ -147,10 +147,10 @@ conventions:
 fix-visibility:
     {{ tools }} conventions fix CON402 CON403
 
-# Run from inside `tools/`, which is the whole trick: ty resolves its configuration from the
-# invocation's root, so from the repository root it reads the *project's* `requires-python` and
-# checks these files at the package's floor rather than the toolbox's. From here it finds
-# `tools/pyproject.toml`, and the interpreter is stated once, there.
+# Run from inside `tools/`: ty resolves its configuration from the invocation's root, so from
+# the repository root it reads the project's `requires-python` and checks these files at the
+# package's floor rather than the toolbox's. From here it finds `tools/pyproject.toml`, and the
+# interpreter is stated once, there.
 # The repository's own checks only; `tools/conventions/` is excluded: it is generated.
 [doc("Type-check the repository's own checks")]
 types-checks:
@@ -204,15 +204,13 @@ deadcode dir *args:
 
 # --- Check and fix ---
 
-# Two verbs, and the split is the point. `check` asserts and never writes; `fix` writes and
-# never asserts. A command that does both cannot be trusted: prek notices a rewrite by diffing
-# against git's index, so a fixing hook handed an untracked path rewrites it and reports
-# Passed, and any "verified" citing that is empty. The hooks are read-only at the
-# `pre-commit` stage (see `.pre-commit-config.yaml`), so
-# a false green of that shape is no longer expressible.
+# `check` asserts and never writes; `fix` writes and never asserts. A command that does both
+# cannot be trusted: prek notices a rewrite by diffing against git's index, so a fixing hook
+# handed an untracked path rewrites it and reports Passed. The hooks are read-only at the
+# `pre-commit` stage (see `.pre-commit-config.yaml`), so a false green of that shape cannot occur.
 #
 # Both take optional paths, which `toolbox` turns into the files the hooks judge: the working tree
-# when none, tracked files *and* new ones; a directory as the files git shows under it; a path that
+# when none, tracked files and new ones; a directory as the files git shows under it; a path that
 # names nothing refused with exit 2. Nothing here writes to git's index: staging is a decision, and
 # a verification command does not make it.
 #

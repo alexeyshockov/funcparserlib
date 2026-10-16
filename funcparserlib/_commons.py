@@ -113,11 +113,9 @@ def _check_slots(c: type, slots: bool, /) -> None:
 
 
 def with_hint(error: E, note: str) -> E:
-    """Attach a hint to `error` and hand the exception back for raising.
+    """Attach a hint to `error` as a note and hand the exception back for raising.
 
-    `CONVENTIONS.md` keeps the message to the one line a log carries and puts the action a caller
-    can take in a note, which prints under the traceback and stays out of `str(exc)`. This builds
-    rather than raises so the helper adds no frame between the caller and the `raise`.
+    Returns rather than raises so the helper adds no frame between the caller and the `raise`.
     """
     error.add_note(note)
     return error
@@ -125,10 +123,10 @@ def with_hint(error: E, note: str) -> E:
 
 def def_full_name(func: Any, /) -> str:
     """`module.qualname` of a function or an object's type; bare for `builtins`, `__main__`."""
-    try:  # Function case
+    try:
         module = func.__module__
         name = func.__qualname__
-    except AttributeError:  # Object case
+    except AttributeError:
         object_type = type(func)
         module = object_type.__module__
         name = object_type.__qualname__

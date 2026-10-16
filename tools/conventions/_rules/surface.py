@@ -200,7 +200,7 @@ def version(project: Project) -> Iterator[Finding]:
 # what an entry point names. Module: everything else, which carries a leading underscore. In a
 # public module a name is exported or underscored, and a helper other modules need lives in a
 # private module. ALL_CAPS constants are exempt, and so is every type variable, whatever its
-# spelling: it stands in for a signature's syntax, not for a name. Imports from tests do not count.
+# spelling, since it stands in for a signature's syntax. Imports from tests do not count.
 
 EXEMPT = re.compile(r"^_?[A-Z][A-Z0-9_]*$")
 TYPE_VARIABLES = frozenset({"TypeVar", "ParamSpec", "TypeVarTuple"})
