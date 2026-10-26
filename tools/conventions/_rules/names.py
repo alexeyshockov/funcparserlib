@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .._engine import Finding, rule
 from .._project import Project
-from ._ast import alias_name, all_value
+from ._ast import alias_name, exported_by, resolved
 
 # `CONVENTIONS.md`'s shared list; a project adds its own in `[tool.conventions] initialisms`.
 SHARED_INITIALISMS = ("API", "HTTP", "ID", "RPC", "URL")
@@ -57,50 +57,128 @@ def initialisms(project: Project) -> Iterator[Finding]:
                 )
 
 
-# An `async def` spelled as a sync function's name with `_async` after it. The `async_` prefix is
-# not matched: it is also how an entity is spelled (`async_client`, `async_ok_handler`), and no scan
-# can tell a twin action from an entity. A test is not matched either: pytest collects it by its
-# `test` prefix, so `atest_...` would stop it running, and its suffix names the half it exercises.
-ASYNC_SUFFIXED = re.compile(r"^(?P<bare>\w+?)_async$")
+# A twin pair is two definitions in one scope, a sync `bare` and an `async def` beside it, spelled
+# other than `bare` / `abare`. Each pattern names the side it matches; the other side is `bare`.
+# `async_` alone, with no sync partner, is an entity's spelling (`async_client`, `async_ok_handler`)
+# and is not matched. A test is not matched either: pytest collects it by its `test` prefix, so
+# `atest_...` would stop it running, and its suffix names the half it exercises.
+ASYNC_SIDE = (re.compile(r"^(?P<bare>\w+?)_async$"), re.compile(r"^async_(?P<bare>\w+)$"))
+SYNC_SIDE = re.compile(r"^(?P<bare>\w+?)_(?:blocking|sync)$")
+
+Def = ast.FunctionDef | ast.AsyncFunctionDef
 
 
-def _exported_elements(tree: ast.Module) -> dict[str, int]:
-    """Each name in a module's literal `__all__`, with the line it is listed on."""
-    value = all_value(tree)
-    if not isinstance(value, ast.List | ast.Tuple):
-        return {}
-    return {
-        e.value: e.lineno
-        for e in value.elts
-        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-    }
+def _scopes(tree: ast.Module) -> Iterator[tuple[str, str, list[ast.stmt]]]:
+    """The module body and each class body under it whose class name carries no underscore.
+
+    Each comes with its dotted prefix and its owner: the top-level class it sits in, or `""` for the
+    module body, where each definition is its own owner.
+    """
+    yield "", "", tree.body
+    stack: list[tuple[str, str, list[ast.stmt]]] = [("", "", tree.body)]
+    while stack:
+        prefix, owner, body = stack.pop()
+        for node in body:
+            if isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
+                qualified = f"{prefix}{node.name}."
+                yield qualified, owner or node.name, node.body
+                stack.append((qualified, owner or node.name, node.body))
 
 
-@rule("CON101")
+def _misnamed_twins(defs: dict[str, Def]) -> Iterator[tuple[Def, str]]:
+    """Each definition that is half of a twin pair under another spelling, with the pair's fix."""
+    for name, node in sorted(defs.items()):
+        if name.startswith(("_", "test")):
+            continue
+        is_async = isinstance(node, ast.AsyncFunctionDef)
+        sides = ASYNC_SIDE if is_async else (SYNC_SIDE,)
+        for pattern in sides:
+            if (marked := pattern.match(name)) is None:
+                continue
+            bare = marked["bare"]
+            partner = defs.get(bare)
+            if partner is not None and isinstance(partner, ast.AsyncFunctionDef) != is_async:
+                yield node, f"`{bare}` for the sync call and `a{bare}` for its awaitable twin"
+                break
+
+
+def _defined_at(
+    project: Project, trees: dict[str, ast.Module], module: str, name: str
+) -> tuple[str, str] | None:
+    """Where `module.name` is defined in the packages, following `from ... import` re-exports."""
+    for _ in range(len(trees)):
+        tree = trees.get(module)
+        if tree is None:
+            return None
+        path = project.module_path(module)
+        is_package = path is not None and path.name == "__init__.py"
+        imported = None
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if (alias.asname or alias.name) == name:
+                        imported = (resolved(module, is_package, node), alias.name)
+        if imported is None:
+            return module, name
+        module, name = imported
+    return None
+
+
+def _exported(project: Project, trees: dict[str, ast.Module]) -> set[tuple[str, str]]:
+    """The defining module and top-level name of everything a public module's `__all__` lists."""
+    found: set[tuple[str, str]] = set()
+    for module in project.modules:
+        if module.public and module.name in trees:
+            for name in exported_by(trees[module.name]):
+                if (site := _defined_at(project, trees, module.name, name)) is not None:
+                    found.add(site)
+    return found
+
+
+@rule("CON101", "CON102")
 def async_twins(project: Project) -> Iterator[Finding]:
-    """The awaitable twin of an exported sync call is `a` + its name, as `aclose` is to `close`.
+    """The awaitable twin of a sync call is `a` + its name, as `aclose` is to `close`.
+
+    CON101: A twin pair the public API reaches is spelled `x` / `ax`.
 
     Reason: one spelling for every twin pair, the one the standard library and anyio use, so a
     caller finds the async half without reading the module.
 
-    Fix: rename `emit_async` to `aemit`.
+    Fix: rename `emit_async` or `async_emit` beside `emit` to `aemit`; rename `emit_blocking` beside
+    an awaitable `emit` to `emit`, and the awaitable to `aemit`.
 
-    Scope: the names a public module's `__all__` exports, where a caller reads them. A private
-    helper or a test is free. A side marker with no bare partner (`resolve_async` beside
-    `resolve_sync`) is not a twin, and the `async_` prefix is left to review: it is also an entity's
-    spelling.
+    Scope: a pair is two functions or methods in one module or class body; the public API reaches a
+    function a public module's `__all__` exports, or a method of a class it exports, wherever either
+    is defined. A side marker with no bare partner (`resolve_async` beside `resolve_sync`) is not a
+    twin, and neither is a suffix naming where the call is made from (`start_from_thread` beside
+    `start`). An `async_` factory beside a sync one of the same name builds an entity, not a twin:
+    it carries `# conventions: ignore[CON101]`.
+
+    CON102: A twin pair inside the package is spelled `x` / `ax`.
+
+    Reason: the package's own contributors read one vocabulary, the one its API uses.
+
+    Fix: as CON101.
+
+    Scope: every pair CON101 does not report. A name with a leading underscore, its class's methods
+    and a test are free.
     """
+    trees = {
+        module.name: tree
+        for module in project.modules
+        if (tree := project.tree(module.path)) is not None
+    }
+    exported = _exported(project, trees)
     for module in project.modules:
-        if not module.public or (tree := project.tree(module.path)) is None:
+        if (tree := trees.get(module.name)) is None:
             continue
-        names = _exported_elements(tree)
-        for name in sorted(names):
-            marked = ASYNC_SUFFIXED.match(name)
-            if marked is not None and marked["bare"] in names and not name.startswith("test"):
+        for prefix, owner, body in _scopes(tree):
+            defs = {node.name: node for node in body if isinstance(node, Def)}
+            for node, fix in _misnamed_twins(defs):
+                public = (module.name, owner or node.name) in exported
                 yield Finding(
                     project.relative(module.path),
-                    names[name],
-                    "CON101",
-                    f"`{module.name}.{name}`, the twin of an exported sync call: "
-                    f"`a{marked['bare']}`",
+                    node.lineno,
+                    "CON101" if public else "CON102",
+                    f"`{module.name}.{prefix}{node.name}` is half of a sync/async twin pair: {fix}",
                 )

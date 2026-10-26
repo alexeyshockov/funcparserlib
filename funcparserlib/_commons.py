@@ -6,8 +6,9 @@ in `_utils.py`.
 
 import dataclasses as dc
 import functools
-from collections.abc import Callable
-from typing import Any, TypeVar, dataclass_transform, overload
+import inspect
+from collections.abc import Callable, Iterable, Mapping
+from typing import Any, TypeVar, dataclass_transform, get_type_hints, overload
 
 T = TypeVar("T")
 E = TypeVar("E", bound=BaseException)
@@ -119,6 +120,34 @@ def with_hint(error: E, note: str) -> E:
     """
     error.add_note(note)
     return error
+
+
+def adopt_exceptions(module: str, names: Iterable[str], namespace: Mapping[str, object]) -> None:
+    """Give `module`'s name to each exception among `names` that a private module below it defines.
+
+    Sets the class's `__module__`, which a traceback, a class repr and a pickle read. A public
+    module calls it as its last statement: `adopt_exceptions(__name__, __all__, globals())`.
+
+    Raises:
+        NameError: an adopted class's annotation names what its module does not bind at runtime.
+    """
+    prefix = f"{module}."
+    for name in names:
+        exported = namespace[name]
+        if not (isinstance(exported, type) and issubclass(exported, BaseException)):
+            continue
+        below = exported.__module__.removeprefix(prefix)
+        if below == exported.__module__ or not any(p.startswith("_") for p in below.split(".")):
+            continue
+        # `get_type_hints` evaluates string annotations in the module `__module__` names, which
+        # lacks the defining module's imports once rewritten: evaluate them while it still points
+        # there. The class's own alone, through a stand-in: a base from another library may
+        # annotate a name it imports only for type checkers.
+        if own := inspect.get_annotations(exported):
+            alone = type(name, (), {"__annotations__": own, "__module__": exported.__module__})
+            hints = get_type_hints(alone, localns=dict(vars(exported)), include_extras=True)
+            exported.__annotations__ = hints
+        exported.__module__ = module
 
 
 def def_full_name(func: Any, /) -> str:

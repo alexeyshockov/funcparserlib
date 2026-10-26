@@ -60,14 +60,10 @@ repos:
             "**/_commons.py" = { line-length = 100 }, "noxfile.py" = { line-length = 100 } }
         types_or: &pydocfmt_types [python, pyi]
         stages: [pre-commit]
-        # `openspec/changes/archive/` is a record of what was decided then; the skills
-        # forbid hand-editing it, and a hook is not an exception.
-        exclude: &pydocfmt_exclude ^openspec/changes/archive/
       - id: pydocfmt-fix
         args: *pydocfmt_args
         types_or: *pydocfmt_types
         stages: [manual]
-        exclude: *pydocfmt_exclude
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.10
@@ -132,13 +128,11 @@ repos:
       - id: typos
         args: [--force-exclude]
         stages: [pre-commit]
-        # Files a fixing hook must not rewrite: `openspec/changes/archive/` is a record
-        # of what was decided then, a lockfile pins what an edit would unpin, and the
-        # rest are recorded or vendored bytes (`preserve_bytes`).
+        # Files a fixing hook must not rewrite: a lockfile pins what an edit would unpin,
+        # and the rest are recorded or vendored bytes (`preserve_bytes`).
         exclude: &do_not_rewrite |-
           (?x)^(
-            openspec/changes/archive/
-            | uv\.lock
+            uv\.lock
           )
       - id: typos
         alias: typos-fix
@@ -262,9 +256,8 @@ repos:
       - id: markdownlint-cli2
         stages: [pre-commit]
         # Machine-written markdown: `openspec/` is written in the OpenSpec skills' own
-        # shape (h2-first artifacts, headings and lists without surrounding blank lines)
-        # and its `changes/archive` is immutable by their rules. Linting generated output
-        # is churn the generator undoes. A project's own machine-written paths go in its
+        # shape (h2-first artifacts, headings and lists without surrounding blank lines).
+        # Linting generated output is churn the generator undoes. A project's own machine-written paths go in its
         # `.markdownlint-cli2.jsonc` under `ignores` (a `.markdownlintignore` is not applied
         # to the paths pre-commit passes explicitly; that one is).
         exclude: &openspec ^openspec/

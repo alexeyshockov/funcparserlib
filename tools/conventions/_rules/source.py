@@ -9,7 +9,6 @@ from typing import TypeGuard
 from .._engine import TEXT_SUFFIXES, Finding, Fixes, fixer, rule
 from .._project import Project
 from ._ast import bare_names, resolved
-from .adr import ARCHIVE
 from .names import source_roots
 from .surface import template_owned
 
@@ -477,13 +476,13 @@ def headers(project: Project) -> Iterator[Finding]:
     keeps it: list the word in `[tool.conventions] header_names`.
 
     Scope: every file of the repository whose line comment is `#` (Python, TOML, YAML, shell,
-    justfiles, the git and editor configs), and Rust's `//`. The OpenSpec archive is not read.
+    justfiles, the git and editor configs), and Rust's `//`.
     """
     names = frozenset(project.settings.get("header_names", []))
     for path in project.files:
         marker = comment_marker(path)
         relative = project.relative(path)
-        if marker is None or relative.startswith(ARCHIVE) or (text := project.text(path)) is None:
+        if marker is None or (text := project.text(path)) is None:
             continue
         for line in header_offenders(text, marker, names):
             yield Finding(relative, line, "CON504", f"write `{marker} --- Sentence case title ---`")
@@ -556,8 +555,7 @@ def _rst_texts(project: Project) -> Iterator[tuple[Path, str, bool, bool]]:
     for path in project.files:
         if path.suffix not in TEXT_SUFFIXES or (text := project.text(path)) is None:
             continue
-        if not project.relative(path).startswith(ARCHIVE):
-            yield path, text, path.suffix == ".md", path.suffix in {".py", ".pyi"}
+        yield path, text, path.suffix == ".md", path.suffix in {".py", ".pyi"}
 
 
 @rule("CON505")
@@ -573,8 +571,7 @@ def inline_code(project: Project) -> Iterator[Finding]:
     `Raises:` section, a directive plain prose or a Markdown admonition, and a literal block a
     fenced code block with its language. Double backticks stay for code that holds a backtick.
 
-    Scope: every text file git lists, Markdown fences and the OpenSpec archive excepted; `#:`
-    comments in Python.
+    Scope: every text file git lists, Markdown fences excepted; `#:` comments in Python.
     """
     for path, text, markdown, python in _rst_texts(project):
         for line, message in rst_offenders(text, markdown, python):

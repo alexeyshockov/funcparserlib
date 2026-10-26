@@ -510,9 +510,7 @@ def _source_root(project: Project, package: str) -> Path:
     """Where `package`'s source is: one of the project's packages, or a dependency in `.venv`."""
     if package in project.package_roots:
         return project.package_roots[package]
-    venv = project.root / ".venv"
-    sites = [*venv.glob("lib/python*/site-packages"), venv / "Lib" / "site-packages"]
-    for site in sites:
+    for site in project.site_packages:
         if (site / package).is_dir():
             return site / package
     raise RunError(

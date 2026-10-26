@@ -135,6 +135,13 @@ class Project:
         return roots
 
     @cached_property
+    def site_packages(self) -> Sequence[Path]:
+        """Where `.venv` installs the project's dependencies; empty without a `.venv`."""
+        venv = self.root / ".venv"
+        sites = [*venv.glob("lib/python*/site-packages"), venv / "Lib" / "site-packages"]
+        return tuple(site for site in sites if site.is_dir())
+
+    @cached_property
     def files(self) -> Sequence[Path]:
         """The working tree as git lists it: tracked files present, untracked ones not ignored."""
         try:

@@ -19,15 +19,12 @@ FOREIGN = re.compile(r"\[[^\]]*?ADR \d{4}[^\]]*?\]\(https?://[^)]*\)")
 # A Markdown link whose label carries a number and whose target is an ADR document, local or
 # published.
 LINKED = re.compile(r"\[[^\]]*?ADR (\d{4})[^\]]*?\]\(([^)]*?/(\d{4})-[a-z0-9-]+(?:\.md|/)?)\)")
-# Records of what was proposed, rewritten by the spec tool and hand-edited by nobody.
-ARCHIVE = "openspec/changes/archive/"
 
 
 def _texts(project: Project) -> Iterator[tuple[Path, str]]:
     for path in project.files:
-        if path.suffix in {".py", ".md"} and not project.relative(path).startswith(ARCHIVE):
-            if (text := project.text(path)) is not None:
-                yield path, text
+        if path.suffix in {".py", ".md"} and (text := project.text(path)) is not None:
+            yield path, text
 
 
 def _blank(match: re.Match[str]) -> str:

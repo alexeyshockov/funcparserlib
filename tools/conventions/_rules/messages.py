@@ -6,13 +6,13 @@ attached with `add_note()`. A project's own data is `[tool.conventions.messages]
 """
 
 import ast
-import builtins
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 from .._engine import Finding, rule
 from .._project import Project, RunError
+from .sealing import BUILTIN_EXCEPTIONS
 
 # Words PostgreSQL's guide rules out, with what to write instead.
 AVOID = {
@@ -91,12 +91,6 @@ SECOND_SENTENCE = re.compile(r"[.!?]\s+\S")
 
 # A note may close on an interpolated value; the placeholder is stripped before it is judged.
 TRAILING_VALUE = re.compile(r"(?:\{\})+$")
-
-BUILTIN_EXCEPTIONS = frozenset(
-    name
-    for name, value in vars(builtins).items()
-    if isinstance(value, type) and issubclass(value, BaseException)
-)
 
 
 def judged(

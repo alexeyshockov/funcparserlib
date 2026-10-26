@@ -1,25 +1,25 @@
 """CON2xx: sealed by default."""
 
 import ast
+import builtins
+import contextlib
+import importlib
+import sys
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
+import griffe
+
 from .._engine import Finding, rule
-from .._project import Project
+from .._project import Project, RunError
 from ._ast import bare_names, exported_by, resolved
 
 # A class deriving from one of these is an exception by kind, and open without saying so.
 # Resolved by name rather than `issubclass`, since nothing here imports the package.
 BUILTIN_EXCEPTIONS = frozenset(
-    {
-        "BaseException",
-        "Exception",
-        "OSError",
-        "RuntimeError",
-        "TimeoutError",
-        "TypeError",
-        "ValueError",
-    }
+    name
+    for name, value in vars(builtins).items()
+    if isinstance(value, type) and issubclass(value, BaseException)
 )
 
 # The phrase a carved-out class's docstring carries, where a reader of the class will see it.
@@ -29,7 +29,7 @@ EXTENSIBLE = "Extensible by design"
 REASON_FLOOR = 80
 
 
-def _definition(
+def class_definition(
     project: Project, module: str, name: str, seen: frozenset[str] = frozenset()
 ) -> tuple[str, Path, ast.ClassDef] | None:
     """Where `name`, exported by `module`, is defined as a class, through any re-exports."""
@@ -47,7 +47,7 @@ def _definition(
                 continue
             target = resolved(module, path.name == "__init__.py", node)
             if target != module and project.module_path(target) is not None:
-                return _definition(project, target, alias.name, seen | {module})
+                return class_definition(project, target, alias.name, seen | {module})
     return None
 
 
@@ -62,25 +62,125 @@ def _exported_classes(project: Project) -> Mapping[str, tuple[Path, ast.ClassDef
         if not module.public or (tree := project.tree(module.path)) is None:
             continue
         for name in sorted(exported_by(tree)):
-            if (hit := _definition(project, module.name, name)) is not None:
+            if (hit := class_definition(project, module.name, name)) is not None:
                 defined_in, path, node = hit
                 found[f"{defined_in}.{node.name}"] = (path, node)
     return found
 
 
+def _imports(tree: ast.Module) -> Mapping[str, str]:
+    """The dotted path each name an absolute import binds in a module stands for."""
+    bound: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.partition(".")[0]
+                bound[alias.asname or top] = alias.name if alias.asname else top
+        elif isinstance(node, ast.ImportFrom) and not node.level and node.module:
+            for alias in node.names:
+                bound[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return bound
+
+
+def _dotted(base: ast.expr, bound: Mapping[str, str]) -> str | None:
+    """The dotted path a base class expression names through the module's imports, if it does."""
+    if isinstance(base, ast.Call):
+        base = base.func
+    if isinstance(base, ast.Subscript):
+        base = base.value
+    attrs: list[str] = []
+    while isinstance(base, ast.Attribute):
+        attrs.append(base.attr)
+        base = base.value
+    if not isinstance(base, ast.Name) or base.id not in bound:
+        return None
+    return ".".join([bound[base.id], *reversed(attrs)])
+
+
+def _stdlib_exception(path: str) -> bool:
+    # The standard library is imported to answer: it runs none of the project's code.
+    module, _, name = path.rpartition(".")
+    try:
+        value = getattr(importlib.import_module(module), name)
+    except ImportError, AttributeError, ValueError:
+        return False
+    return isinstance(value, type) and issubclass(value, BaseException)
+
+
+def _dependency_exception(project: Project, path: str, seen: frozenset[str] = frozenset()) -> bool:
+    """Whether `path`, a class outside the packages, derives from a builtin exception.
+
+    A dependency is read from its source in `.venv` by griffe, which imports nothing.
+    """
+    package, _, rest = path.partition(".")
+    if package == "builtins":
+        return rest in BUILTIN_EXCEPTIONS
+    if package in project.package_roots or path in seen:
+        return False
+    if package in sys.stdlib_module_names:
+        return _stdlib_exception(path)
+    loader = project.memo(
+        "dependency_loader",
+        lambda: griffe.GriffeLoader(
+            search_paths=list(project.site_packages), allow_inspection=False
+        ),
+    )
+    if package not in loader.modules_collection.members:
+        # A compiled package fails to load on an alias into its extension once its stubs and
+        # sources are read, and what was read stays in the collection.
+        with contextlib.suppress(ImportError, griffe.GriffeError):
+            loader.load(package)
+    module = loader.modules_collection.members.get(package)
+    if module is None:
+        raise RunError(f"{path} is a base class, and griffe cannot read {package} from .venv")
+    try:
+        found = module[rest] if rest else module
+    except KeyError, griffe.AliasResolutionError, griffe.CyclicAliasError:
+        return False
+    if isinstance(found, griffe.Alias):
+        return _dependency_exception(project, found.target_path, seen | {path})
+    if not isinstance(found, griffe.Class):
+        return False
+    for base in found.bases:
+        named = base.canonical_path if isinstance(base, griffe.Expr) else base
+        if "." not in named:
+            if named in BUILTIN_EXCEPTIONS:
+                return True
+        elif _dependency_exception(project, named, seen | {path}):
+            return True
+    return False
+
+
 def exception_classes(project: Project) -> set[str]:
-    """Every class in the packages that is an exception by inheritance, transitively."""
+    """Every class in the packages that is an exception by inheritance, transitively.
+
+    A base from outside the packages is followed into the standard library or into the dependency's
+    source in `.venv`; a dependency griffe cannot read there is no verdict.
+    """
+    return project.memo("exception_classes", lambda: _exception_classes(project))
+
+
+def _exception_classes(project: Project) -> set[str]:
     trees = [t for module in project.modules if (t := project.tree(module.path)) is not None]
+    imports = [_imports(tree) for tree in trees]
+    known: dict[str, bool] = {}
+
+    def foreign(path: str) -> bool:
+        if path not in known:
+            known[path] = _dependency_exception(project, path)
+        return known[path]
+
     found: set[str] = set()
     grew = True
     while grew:
         grew = False
-        for tree in trees:
+        for tree, bound in zip(trees, imports, strict=True):
             for node in ast.walk(tree):
-                if (
-                    isinstance(node, ast.ClassDef)
-                    and node.name not in found
-                    and bare_names(node.bases) & (BUILTIN_EXCEPTIONS | found)
+                if not isinstance(node, ast.ClassDef) or node.name in found:
+                    continue
+                if bare_names(node.bases) & (BUILTIN_EXCEPTIONS | found) or any(
+                    (path := _dotted(base, bound)) is not None and foreign(path)
+                    for base in node.bases
                 ):
                     found.add(node.name)
                     grew = True

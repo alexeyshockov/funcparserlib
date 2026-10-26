@@ -67,6 +67,7 @@ doctor:
     @just tools::doctor
 
 # Makes `.venv` match the lock; it does not check or fetch dependencies. `deps` judges them.
+# `uv sync` removes every group it does not name, so a re-sync names them all or drops `lint`.
 [doc("Build .venv from the lock (uv sync, every group and extra)")]
 venv:
     uv sync --all-groups --all-extras

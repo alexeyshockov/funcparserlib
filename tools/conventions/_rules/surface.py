@@ -13,6 +13,7 @@ from .._engine import Finding, Fixes, fixer, rule
 from .._project import Project
 from ._ast import all_value, exported_by, resolved
 from .names import source_roots
+from .sealing import class_definition, exception_classes
 
 
 @rule("CON400", "CON401")
@@ -49,6 +50,62 @@ def surface(project: Project) -> Iterator[Finding]:
             )
         elif module.public and tree.body and value is None:
             yield Finding(relative, 1, "CON400", f"{module.name} is public and declares no __all__")
+
+
+# --- The exceptions a public module adopts ---
+
+ADOPT = "adopt_exceptions(__name__, __all__, globals())"
+
+
+def _adopting_call(tree: ast.Module) -> ast.Expr | None:
+    """The top-level `adopt_exceptions(__name__, __all__, globals())` statement, if there is one."""
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and ast.unparse(node.value) == ADOPT:
+            return node
+    return None
+
+
+@rule("CON408")
+def adopted_exceptions(project: Project) -> Iterator[Finding]:
+    """A public module names the exceptions it exports from private modules after itself.
+
+    Reason: a traceback, a class repr and a pickle name a class by its `__module__`. An exception
+    defined in a private module and left there reads as that module's, and the path a caller copies
+    from a traceback into an `except` is a private import.
+
+    Fix: end the module with `adopt_exceptions(__name__, __all__, globals())`, imported from the
+    package's `_commons`; only a `del` may follow it. It adopts the exceptions defined in a private
+    module below this one, so one re-exported from a sibling or another public module is not
+    counted.
+    """
+    exceptions = exception_classes(project)
+    for module in project.modules:
+        if not module.public or (tree := project.tree(module.path)) is None:
+            continue
+        prefix = f"{module.name}."
+        private = sorted(
+            name
+            for name in exported_by(tree)
+            if (hit := class_definition(project, module.name, name)) is not None
+            and hit[2].name in exceptions
+            and hit[0].startswith(prefix)
+            and any(part.startswith("_") for part in hit[0].removeprefix(prefix).split("."))
+        )
+        if not private:
+            continue
+        call = _adopting_call(tree)
+        if call is not None and all(
+            isinstance(node, ast.Delete) for node in tree.body[tree.body.index(call) + 1 :]
+        ):
+            continue
+        anchor = call or all_value(tree)
+        yield Finding(
+            project.relative(module.path),
+            anchor.lineno if anchor is not None else 1,
+            "CON408",
+            f"{module.name} exports {', '.join(private)} from private modules and does not end"
+            f" with {ADOPT}",
+        )
 
 
 # --- The version a package states ---

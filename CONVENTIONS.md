@@ -31,14 +31,11 @@ needs and nothing else arrives:
 | `lint` | the tools that run on the project's interpreter: deptry, slotscheck | by name, in the `gate` job |
 | `dev` | `{ include-group = "tests" }` and each group the suite imports (`examples`, ...): what installs on every interpreter the tests run on | by default |
 
-`dev` is uv's default group: a plain `uv sync` installs it, and `uv run` adds it to whatever the
-environment holds before running. So `dev` holds nothing that fails to install on an interpreter a
-test job runs, and a test job syncs plainly (`uv sync`, plus `--group tests-<what>` where the wheel
-exists): a recipe's `uv run` then adds nothing the job did not already choose. The `gate` job, and
-a developer's environment, sync `--all-groups`. `uv sync` removes what the default does not name, so
-a recipe that re-syncs passes `--all-groups` too, or it drops `lint` from under the gate. A library
-the package's own code imports is an extra, because an extra is published and a user installs it;
-a library only the tests or the tooling use is a group, because a group is not.
+`dev` is uv's default group, which `uv run` installs everywhere, so it holds nothing that fails to
+install on an interpreter a test job runs. The `gate` job, and a developer's environment, sync
+`--all-groups`. A library the package's own code imports is an extra, because an extra is published
+and a user installs it; a library only the tests or the tooling use is a group, because a group is
+not.
 
 A requirement is written `name[extras] >=X, <Y; marker`: one space after the name, none after an
 operator, a comma and a space between clauses. By default a required dependency is a floor alone,
@@ -60,16 +57,7 @@ this project's to edit. Each session is tagged with the matrices it belongs to:
 | `windows` | a `ci` session's job on `windows-latest` instead of `ubuntu-latest` | |
 | `optional` | a `ci` session's job that may fail without failing the run: a pre-release interpreter, a platform not yet claimed | |
 
-A session syncs the project into its own environment with `uv sync --python <its interpreter>`, the
-groups chosen as above; without `--python`, uv reads `.python-version` and replaces the
-environment's interpreter. When the workflow is called with `artifacts`, it downloads them into
-`dist/` and sets `ARTIFACTS_DIR=dist`, so a session installs the built distribution instead of
-building one; unset, as on a developer's machine, the session builds. Coverage is measured in one
-session, never added to the others.
-`just tools::ci-matrix` turns the `ci` sessions into the workflow's matrix and fails when there are
-none, because GitHub runs no job for an empty matrix and reports the workflow as passed. A gate
-that depends on `tests` makes the conventions runner require `ci.yaml` to call the matrix workflow
-(CON704).
+Coverage is measured in one session, never added to the others.
 
 A job aims to finish within five minutes, and a session that does not is a candidate for splitting;
 `timeout-minutes: 15` on every job is the hard limit. The one
@@ -79,17 +67,9 @@ the matrix, and GitHub reports a job skipped because a dependency failed as pass
 job downstream of a failure would read green.
 
 CI runs the recipes, never a second spelling of them. `just gate` is the list of gates a pull
-request must pass, cheapest first; the workflow's `gate` job installs just and runs each dependency
-as its own named step, and the conventions runner holds the two lists to each other (CON700), so
-a recipe added to `gate` fails the check until the workflow names it too. A report the job runs
-outside `gate` is named in `[tool.conventions] informational`. The other jobs invoke a recipe
-the same way, and the tests run as nox sessions, never as `pytest` spelled out in YAML; `tests` is
-the one `gate` dependency the `gate` job does not run, since CI runs it as the matrix. Tool versions reach CI
-through `tools/uv.lock`, which `uv run --project tools` syncs on demand, so a local run and a CI run
-use identical versions with nothing to keep in step by hand. Hook revs are updated by the maintainers;
-`just pins` reports every version in force and what could move. Never invoke a
-bare `ruff`: linting and formatting run through the pinned hooks, and a differently-versioned local
-binary would fight them.
+request must pass, cheapest first, and the workflow's `gate` job runs each as its own named step
+(CON700); the tests run as nox sessions, never as `pytest` spelled out in YAML. Tool versions reach
+CI through `tools/uv.lock`, so a local run and a CI run use identical versions.
 
 The rules here run as one command, `conventions`, which the pinned tool environment installs from
 `tools/conventions/` and `just tools::conventions` calls in the gate. `conventions check` reads the
@@ -104,11 +84,8 @@ Repository-specific checks, if any, live in `tools/checks/<topic>_check.py` and 
 `just tools::conventions`.
 
 A recipe either asserts or it writes, never both. `just check [FILES]` and `just gate` are read-only;
-`just fix [FILES]` applies what they can only report. Other recipes do write — `docs-hl-fix`
-rewrites Markdown — but each says so in its own name, and nothing in
-the check/gate path writes. That is why the commit hooks are configured in check mode and their
-write-mode twins sit at the `manual` stage: a gate that rewrites the file it is judging reports
-Passed on a file it silently changed, and for an untracked path nothing notices at all.
+`just fix [FILES]` applies what they can only report, and any other recipe that writes says so in
+its name.
 
 Ruff's configuration is `shared.ruff.toml`, generated and reached from
 `pyproject.toml` through `[tool.ruff] extend`. The project adds to it with `extend-select`,
@@ -130,9 +107,8 @@ section (CON800). The code width is the one setting the project answers for itse
 - **Internal code** uses types where they aid readability; the gate is over the package, not a
   demand for annotations on every internal `def`.
 
-**Which tree gets which depth** — the target levels. The tools table above says *who* gates; this
-says *where*. A row that is not enforced yet says so; a project that deviates writes the deviation
-down next to its config rather than leaving a gap to be inferred.
+**Which tree gets which depth.** A project that deviates writes the deviation down next to its
+config.
 
 | tree | mypy | ty | basedpyright | pyrefly | recipe |
 | --- | --- | --- | --- | --- | --- |
@@ -142,37 +118,25 @@ down next to its config rather than leaving a gap to be inferred.
 | each distribution's `tests/typesafety/` | informational | informational | **gate** | informational | `types-api` |
 | the `benchmarks/` directories | — | **blocking** | — | — | `types-benchmarks` |
 
-In a uv workspace, each distribution's files are checked by ty as their own project, with the
-distribution's own directory first on the search path, the other distributions next and the
-repository root last: with
-the root ahead, ty reads `<pkg>/<pkg>/m.py` as `<pkg>.<pkg>.m`, its relative imports fail, and the
-names the package re-exports come out `Unknown` without a diagnostic (astral-sh/ty#1730).
-
-Tests are not under mypy, and that is a decision, not a gap. Over a test tree mypy mostly reports
-the declaration under test — a bare `dict` that is the point, a Protocol class where it refuses
-`type[T]`, a factory that needs its type argument spelled — and what it adds beyond that is worth a
-sweep from a report now and then, not a gate. ty is blocking there and stays that way. A project
-whose tests were written under mypy strict from the start keeps them there, and says so next to
-its config.
+Tests are type-checked by ty alone: mypy's findings there are mostly the declarations under test.
+A project whose tests were written under mypy strict from the start keeps them there, and says so
+next to its config.
 
 ## Source
 
 - **Every exported class is `@final`** unless it is a Protocol, an exception, or carved out in
   `pyproject.toml`'s `[tool.conventions.subclassable]` with the reason, which the class's docstring
-  repeats as "Extensible by design". Sealed by default: a base class is a
-  decision, not an omission, and a return annotation is exhaustive for a caller's checker only if
-  its arms cannot be extended.
+  repeats as "Extensible by design". Sealed by default: a return annotation is exhaustive for a
+  caller's checker only if its arms cannot be extended.
 - **Visibility has three levels, and a name says which.** Public: what a public module's `__all__`
-  exports, with no underscore, and the public-API checks hold its types. Package: what another
-  module of the package imports, what a public or package-level signature names (a type variable's
-  bound included), and what an entry point names, with no underscore. Module: everything else,
-  which carries a leading underscore, so the call site says the name is this file's alone and the
-  type checker reports it once nothing uses it. In a public module every name is exported or
-  underscored; a helper other modules need lives in a private module. ALL_CAPS constants are
-  exempt, and so is every type variable whatever its spelling: it stands in for a signature's
-  syntax, not for a name. Imports from tests do not count. `__all__` appears in public modules
-  only. `just tools::fix-visibility` (`conventions fix CON402 CON403`) applies the renames; a
-  misplaced helper is moved by hand.
+  exports. Package: what other modules of the package use, with no underscore. Module: everything
+  else, with a leading underscore, so the call site says the name is this file's alone. `__all__`
+  appears in public modules only, and in one every name is exported or underscored; a helper other
+  modules need lives in a private module.
+- **An exception carries the name it is imported by.** A public module that exports an exception
+  defined in a private module below it ends with `adopt_exceptions(__name__, __all__, globals())`
+  from `_commons`, so a traceback, a class repr and a pickle name the public module (CON408). Other
+  classes keep the module that defines them.
 - **A package states its version once**, in its private `_version.py`: `__version__: str` read
   from `importlib.metadata.version`, `"0.0.0.dev0"` on `PackageNotFoundError` (a source checkout;
   a fallback that is not a PEP 440 version breaks whatever parses it). `__init__.py` re-exports it
@@ -189,18 +153,11 @@ its config.
   construction (`AsyncRouter`). What the call runs, serves or takes: the adjective stays
   with that noun, sync and async spelled alike (Trio's `to_thread.run_sync`, `run_sync_side`,
   `is_async_callable`). A name from a protocol the package implements keeps the protocol's spelling
-  (`handle_async_request`). The rule is checked on the exported surface; a private helper or a
-  test is free.
+  (`handle_async_request`). A private helper or a test is free.
 - **Two dataclass idioms, both from the package's `_commons`.** `@valueclass` for value types,
-  things compared and hashed by their contents: frozen and slotted by default.
-  `@refclass` for identity objects, a class holding a client, a session or a cache: dataclass field
-  syntax with the default identity `__eq__` / `__hash__`. Frozen is for the type checkers alone: at
-  runtime neither class is frozen, so constructing one costs a plain `__init__`, and a field set in
-  `__post_init__` is set with `object.__setattr__`. `@dataclass(frozen=True)` and `eq=False` on a
-  dataclass are the two roles spelled another way and are not used, unless the class takes an
-  `__eq__` from its own body or its bases; an example, which reaches the public API alone, keeps
-  `@dataclass(frozen=True)`. `@refclass(slots=False)` is a `@cached_property` the
-  class shows, or a `# slots=False: <why>` comment on the decorator.
+  compared and hashed by their contents. `@refclass` for identity objects, a class holding a
+  client, a session or a cache, with the default identity `__eq__` / `__hash__`. Both are frozen for
+  the type checkers alone, so constructing one costs a plain `__init__`.
 - **A component's settings are one frozen dataclass of plain values**, one field per command-line
   option or configuration-file key: numbers, strings, booleans, `Literal` choices, addresses. Each
   field is documented once, as an attribute docstring, and validated in `__post_init__`, so a bad
@@ -211,43 +168,34 @@ its config.
   resolved inside the package. An optional implementation is imported only once named, and fails
   with an `ImportError` naming the extra. The seam's Protocol stays private until a user has to
   implement it.
-- **`<package>/_commons.py` is generated.** It holds `valueclass`, `refclass` and `with_hint`, and parses on the
-  oldest supported Python. The package's own helpers go in `<package>/_utils.py`, a private module
-  like any other.
+- **`<package>/_commons.py` is generated.** It holds `valueclass`, `refclass`, `with_hint` and
+  `adopt_exceptions`, and parses on the oldest supported Python. The package's own helpers go in
+  `<package>/_utils.py`, a private module like any other.
 - **Ruff, `line-length = 100`, `pyupgrade.keep-runtime-typing = true`.** Wrap comments and
-  docstrings to the same width; layout follows the width alone, and a trailing comma does not hold a
-  list open. Docstrings follow the Google convention, kept minimal: prose where the name and the
-  types do not already say it. Docstrings, comments and pages write inline code as Markdown does,
-  `x`, never with reStructuredText's double backticks, and a code block as a fenced block with its
-  language, never as reStructuredText's `::` literal block.
+  docstrings to the same width. Docstrings follow the Google convention, kept minimal: prose where
+  the name and the types do not already say it. Docstrings, comments and pages write inline code as
+  Markdown does, `x`, never with reStructuredText's double backticks, and a code block as a fenced
+  block with its language, never as reStructuredText's `::` literal block.
 - **A module imports its own directory's modules relatively** (`from ._core import X`); an import
   from another directory is absolute.
 - **Nothing in a package imports through its root.** `from pkg import X` inside `pkg` is an import
   cycle; import the module that defines `X`. A subpackage that builds on the package as a user
-  would is listed in `[tool.conventions] consumers`: it may import the root, and imports no
-  underscore module outside itself but `_commons` and the message builders' `builders_home`.
-- **Another package's underscore module is never imported.** ruff's PLC2701 holds
-  `from other._x import y`; the runner holds `import other._x`.
+  would is listed in `[tool.conventions] consumers`, and imports it as a user does.
+- **Another package's underscore module is never imported.**
 - **Structural section headers** use exactly `# --- Sentence case title ---` in every file whose
   comment is `#`: source, `pyproject.toml`, justfiles, workflows, scripts. Bare decorative
-  separators are not used. A title opening with someone else's lowercase identifier keeps it,
-  listed in `[tool.conventions] header_names`.
+  separators are not used. A title opening with someone else's lowercase identifier keeps
+  it.
 - **A `TYPE_CHECKING` block carries an adjacent rationale comment** naming the concrete import
   cycle, optional dependency, or static-conformance reason.
 - **A time bound in a test is a claim about scheduling.** A sub-second bound is a named constant
-  or carries a comment saying why it is safe at that size; zero and a second or more need neither.
-  A bound whose expiry fails the test (`fail_after`, `move_on_after`, `within`) stays below
-  pytest-timeout's `timeout`, or the backstop ends the run before the test reports. A time-bounded
-  negative assertion (`assert x.get(timeout=...) is None`, `pytest.raises(TimeoutError)` around a
-  wait) is shown in the same test that the object can deliver, or says why the absence is the
-  promise. A project's own timeout exceptions go in `[tool.conventions] timeout_exceptions`.
+  or carries a comment saying why it is safe at that size. A time-bounded negative assertion (`x
+  is None` after a wait) is shown in the same test that the object can deliver, or says why the
+  absence is the promise.
 - **Exception and `assert` messages** have their own section below.
 
-The conventions runner holds the mechanical rules of this section: initialisms and async twins
-(CON1xx), `@final` and its carve-outs (CON2xx), `__all__` and visibility (CON4xx), and the
-`TYPE_CHECKING` rationale, the import rules, the two dataclass idioms, structural headers, the
-inline-code markup and the test time bounds (CON5xx). A workspace with more than one package lists
-its package directories in `[tool.conventions] packages`. A rule that is one project's own is a check, above.
+The conventions runner holds the mechanical rules of this section (CON1xx, CON2xx, CON4xx,
+CON5xx); `conventions explain CODE` gives each one's reason and scope.
 
 ## Observability
 
@@ -285,8 +233,7 @@ its package directories in `[tool.conventions] packages`. A rule that is one pro
 
 ## Benchmarks
 
-- Benchmark code is measurement infrastructure, not product logic. It may reach into the package's
-  internals (the ruff carve-out for `benchmarks/` says so); the package never imports it.
+- Benchmark code may reach into the package's internals; the package never imports it.
 - It is type-checked at the tests level: `just types-benchmarks` runs ty over it, blocking, in
   `just gate`. mypy does not read it. An environment missing a benchmark's dependency shows up as
   an unresolved import — fix the environment (`just venv`), never the rule.
@@ -300,9 +247,8 @@ its package directories in `[tool.conventions] packages`. A rule that is one pro
   dependencies have no wheel for it yet moves the tag in its noxfile. A figure is quoted with the
   interpreter it ran on. `just bench::compare [RUN ...]` compares saved runs, by default the two
   newest of one machine and interpreter.
-- Macro-benchmarks run against a server or a driver, or drive a load generator, and are noisy,
-  local measurement tools, not CI gates: do not add them to routine verification or run them
-  unless the task is performance work.
+- Macro-benchmarks run against a server or a driver, or drive a load generator. They are noisy
+  and local: they stay out of CI and routine verification, and run for performance work.
 - Compare results from the same machine and run, control background load, and rerun anomalies. A
   single absolute number is not a regression signal.
 - Preserve CLI flags, filter semantics, output formats and the benchmark matrix unless the task
@@ -356,13 +302,8 @@ capitalized, ending in a period.
 - A **hint** states an action: `Call connection_pool() again for another pool.`
 - A third note means the message is wrong. Rewrite the message rather than adding to it.
 
-The mechanical half of all this — casing, a closing period, a semicolon, a second sentence in the
-message, a message that only paraphrases its class, an article on an object the caller may hold
-several of, the words to avoid, a note that is not a sentence — is the conventions runner's CON6xx,
-an AST walk over every exception a package constructs. What is the project's own is data in
-`pyproject.toml`'s `[tool.conventions.messages]`: `known_names` a message may open on with a capital,
-the nouns it judges `ambiguous` or `singular` beyond the shared sets, and the `builders` a `raise`
-may go through beyond `_commons`' `with_hint`, with their `builders_home`.
+The mechanical half of this section is the conventions runner's CON6xx; what is the project's own
+is `[tool.conventions.messages]`.
 
 ## Documentation
 
@@ -395,12 +336,8 @@ lives in `tools/`; the rules for writing pages are this section.
   - **codec**: the encoding of one value or one message, such as a column's type, a packet or a
     body's compression. Not an engine.
 
-The conventions runner's CON9xx holds the site to itself: derived `hl_lines`, includes that resolve,
-reachable pages, links that resolve, PyPI READMEs without relative links, snippets that import what
-they use, and a glossary whose code headwords the packages define (CON96x). A snippet's vocabulary
-is the public surface griffe reads from the source of each package in `[tool.conventions.docs]
-vocabulary`: the names in each public module's `__all__`, submodules included; `modules` lists the
-other modules the pages import and `sentinels` the names the vocabulary must contain.
+The conventions runner's CON9xx holds the site to itself: highlights, includes, links, snippets
+and the glossary.
 
 Verification: `just tools::conventions`, then `just docs-build`, which clears Zensical's
 cache before building so generated API reference pages reflect current source. `just docs-hl-fix`
@@ -408,27 +345,21 @@ repairs highlight-line drift; inspect its changes.
 
 ## Specs and decisions
 
-`openspec/` is the spec system: `openspec/specs/<capability>/spec.md` holds the current
-requirements, `openspec/changes/` the work in flight, `openspec/changes/archive` the changes that
-produced them, never hand-edited. `docs/adr/` is the decision record: the spec says what holds, the
-ADR says why, and the spec tool is replaceable. A guide states an invariant as rule, enforcing gate
-and ADR link; it does not restate the ADR.
+`openspec/specs/<capability>/spec.md` holds the current requirements and `docs/adr/` the decisions:
+the spec says what holds, the ADR says why, and those two are what is kept. A change is worked
+through [OpenSpec](https://openspec.dev) as a draft under `openspec/changes/` and is not kept once
+archived; how a change is written, applied and archived is `openspec/config.yaml`. A guide states an
+invariant as rule, enforcing gate and ADR link; it does not restate the ADR.
 
-- **Read the requirements that already govern the paths a change touches before implementing**,
-  not only the ones it plans to delta. Grep `openspec/specs/` for the paths and verbs in scope; a
-  requirement you did not know existed is one your change can silently falsify. No gate checks
-  that a spec still describes the code; this rule is the defence.
-- **An alternative rejected because of a repository convention gets a second pass with that
-  convention treated as movable.** If the answer differs, the change is partly about the rule, and
-  the proposal says so.
-- **A decision in a change's design file that would be re-litigated later gets an ADR.**
+- **Read the requirements that already govern the paths you touch**, not only the ones a change
+  deltas: grep `openspec/specs/` for the paths and verbs in scope. No gate checks that a spec still
+  describes the code; this rule is the defence.
 - **An ADR is cited as `ADR NNNN`.** A bare `ADR NNNN` is one in `docs/adr/`; a decision recorded
   outside this repository is cited by link to its published page every time it is mentioned.
   The conventions runner (CON3xx) resolves every bare citation against `docs/adr/` and holds a
   link's label to its target.
 - Files `openspec update` generates (under `.claude/`, `.agents/`, `.pi/` and `.omp/`) are not
-  edited by hand; workflow guidance goes in `AGENTS.md`.
-- Commit messages cite OpenSpec changes and ADRs, never untracked files.
+  edited by hand; workflow guidance goes in `openspec/config.yaml`.
 
 ## Commits
 
@@ -440,8 +371,9 @@ distribution; recent history is the fastest way to internalise the pattern. Comm
   tag. Then it takes `!` after the scope (`feat(http)!: ...`) and a CHANGELOG entry under
   **Changed (BREAKING)**. Renaming something no release has shipped is an ordinary `refactor:` plus a
   CHANGELOG line.
-- **A design-touching commit explains the rationale and the rejected alternative.** The body is
-  where a decision is recorded; a subject line cannot carry one.
+- **A decision is recorded in an ADR, never only in a commit message**: a message cannot be
+  corrected without rewriting history. A design-touching commit names the ADR it adds or changes.
+- A commit message cites ADRs and specs, never an untracked file.
 - **Never skip hooks** (`--no-verify`). If a hook fails, fix what it found.
 - **Prefer a new commit over `--amend`**, unless you are correcting the very last commit you made
   and have not pushed.
@@ -465,9 +397,7 @@ Before opening:
 Verification scales with risk. Start narrow and widen only as the change requires: `just check` on
 the changed files, then the narrowest focused test (`just test PATH`), then the checks it touches (`just
 conventions`, `just imports`, `just deps`, `just types-api` for a public inference change), then
-broader unit checks, and only then integration or container checks. Before handing work back,
-inspect the final diff and report commands run and their results, checks not run with the reason,
-and residual risks.
+broader unit checks, and only then integration or container checks.
 
 The `master` branch is the only stable branch and will never be force-pushed. Any other branch,
 including release branches, may be rebased or force-pushed at any time.
@@ -503,9 +433,7 @@ attestations, so no API token is stored anywhere. A release commits nothing to `
   sorts `X.Y.Z.dev0 < X.Y.Z < X.Y+1.0.dev0`.
 - Every member's version is the same, and a member depending on another pins it with `==` at that
   version.
-- The conventions runner holds all of it (CON410-CON414): one development version across members,
-  pins, above the newest release tag unless a tag points at the commit. The gate's
-  checkout must fetch tags; a shallow clone without them gets no verdict.
+- The conventions runner holds all of it (CON410-CON414).
 - Patch releases (`X.Y.Z+1`) are reserved for bug fixes that do not change the public API.
 
 ### Cutting a release
