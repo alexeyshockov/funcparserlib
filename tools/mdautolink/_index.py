@@ -64,20 +64,36 @@ def _spellings(module_path: str, name: str) -> Iterable[str]:
         yield f"{module_path.rsplit('.', 1)[1]}.{name}"
 
 
+def _module(loader: griffe.GriffeLoader, path: str) -> griffe.Module | None:
+    """The module `path` names, or `None` for a class, a member or a path the loader cannot find.
+
+    The path is walked from its top-level package and the walk stops at the first object that is not
+    a module, so a member only a griffe extension synthesizes is never looked up. A path that names
+    nothing is mkdocstrings' to report when it renders the page.
+    """
+    top, *rest = path.split(".")
+    try:
+        obj = loader.load(top)
+    except ImportError, griffe.LoadingError:
+        return None
+    for name in rest:
+        if not isinstance(obj, griffe.Module) or name not in obj.members:
+            return None
+        obj = obj.members[name]
+    return obj if isinstance(obj, griffe.Module) else None
+
+
 def build_index(modules: Iterable[str], search_paths: Iterable[str]) -> NameIndex:
     """Index the exports of `modules`, and the public members of the classes among them.
 
     A member is indexed with its class (`Pool.take`), never alone: a bare `take` is too common a
-    word to link.
+    word to link. A path that names a class, a member or nothing contributes nothing.
     """
     loader = griffe.GriffeLoader(search_paths=list(search_paths))
     # spelling -> {(identifier, canonical path)}
     candidates: defaultdict[str, set[tuple[str, str]]] = defaultdict(set)
-    loaded = {path: loader.load(path) for path in modules}
+    loaded = {path: module for path in modules if (module := _module(loader, path)) is not None}
     for module_path, module in loaded.items():
-        # A `:::` may render a class alone; only a module has exports to index.
-        if not isinstance(module, griffe.Module):
-            continue
         # `__all__ += other.__all__` names another module's list until expanded; griffe's own load
         # expands it only below a top-level package that has an `__all__`.
         loader.expand_exports(module)

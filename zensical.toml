@@ -104,7 +104,7 @@ check_paths = true
 [project.markdown_extensions."pymdownx.blocks.admonition"]
 
 # Inline code naming an API object links to its reference entry (`tools/mdautolink`).
-# `modules` is spelled out because the reference renders `TokenSpec.__init__`, a constructor only
-# the dataclass extension gives griffe, and the index's own loader runs no extensions.
+# `modules` is spelled out because the index reads a module's exports, and the pages render the
+# lexer's and util's objects one by one, never the modules themselves.
 [project.markdown_extensions.mdautolink]
 modules = ["funcparserlib.lexer", "funcparserlib.parser", "funcparserlib.util"]

@@ -48,7 +48,8 @@ dependencies = [
     "griffe >=1.5", # `just api-diff`, and mkdocstrings' parser
 
     # --- Docs ---
-    "zensical >=0.0.40, <0.1",
+    # 0.0.67 is the first to write llms.txt; an older one ignores `[project.plugins.llmstxt]`.
+    "zensical >=0.0.67, <0.1",
     "mkdocstrings[python] >=0.27", # API reference autogen (via zensical's compat shim)
     # A member without a docstring shows its base's, in the reference and in CON916.
     "griffe-inherited-docstrings >=1.1",
