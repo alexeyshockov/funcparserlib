@@ -100,6 +100,7 @@ class TokenSpec:
     """Regexp flags, the second argument of `re.compile()`"""
 
     def __repr__(self) -> str:
+        """The spec as the call that builds it: `TokenSpec('name', '[a-z]+', 0)`."""
         return f"TokenSpec({self.type!r}, {self.pattern!r}, {self.flags!r})"
 
 
@@ -122,6 +123,7 @@ class Token:
     """End position (_line_, _column_)"""
 
     def __repr__(self) -> str:
+        """The token as the call that builds it from its type and value; positions are left out."""
         return f"Token({self.type!r}, {self.value!r})"
 
     def _pos_str(self) -> str:
@@ -132,6 +134,10 @@ class Token:
         return f"{s_line},{s_pos}-{e_line},{e_pos}:"
 
     def __str__(self) -> str:
+        """The token's span as `line,column-line,column:`, its type and its quoted value.
+
+        The span is left out for a token without positions.
+        """
         s = f"{self._pos_str()} {self.type} '{self.value}'"
         return s.strip()
 

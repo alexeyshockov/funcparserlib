@@ -193,9 +193,11 @@ class State:
         return State(self.pos, s.max, s.expected, self.context, self.problems)
 
     def __str__(self) -> str:
+        """The position and the furthest position, as a tuple."""
         return str((self.pos, self.max))
 
     def __repr__(self) -> str:
+        """The state as the call that builds it from its two positions."""
         return f"State({self.pos!r}, {self.max!r})"
 
 
@@ -224,6 +226,10 @@ class NoParseError(Exception):
         context: tuple[str, ...] = (),
         description: TokenDescription | None = None,
     ) -> None:
+        """Build an error from its message, the state parsing stopped at and the optional details.
+
+        `token`, `expected`, `context` and `description` are the attributes of the same names.
+        """
         self.msg: str = msg
         self.state: State = state
         self.token: object = token
@@ -232,6 +238,7 @@ class NoParseError(Exception):
         self.description: TokenDescription | None = description
 
     def __str__(self) -> str:
+        """The message, `msg`."""
         return self.msg
 
     def render(self, source: str | None = None) -> str:
@@ -267,6 +274,7 @@ class ParseErrors(ExceptionGroup[NoParseError]):
         return cast("tuple[NoParseError, ...]", super().exceptions)
 
     def derive(self, excs: Sequence[NoParseError]) -> ParseErrors:  # type: ignore[override]
+        """A `ParseErrors` with the same message over `excs`."""
         return ParseErrors(self.message, excs)
 
     def render(self, source: str | None = None) -> str:
@@ -317,20 +325,29 @@ class ParsingSuccess[R]:
     state: State
 
     def __iter__(self) -> Iterator[Any]:
+        """Iterate over the value, then the state, so that a result unpacks as `value, state`."""
         yield self.value
         yield self.state
 
     def map[C](self, f: Callable[[R], C]) -> ParsingResult[C]:
+        """A success of `f` applied to the value, at the same state."""
         # mypy checks ParsingSuccess against ParsingResult through this very method, and fails.
         return ParsingSuccess(f(self.value), self.state)  # type: ignore[return-value]
 
     def starmap[C](self, f: Callable[..., C]) -> ParsingResult[C]:
+        """A success of `f` applied to the elements of the value, which must be a tuple."""
         return ParsingSuccess(f(*cast("tuple[Any, ...]", self.value)), self.state)
 
     def bind[C](self, f: Callable[[R, State], ParsingResult[C]]) -> ParsingResult[C]:
+        """The result of `f` called with the value and the state."""
         return f(self.value, self.state)
 
     def __add__[C](self, other: ParsingResult[C]) -> ParsingResult[Any]:
+        """Combine with `other`, as `Parser.__add__()` combines the values of two parsers.
+
+        A failure `other` is returned as it is; an ignored value on either side is dropped from the
+        tuple.
+        """
         # Assume that the other state is further away from the current one
         # (matches Parser.__add__() behavior)
         if isinstance(other, ParsingError):
@@ -368,21 +385,27 @@ class ParsingError:
 
     @property
     def value(self) -> NoReturn:
+        """Never returns: raises the `NoParseError` for this failure."""
         raise self._error
 
     def __iter__(self) -> Iterator[Any]:
+        """Never iterates: raises the `NoParseError` for this failure."""
         raise self._error
 
     def map(self, f: Callable[[Any], object]) -> ParsingError:
+        """This failure; `f` is not called."""
         return self
 
     def starmap(self, f: Callable[..., object]) -> ParsingError:
+        """This failure; `f` is not called."""
         return self
 
     def bind(self, f: Callable[[Any, State], object]) -> ParsingError:
+        """This failure; `f` is not called."""
         return self
 
     def __add__(self, other: object) -> ParsingError:
+        """This failure; `other` is not considered."""
         return self
 
 
@@ -1287,14 +1310,17 @@ class Tuple2Parser[A, T1, T2](Parser[A, tuple[T1, T2]]):
     def __add__[C](self, other: Parser[A, C]) -> Tuple3Parser[A, T1, T2, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
     def starmap[C](self, f: Callable[[T1, T2], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the elements of the tuple this parser returns."""
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open B explicitly here
     def __rshift__[C](self, f: Callable[[tuple[T1, T2]], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the tuple this parser returns, as `Parser.__rshift__()`."""
         raise NotImplementedError
 
 
@@ -1314,14 +1340,17 @@ class Tuple3Parser[A, T1, T2, T3](Parser[A, tuple[T1, T2, T3]]):
     def __add__[C](self, other: Parser[A, C]) -> Tuple4Parser[A, T1, T2, T3, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
     def starmap[C](self, f: Callable[[T1, T2, T3], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the elements of the tuple this parser returns."""
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open B explicitly here
     def __rshift__[C](self, f: Callable[[tuple[T1, T2, T3]], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the tuple this parser returns, as `Parser.__rshift__()`."""
         raise NotImplementedError
 
 
@@ -1341,14 +1370,17 @@ class Tuple4Parser[A, T1, T2, T3, T4](Parser[A, tuple[T1, T2, T3, T4]]):
     def __add__[C](self, other: Parser[A, C]) -> Tuple5Parser[A, T1, T2, T3, T4, C]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
     def starmap[C](self, f: Callable[[T1, T2, T3, T4], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the elements of the tuple this parser returns."""
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open B explicitly here
     def __rshift__[C](self, f: Callable[[tuple[T1, T2, T3, T4]], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the tuple this parser returns, as `Parser.__rshift__()`."""
         raise NotImplementedError
 
 
@@ -1366,14 +1398,17 @@ class Tuple5Parser[A, T1, T2, T3, T4, T5](Parser[A, tuple[T1, T2, T3, T4, T5]]):
     def __add__[C](self, other: Parser[A, C]) -> Parser[A, Any]: ...
 
     def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
     def starmap[C](self, f: Callable[[T1, T2, T3, T4, T5], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the elements of the tuple this parser returns."""
         raise NotImplementedError
 
     # PyCharm (2024.1) doesn't properly infer from the base method, so
     # open B explicitly here
     def __rshift__[C](self, f: Callable[[tuple[T1, T2, T3, T4, T5]], C]) -> Parser[A, C]:
+        """A parser of `f` applied to the tuple this parser returns, as `Parser.__rshift__()`."""
         raise NotImplementedError
 
 
@@ -1761,6 +1796,7 @@ class IgnoredParser[A](Parser[A, IgnoredValue]):
     def __add__[P: Parser[Any, Any]](self, other: P) -> P: ...
 
     def __add__(self, other):
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
 
@@ -1813,6 +1849,7 @@ class IgnoredEndOfInput(Parser[Any, IgnoredValue]):
     def __add__[P: Parser[Any, Any]](self, other: P) -> P: ...
 
     def __add__(self, other):
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
 
@@ -1822,6 +1859,7 @@ class EndOfInput(Parser[Any, None]):
 
     # A narrower `-` than Parser's: what makes `p + -finished` typed.
     def __neg__(self) -> IgnoredEndOfInput:  # type: ignore[override]  # ty: ignore[invalid-method-override]
+        """The same parser with its result ignored, as `Parser.__neg__()` does."""
         return cast("IgnoredEndOfInput", super().__neg__())
 
     def named(self, name: str | None) -> EndOfInput:
@@ -1857,6 +1895,8 @@ class ForwardDeclParser[A, B](Parser[A, B]):
     """A parser defined after it is used, for recursive grammars; see `forward_decl()`."""
 
     def __init__(self) -> None:
+        """Declare an undefined parser; `define()` gives it its meaning."""
+
         def f(_tokens: Any, _s: Any) -> Any:
             raise NotImplementedError("you must define() a forward_decl() somewhere")
 
@@ -1886,6 +1926,7 @@ class ForwardDeclParser[A, B](Parser[A, B]):
     def __add__[C](self, other: Parser[A, C]) -> Tuple2Parser[A, B, C]: ...
 
     def __add__(self, other: Parser[A, Any]) -> Parser[A, Any]:  # ty: ignore[invalid-method-override] -- a sum is no forward declaration
+        """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         return super().__add__(other)
 
 
