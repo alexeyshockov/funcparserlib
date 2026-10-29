@@ -63,8 +63,27 @@ toggle.name = "Switch to light mode"
 
 [project.plugins.search]
 
+# `llms.txt`, an index of the site for language models, and `llms-full.txt`, every page in one
+# file; each page is also published as Markdown beside its HTML. The guides first and the API
+# reference after; the ADRs under "Optional", the spec's skippable part.
+[project.plugins.llmstxt]
+full_output = "llms-full.txt"
+
+[project.plugins.llmstxt.sections]
+"funcparserlib" = [
+    "index.md",
+    "getting-started/*.md",
+    "recipes/*.md",
+    "explanation/*.md",
+]
+"API" = ["api/*.md"]
+"Optional" = ["adr/index.md", "adr/0*.md", "changes.md"]
+
 [project.plugins.mkdocstrings.handlers.python.options]
 extensions = ["tools/griffe_refclass.py:RefclassExtension"]
+# The `__init__` of a dataclass is generated and has no docstring; the class docstring and the
+# signature describe the construction.
+filters = ["!^_[^_]", "!^__init__$"]
 docstring_style = "google"
 show_root_toc_entry = false
 show_root_heading = true
