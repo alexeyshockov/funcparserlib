@@ -28,10 +28,14 @@ INCLUDE = re.compile(r'^\s*-{2}8<-{2}\s*"([^":]+):([\w.\-]+)"\s*$')
 INCLUDE_FILE = re.compile(r'^\s*-{2}8<-{2}\s*"([^":]+)"\s*$')
 # Anything meant to be an include: two dashes, an 8 and a chevron, however spaced.
 NEAR_INCLUDE = re.compile(r'^\s*-\s*-\s*8\s*<\s*-\s*-\s*"')
-HL_COMMENT = re.compile(r"^\s*<!--\s*hl:\s*([\w.\-]+)\s*-->\s*$")
+# The steering comment above a highlighted include: `<!-- hl: setup call -->`, one or more names.
+HL_COMMENT = re.compile(r"^\s*<!--\s*hl:\s*([\w.\-]+(?:\s+[\w.\-]+)*)\s*-->\s*$")
 # A fenced code block opener with an info string: ```python hl_lines="7-11"
 FENCE = re.compile(r"^\s*```+\s*([\w-]*)\s*(.*)$")
 HL_ATTR = re.compile(r'hl_lines="([^"]*)"')
+# A fence opener up to its language, or up to its closing brace: the place a missing `hl_lines`
+# goes.
+FENCE_LANG = re.compile(r"^\s*```+\s*(?:\{[^}]*(?=\})|[\w-]*)")
 # An inline code span, stripped before a line is read for links.
 CODE_SPAN = re.compile(r"`+[^`]*`+")
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
@@ -85,14 +89,16 @@ def _find_marker(lines: Sequence[str], kind: str, name: str) -> int | None:
     return None
 
 
-def expected_hl(lines: Sequence[str], section: str, sub: str) -> set[int]:
-    """1-indexed line positions of `sub` within the rendered `section`.
+def expected_hl(lines: Sequence[str], section: str | None, sub: str) -> set[int]:
+    """1-indexed line positions of `sub` within the rendered `section`, the whole file for `None`.
 
     Raises:
         LookupError: `section` or `sub` is not delimited by its markers, or `sub` renders empty.
     """
-    start = _find_marker(lines, "start", section)
-    end = _find_marker(lines, "end", section)
+    start: int | None = -1
+    end: int | None = len(lines)
+    if section is not None:
+        start, end = _find_marker(lines, "start", section), _find_marker(lines, "end", section)
     if start is None or end is None:
         raise LookupError(f"section {section!r} not delimited by [start/end:{section}] markers")
     rendered = [i for i in range(start + 1, end) if not MARKER.search(lines[i])]
@@ -102,7 +108,8 @@ def expected_hl(lines: Sequence[str], section: str, sub: str) -> set[int]:
         raise LookupError(f"sub-section {sub!r} not delimited by [start/end:{sub}] markers")
     positions = {pos for pos, orig in enumerate(rendered, start=1) if sub_start < orig < sub_end}
     if not positions:
-        raise LookupError(f"sub-section {sub!r} maps to no rendered lines of section {section!r}")
+        where = "the file" if section is None else f"section {section!r}"
+        raise LookupError(f"sub-section {sub!r} maps to no rendered lines of {where}")
     return positions
 
 
@@ -118,21 +125,46 @@ def parse_hl(raw: str) -> set[int]:
 
 
 def fmt_hl(numbers: set[int]) -> str:
-    lo, hi = min(numbers), max(numbers)
-    return f"{lo}-{hi}" if hi > lo else f"{lo}"
+    runs: list[str] = []
+    ordered = sorted(numbers)
+    lo = prev = ordered[0]
+    for n in [*ordered[1:], None]:
+        if n is not None and n == prev + 1:
+            prev = n
+            continue
+        runs.append(f"{lo}-{prev}" if prev > lo else f"{lo}")
+        if n is not None:
+            lo = prev = n
+    return " ".join(runs)
+
+
+def expected_hls(lines: Sequence[str], section: str | None, subs: Sequence[str]) -> set[int]:
+    """The union of `expected_hl` over `subs`.
+
+    Raises:
+        LookupError: as `expected_hl`, for the first sub-section that fails.
+    """
+    return set().union(*(expected_hl(lines, section, sub) for sub in subs))
 
 
 @dataclass(frozen=True, slots=True)
 class HlFence:
     line: int
-    hl_raw: str
+    # `None` where the fence has no `hl_lines` attribute.
+    hl_raw: str | None
     include: str
-    section: str
-    sub: str | None
+    # `None` for a whole-file include.
+    section: str | None
+    # The names in the steering comment; empty without one.
+    subs: Sequence[str]
+
+
+def where(fence: HlFence) -> str:
+    return fence.include if fence.section is None else f"section {fence.section!r}"
 
 
 def hl_fences(lines: Sequence[str]) -> list[HlFence]:
-    """Every fenced block that is a single section include and carries `hl_lines`."""
+    """Every single-include fence under a steering comment or with `hl_lines`."""
     found: list[HlFence] = []
     i = 0
     while i < len(lines):
@@ -146,30 +178,51 @@ def hl_fences(lines: Sequence[str]) -> list[HlFence]:
             body.append(lines[j])
             j += 1
         hl = HL_ATTR.search(fence.group(2))
-        include = INCLUDE.match(body[0]) if len(body) == 1 else None
-        if hl and include:
-            sub = None
-            k = i - 1
-            while k >= 0 and not lines[k].strip():
-                k -= 1
-            if k >= 0 and (comment := HL_COMMENT.match(lines[k])):
-                sub = comment.group(1)
-            found.append(HlFence(i + 1, hl.group(1), include.group(1), include.group(2), sub))
+        include = (
+            (INCLUDE.match(body[0]) or INCLUDE_FILE.match(body[0])) if len(body) == 1 else None
+        )
+        k = i - 1
+        while k >= 0 and not lines[k].strip():
+            k -= 1
+        comment = HL_COMMENT.match(lines[k]) if k >= 0 else None
+        subs = tuple(comment.group(1).split()) if comment else ()
+        if (hl or subs) and include:
+            raw = hl.group(1) if hl else None
+            section = include.group(2) if include.re is INCLUDE else None
+            found.append(HlFence(i + 1, raw, include.group(1), section, subs))
         i = j + 1
     return found
+
+
+def stray_comments(lines: Sequence[str]) -> list[int]:
+    """The prose lines holding a steering comment that no single-include fence follows."""
+    steered = {fence.line for fence in hl_fences(lines) if fence.subs}
+    stray: list[int] = []
+    for number, line in _prose(lines):
+        if not HL_COMMENT.match(line):
+            continue
+        k = number
+        while k < len(lines) and not lines[k].strip():
+            k += 1
+        if k + 1 not in steered:
+            stray.append(number)
+    return stray
 
 
 @rule("CON900", "CON901", "CON902")
 def highlights(project: Project) -> Iterator[Finding]:
     """`hl_lines` on an included example section is derived from the example's markers.
 
-    CON900: A highlighted include names its sub-section in a `<!-- hl: NAME -->` comment.
+    CON900: A highlighted include names its sub-sections in a `<!-- hl: NAME ... -->` comment, and
+    every such comment sits above a fence holding one include.
 
     Reason: the comment is what the derivation reads; without it the numbers are hand-counted and
-    drift the moment the example changes.
+    drift the moment the example changes. A comment anywhere else highlights nothing.
 
     Fix: put `<!-- hl: NAME -->` on the line above the fence, and delimit `NAME` in the example with
-    `[start:NAME]` and `[end:NAME]` markers inside the included section.
+    `[start:NAME]` and `[end:NAME]` markers inside the included section. Several names, separated by
+    spaces, highlight each one's lines. A fence holding several includes becomes one fence per
+    include.
 
     CON901: The section and sub-section a highlight names are delimited in the example.
 
@@ -178,44 +231,61 @@ def highlights(project: Project) -> Iterator[Finding]:
 
     Fix: add the `[start:NAME]` / `[end:NAME]` markers, or correct the name.
 
-    CON902: `hl_lines` is the range the sub-section's markers give.
+    CON902: A fence under a steering comment carries `hl_lines`, the ranges its sub-sections'
+    markers give.
 
     Reason: `pymdownx` strips every marker line, so the rendered lines between a sub-section's
-    markers are the highlight; any other number highlights the wrong code, and the build does not
-    notice.
+    markers are the highlight; any other number highlights the wrong code, and a missing `hl_lines`
+    highlights nothing. The build notices neither.
 
-    Fix: write the range in the message.
+    Fix: write the ranges in the message, or run the fixer.
     """
     if not _site(project):
         return
     for page in _pages(project):
         relative = project.relative(page)
-        for fence in hl_fences(_lines(project, page)):
-            if fence.sub is None:
+        lines = _lines(project, page)
+        for number in stray_comments(lines):
+            yield Finding(
+                relative,
+                number,
+                "CON900",
+                "`<!-- hl: ... -->` highlights nothing: no fence holding one include follows it",
+            )
+        for fence in hl_fences(lines):
+            if not fence.subs:
                 yield Finding(
                     relative,
                     fence.line,
                     "CON900",
-                    f"`hl_lines` on an include of section {fence.section!r} needs a preceding "
+                    f"`hl_lines` on an include of {where(fence)} needs a preceding "
                     "`<!-- hl: <sub-section> -->` comment",
                 )
                 continue
             source = project.root / fence.include
             try:
-                want = expected_hl(
+                want = expected_hls(
                     (project.text(source) or "").splitlines() if source.is_file() else [],
                     fence.section,
-                    fence.sub,
+                    fence.subs,
                 )
             except LookupError as e:
                 yield Finding(relative, fence.line, "CON901", f"{fence.include}: {e}")
                 continue
-            if parse_hl(fence.hl_raw) != want:
+            names = " ".join(fence.subs)
+            if fence.hl_raw is None:
                 yield Finding(
                     relative,
                     fence.line,
                     "CON902",
-                    f'hl:{fence.sub} has hl_lines="{fence.hl_raw}", should be "{fmt_hl(want)}"',
+                    f'hl:{names} has no hl_lines, should be "{fmt_hl(want)}"',
+                )
+            elif parse_hl(fence.hl_raw) != want:
+                yield Finding(
+                    relative,
+                    fence.line,
+                    "CON902",
+                    f'hl:{names} has hl_lines="{fence.hl_raw}", should be "{fmt_hl(want)}"',
                 )
 
 
@@ -312,7 +382,7 @@ def reachable_pages(project: Project) -> set[str]:
     return seen
 
 
-@rule("CON906", "CON907", "CON908", "CON909")
+@rule("CON906", "CON907", "CON908", "CON909", "CON914")
 def structure(project: Project) -> Iterator[Finding]:
     """Every page is in the menu or reachable from it.
 
@@ -341,6 +411,13 @@ def structure(project: Project) -> Iterator[Finding]:
     Reason: the menu names the hub, not the decisions, so the index is the only route to each.
 
     Fix: add a link to the ADR on `docs/adr/index.md`.
+
+    CON914: No page under `docs/adr/` is in the menu but the hub.
+
+    Reason: the hub lists every decision (CON909); a menu listing them too is a second list to keep
+    in step with it, and the one that drifts.
+
+    Fix: drop the entry from `nav`; the hub links the ADR.
     """
     if not _site(project):
         return
@@ -376,11 +453,168 @@ def structure(project: Project) -> Iterator[Finding]:
                 "CON908",
                 "the ADR hub is in no menu and no page links to it",
             )
+    for page in nav:
+        if page.startswith("adr/") and page != ADR_HUB:
+            yield Finding(
+                "zensical.toml",
+                project.line_of(config, f'"{page}"'),
+                "CON914",
+                f"nav lists {page}; the ADR hub is its only route",
+            )
     numbered = sorted(p.name for p in adr.glob("[0-9]*.md"))
     index = project.text(hub) if hub.is_file() else None
     for name in numbered:
         if index is None or f"({name})" not in index:
             yield Finding(f"docs/{ADR_HUB}", None, "CON909", f"the ADR index does not link {name}")
+
+
+@rule("CON915")
+def llms_txt(project: Project) -> Iterator[Finding]:
+    """The site publishes `llms.txt` and `llms-full.txt`.
+
+    Reason: `llms.txt` is the index a language model reads a site through, and `llms-full.txt` hands
+    it every page at once; without them it scrapes the rendered HTML.
+
+    Fix: add `[project.plugins.llmstxt]` with `full_output = "llms-full.txt"` to `zensical.toml`,
+    and a section per distribution under `[project.plugins.llmstxt.sections]`.
+    """
+    if not _site(project):
+        return
+    config = tomllib.loads(project.text(project.root / "zensical.toml") or "")
+    llmstxt = config.get("project", {}).get("plugins", {}).get("llmstxt")
+    if not isinstance(llmstxt, dict) or llmstxt.get("enabled", True) is False:
+        yield Finding("zensical.toml", None, "CON915", "no llms.txt: `llmstxt` is not configured")
+    elif not llmstxt.get("full_output"):
+        yield Finding("zensical.toml", None, "CON915", "no llms-full.txt: `full_output` is unset")
+
+
+# --- The API reference ---
+
+# A mkdocstrings block: `::: package.module` alone on its line.
+DIRECTIVE = re.compile(r"^:::\s+([\w.]+)\s*$")
+# mkdocstrings-python's default `filters`: no single-underscore name.
+DEFAULT_FILTERS = ("!^_[^_]",)
+
+
+def _python_handler(project: Project) -> dict[str, object]:
+    config = tomllib.loads(project.text(project.root / "zensical.toml") or "")
+    plugins = config.get("project", {}).get("plugins", {})
+    return plugins.get("mkdocstrings", {}).get("handlers", {}).get("python", {})
+
+
+def _kept(name: str, filters: Sequence[tuple[re.Pattern[str], bool]]) -> bool:
+    """Whether mkdocstrings-python's `filters` render `name`: the last matching filter decides; with
+    no match, a name is kept unless every filter is an inclusion.
+    """
+    keep: bool | None = None
+    for pattern, exclude in filters:
+        if pattern.search(name):
+            keep = not exclude
+    if keep is None:
+        return {exclude for _, exclude in filters} != {False}
+    return keep
+
+
+def _reference_targets(project: Project) -> list[str]:
+    return [
+        found.group(1)
+        for page in _pages(project)
+        for _, line in _prose(_lines(project, page))
+        if (found := DIRECTIVE.match(line))
+    ]
+
+
+def _extension(project: Project, spec: object) -> str | dict[str, dict[str, object]]:
+    """A griffe extension as `zensical.toml` names it; a script path is read from the root."""
+    if isinstance(spec, str):
+        return str(project.root / spec) if spec.split(":", 1)[0].endswith(".py") else spec
+    if isinstance(spec, dict):
+        return spec
+    raise RunError(f"zensical.toml names a griffe extension griffe cannot read: {spec!r}")
+
+
+@rule("CON916")
+def reference_docstrings(project: Project) -> Iterator[Finding]:
+    """Every class, function, method and property the API reference renders has a docstring.
+
+    Reason: a signature alone does not say what a call does, what it blocks on or when it raises.
+    Writing the docstring states the contract; a name nobody can state one for is a name the API
+    should not export. A field is exempt: its name and type are its contract.
+
+    Fix: write the docstring, or make the name private.
+
+    Scope: what each `::: dotted.path` block on a page renders, as `zensical.toml` configures the
+    python handler: its `paths`, and the `filters` and `extensions` among its `options`; a block's
+    own options are not read. A module renders its `__all__`, or without one its own public members;
+    a class its own members, not inherited ones. A docstring an extension copies from a base
+    (griffe-inherited-docstrings) counts. A name re-exported from a package no block names is not
+    followed.
+    """
+    if not _site(project):
+        return
+    targets = _reference_targets(project)
+    if not targets:
+        return
+    handler = _python_handler(project)
+    options = handler.get("options", {})
+    assert isinstance(options, dict)
+    filters = [
+        (re.compile(f.removeprefix("!")), f.startswith("!"))
+        for f in options.get("filters", DEFAULT_FILTERS)
+    ]
+    paths = handler.get("paths", ["."])
+    assert isinstance(paths, list)
+    try:
+        extensions = griffe.load_extensions(
+            *(_extension(project, spec) for spec in options.get("extensions", []))
+        )
+        loader = griffe.GriffeLoader(
+            search_paths=[str(project.root / path) for path in paths], extensions=extensions
+        )
+        for target in dict.fromkeys(target.split(".")[0] for target in targets):
+            loader.load(target)
+        loader.resolve_aliases(implicit=False, external=False)
+    except (ImportError, griffe.GriffeError) as e:
+        raise RunError(f"griffe cannot read the API reference's targets: {e}") from None
+    seen: set[str] = set()
+
+    def check(obj: griffe.Object, shown: str) -> Iterator[Finding]:
+        if obj.path in seen:
+            return
+        seen.add(obj.path)
+        if not obj.docstring and obj.filepath is not None and not isinstance(obj.filepath, list):
+            path = project.relative(obj.filepath)
+            yield Finding(path, obj.lineno, "CON916", f"{shown} has no docstring")
+
+    def members(cls: griffe.Class, shown: str) -> Iterator[Finding]:
+        yield from check(cls, shown)
+        for name, member in cls.members.items():
+            if isinstance(member, griffe.Alias) or not _kept(name, filters):
+                continue
+            if isinstance(member, griffe.Class):
+                yield from members(member, f"{shown}.{name}")
+            elif member.is_function or (member.is_attribute and "property" in member.labels):
+                yield from check(member, f"{shown}.{name}")
+
+    for target in targets:
+        try:
+            module = loader.modules_collection[target]
+        except KeyError:
+            raise RunError(f"griffe finds no module {target}, which a `:::` block names") from None
+        for name, member in module.members.items():
+            # Exports first: asking an import what it is resolves it; `__future__` does not resolve.
+            if (module.exports is not None or member.is_alias) and not member.is_exported:
+                continue
+            if not _kept(name, filters):
+                continue
+            try:
+                obj = member.final_target if member.is_alias else member
+            except griffe.AliasResolutionError:
+                continue
+            if isinstance(obj, griffe.Class):
+                yield from members(obj, f"{target}.{name}")
+            elif obj.is_function:
+                yield from check(obj, f"{target}.{name}")
 
 
 # --- Links ---
@@ -669,10 +903,10 @@ def snippets_import(project: Project) -> Iterator[Finding]:
 
 @fixer("CON902")
 def fix_highlights(project: Project) -> Fixes:
-    """Rewrite each drifted `hl_lines` to the range its sub-section's markers give.
+    """Rewrite each drifted `hl_lines` to the ranges its sub-sections' markers give, or add it.
 
-    Only the `hl_lines` value on the fence line changes. A fence without a steering comment, or one
-    whose markers are missing, is left as it is: CON900 and CON901 report it.
+    Only the `hl_lines` attribute on the fence line changes. A fence without a steering comment, or
+    one whose markers are missing, is left as it is: CON900 and CON901 report it.
     """
     rewrites: dict[Path, str] = {}
     if not _site(project):
@@ -682,17 +916,23 @@ def fix_highlights(project: Project) -> Fixes:
         changed = False
         for fence in hl_fences(lines):
             source = project.root / fence.include
-            if fence.sub is None or not source.is_file():
+            if not fence.subs or not source.is_file():
                 continue
             try:
-                want = expected_hl(
-                    (project.text(source) or "").splitlines(), fence.section, fence.sub
+                want = expected_hls(
+                    (project.text(source) or "").splitlines(), fence.section, fence.subs
                 )
             except LookupError:
                 continue
-            if parse_hl(fence.hl_raw) != want:
-                index = fence.line - 1
-                lines[index] = HL_ATTR.sub(f'hl_lines="{fmt_hl(want)}"', lines[index])
+            index = fence.line - 1
+            attr = f'hl_lines="{fmt_hl(want)}"'
+            if fence.hl_raw is None:
+                opener = FENCE_LANG.match(lines[index])
+                assert opener is not None  # hl_fences found a fence here
+                lines[index] = f"{opener.group(0)} {attr}{lines[index][opener.end() :]}"
+                changed = True
+            elif parse_hl(fence.hl_raw) != want:
+                lines[index] = HL_ATTR.sub(attr, lines[index])
                 changed = True
         if changed:
             rewrites[page] = "\n".join(lines) + "\n"

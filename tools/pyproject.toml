@@ -50,6 +50,8 @@ dependencies = [
     # --- Docs ---
     "zensical >=0.0.40, <0.1",
     "mkdocstrings[python] >=0.27", # API reference autogen (via zensical's compat shim)
+    # A member without a docstring shows its base's, in the reference and in CON916.
+    "griffe-inherited-docstrings >=1.1",
 ]
 
 [project.scripts]
@@ -58,17 +60,24 @@ conventions = "conventions._cli:main"
 # search path, the interpreter and the floor. The recipes call it; see `conventions/_toolbox.py`.
 toolbox = "conventions._toolbox:main"
 
-# The package is `conventions/` alone; `checks/` and the scripts beside it are not built.
+# The packages are `conventions/` and `mdautolink/`; `checks/` and the scripts beside them are not
+# built.
 [build-system]
 requires = ["uv_build >=0.12.21, <0.14"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "conventions"
+module-name = ["conventions", "mdautolink"]
 module-root = ""
 
 [tool.uv]
 package = true
+default-groups = ["mdautolink"]
+
+# `mdautolink/`, a Python-Markdown extension the docs build loads: what it needs, apart from what
+# the rest of the toolbox does, so the package can be lifted out with its requirements.
+[dependency-groups]
+mdautolink = ["griffe >=1.5", "markdown >=3.6"]
 
 # ruff resolves this config by walking up from each file under tools/. 100 columns and a reduced
 # rule set regardless of the project's own; scripts here print and call subprocesses, so `T20`,

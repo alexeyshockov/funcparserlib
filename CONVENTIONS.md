@@ -322,8 +322,8 @@ lives in `tools/`; the rules for writing pages are this section.
 - Source runnable Python snippets from the runnable examples with `--8<--` includes — `examples/`,
   or each package's own `examples/` in a multi-package repository. Do not duplicate example code in
   Markdown when it can be included.
-- When using `hl_lines`, pair the include with an `<!-- hl: section -->` marker and a matching
-  nested section in the example.
+- Highlight lines of an include with an `<!-- hl: section ... -->` comment above its fence, naming
+  one or more nested sections of the example; `just docs-hl-fix` writes the fence's `hl_lines`.
 - Update docs and examples together when public behavior changes. Ensure new pages are reachable
   from the existing navigation where appropriate.
 - `docs/explanation/glossary.md` is the project's vocabulary: one word, one meaning. An entry is a
@@ -331,10 +331,10 @@ lives in `tools/`; the rules for writing pages are this section.
   names that implement it. Read it before naming something, use its terms in code, docs, commit
   messages and conversation, and add the entry in the same change that coins a term. The terms
   below are fixed; `glossary.md` repeats one only to name its implementations:
-  - **engine**: a sans-IO protocol state machine for one connection: bytes in, events out, what is
-    sent encoded back to bytes, no I/O. Its owner does the I/O around it.
-  - **codec**: the encoding of one value or one message, such as a column's type, a packet or a
-    body's compression. Not an engine.
+    - **engine**: a sans-IO protocol state machine for one connection: bytes in, events out, what is
+      sent encoded back to bytes, no I/O. Its owner does the I/O around it.
+    - **codec**: the encoding of one value or one message, such as a column's type, a packet or a
+      body's compression. Not an engine.
 
 The conventions runner's CON9xx holds the site to itself: highlights, includes, links, snippets
 and the glossary.

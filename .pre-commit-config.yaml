@@ -149,8 +149,9 @@ repos:
   # Line length and indent size, per file type: ruff checks Python, markdownlint checks
   # Markdown, and the second run below checks TOML, JSON, shell and YAML (prettier
   # formats YAML but passes a line it cannot break). Markdown has no indent-size check:
-  # a list continuation is indented by its marker's width, 2 or 3, and markdownlint's
-  # MD005/MD007 check list indentation.
+  # Python-Markdown, which renders the docs, nests a list and continues a list item past a
+  # blank line only at an indent of 4, markdownlint's MD007 holds nested bullets to 4, and
+  # the docs build's unrendered-Markdown check reports a list marker left in a paragraph.
   - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
     rev: 3.11.1
     hooks:

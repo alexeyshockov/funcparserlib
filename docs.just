@@ -12,6 +12,7 @@ docs-build:
     # mkdocstrings API reference can go stale. Clear it for a correct build.
     rm -rf .cache
     {{ tools }} zensical build
+    {{ tools }} python tools/unrendered_markdown.py site
 
 [doc("Serve docs with live reload (doesn't clear .cache — API ref may be stale; use docs-build for a clean build)")]
 docs-serve:
