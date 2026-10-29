@@ -6,6 +6,9 @@ repo_url = "https://github.com/vlasovskikh/funcparserlib"
 repo_name = "vlasovskikh/funcparserlib"
 edit_uri = "edit/master/docs/"
 
+# A warning (a broken link, a docstring griffe cannot parse) fails the build.
+strict = true
+
 docs_dir = "docs"
 extra_css = ["media/extra.css"]
 
@@ -99,3 +102,9 @@ members = false
 check_paths = true
 
 [project.markdown_extensions."pymdownx.blocks.admonition"]
+
+# Inline code naming an API object links to its reference entry (`tools/mdautolink`).
+# `modules` is spelled out because the reference renders `TokenSpec.__init__`, a constructor only
+# the dataclass extension gives griffe, and the index's own loader runs no extensions.
+[project.markdown_extensions.mdautolink]
+modules = ["funcparserlib.lexer", "funcparserlib.parser", "funcparserlib.util"]
