@@ -13,16 +13,20 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ._project import Project, RunError
+from ._rules._ast import bare_names
 from ._rules._public import (
     Definition,
+    Member,
     Reach,
     alias_value,
+    dotted_name,
     exports,
     generates_init,
     init_field,
     internal_constructor,
     member_name,
     resolve,
+    signatures,
     spelled,
 )
 
@@ -52,7 +56,13 @@ class Item:
     text: str = ""
     """An attribute's annotation, if it has one; an alias's value; an imported name's source."""
     parameters: tuple[Parameter, ...] = ()
+    """A method's without the `self` or `cls` it is bound to."""
     returns: str = ""
+    asynchronous: bool = False
+    overloads: tuple[Item, ...] = ()
+    """An overloaded function's signatures, each an `Item` of its own."""
+    writable: bool = False
+    """Whether a caller can set the attribute."""
 
 
 class _Strings(ast.NodeTransformer):
@@ -76,7 +86,7 @@ def _text(node: ast.expr | None) -> str:
     return "" if node is None else ast.unparse(_Strings().visit(node))
 
 
-def _callable(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Item:
+def _callable(node: ast.FunctionDef | ast.AsyncFunctionDef, bound: bool) -> Item:
     args = node.args
     positional = [*args.posonlyargs, *args.args]
     defaults = [False] * (len(positional) - len(args.defaults)) + [True] * len(args.defaults)
@@ -88,7 +98,7 @@ def _callable(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Item:
             _text(arg.annotation),
         )
         for index, arg in enumerate(positional)
-    ]
+    ][1 if bound and positional else 0 :]
     if args.vararg is not None:
         params.append(
             Parameter(args.vararg.arg, VAR_POSITIONAL, True, _text(args.vararg.annotation))
@@ -99,7 +109,60 @@ def _callable(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Item:
     ]
     if args.kwarg is not None:
         params.append(Parameter(args.kwarg.arg, VAR_KEYWORD, True, _text(args.kwarg.annotation)))
-    return Item("function", parameters=tuple(params), returns=_text(node.returns))
+    return Item(
+        "function",
+        parameters=tuple(params),
+        returns=_text(node.returns),
+        asynchronous=isinstance(node, ast.AsyncFunctionDef),
+    )
+
+
+def _function(nodes: list[ast.stmt], bound: bool) -> Item:
+    """A function or method from its signatures: one, or each overload."""
+    items = [
+        _callable(n, bound) for n in nodes if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+    ]
+    return items[0] if len(items) == 1 else Item("function", overloads=tuple(items))
+
+
+def _keyword(call: ast.expr | None, name: str) -> bool:
+    """Whether a decorator or `field()` call passes `name=True`."""
+    return isinstance(call, ast.Call) and any(
+        kw.arg == name and isinstance(kw.value, ast.Constant) and kw.value.value is True
+        for kw in call.keywords
+    )
+
+
+def _frozen(node: ast.ClassDef) -> bool:
+    return any(
+        _keyword(deco, "frozen") or bare_names([deco]) == {"valueclass"}
+        for deco in node.decorator_list
+    )
+
+
+def _member(group: list[Member]) -> Item:
+    """A class member from the statements that bind it: a property's getter and setter, a method's
+    overloads, or an attribute.
+    """
+    node = group[0].node
+    owner = group[0].owner.node
+    assert isinstance(owner, ast.ClassDef)
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+        decorators = bare_names(node.decorator_list)
+        if decorators & {"property", "cached_property"}:
+            setter = any(
+                bare_names(m.node.decorator_list) & {"setter"}
+                for m in group
+                if isinstance(m.node, ast.FunctionDef)
+            )
+            return Item(
+                "attribute",
+                _text(node.returns),
+                writable=setter or "cached_property" in decorators,
+            )
+        return _function([m.node for m in group], bound="staticmethod" not in decorators)
+    annotation = node.annotation if isinstance(node, ast.AnnAssign) else None
+    return Item("attribute", _text(annotation), writable=not _frozen(owner))
 
 
 def _generated_init(project: Project, site: Definition) -> Item | None:
@@ -124,13 +187,23 @@ def _generated_init(project: Project, site: Definition) -> Item | None:
         return None
     params: dict[str, Parameter] = {}
     for node in reversed(chain):
+        keyword = any(_keyword(deco, "kw_only") for deco in node.decorator_list)
         for stmt in node.body:
-            if init_field(stmt) and isinstance(stmt, ast.AnnAssign):
-                assert isinstance(stmt.target, ast.Name)
+            if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+                continue
+            if (kind := dotted_name(stmt.annotation)) is not None and kind[-1] == "KW_ONLY":
+                keyword = True
+            elif init_field(stmt):
+                params.pop(stmt.target.id, None)
                 params[stmt.target.id] = Parameter(
-                    stmt.target.id, EITHER, stmt.value is not None, _text(stmt.annotation)
+                    stmt.target.id,
+                    KEYWORD_ONLY if keyword or _keyword(stmt.value, "kw_only") else EITHER,
+                    stmt.value is not None,
+                    _text(stmt.annotation),
                 )
-    return Item("function", parameters=(Parameter("self", EITHER, False, ""), *params.values()))
+    # A dataclass moves its keyword-only fields after the others.
+    ordered = sorted(params.values(), key=lambda p: p.kind == KEYWORD_ONLY)
+    return Item("function", parameters=tuple(ordered))
 
 
 def snapshot(project: Project) -> Mapping[str, Item]:
@@ -155,17 +228,22 @@ def snapshot(project: Project) -> Mapping[str, Item]:
         elif isinstance(site.node, ast.ClassDef):
             found[path] = Item("class")
             internal = internal_constructor(site.node) is not None
-            for _, member, _, label in reach.members(site):
+            groups: dict[str, list[Member]] = {}
+            for member in reach.members(site):
+                if member.label == "__init__" and not isinstance(
+                    member.node, ast.FunctionDef | ast.AsyncFunctionDef
+                ):
+                    # A private field: the generated `__init__` below has it.
+                    continue
+                groups.setdefault(member.label, []).append(member)
+            for label, group in groups.items():
                 if label in ("__init__", "__new__") and internal:
                     continue
-                if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef):
-                    found.setdefault(f"{path}.{label}", _callable(member))
-                elif isinstance(member, ast.AnnAssign) and label != "__init__":
-                    found.setdefault(f"{path}.{label}", Item("attribute", _text(member.annotation)))
+                found[f"{path}.{label}"] = _member(group)
             if not internal and (init := _generated_init(project, site)) is not None:
                 found.setdefault(f"{path}.__init__", init)
         elif isinstance(site.node, ast.FunctionDef | ast.AsyncFunctionDef):
-            found[path] = _callable(site.node)
+            found[path] = _function(signatures(project, site), bound=False)
         elif (value := alias_value(site.node)) is not None:
             found[path] = Item("alias", _text(value))
         elif isinstance(site.node, ast.AnnAssign):
@@ -206,8 +284,34 @@ def _parameter_changes(old: Item, new: Item) -> Iterator[str]:
     for param in new.parameters:
         if param.name not in old_names and not param.default:
             yield f"new required parameter `{param.name}`"
+    places = {p.name: index for index, p in enumerate(positional)}
+    for index, param in enumerate(old_positional):
+        if (place := places.get(param.name, index)) != index:
+            yield f"parameter `{param.name}` moved from position {index + 1} to {place + 1}"
     if old.returns != new.returns:
         yield f"returns `{new.returns}`, was `{old.returns}`"
+    if old.asynchronous != new.asynchronous:
+        yield "is a coroutine function" if new.asynchronous else "is no longer a coroutine function"
+
+
+def _signature_changes(old: Item, new: Item) -> Iterator[str]:
+    """Each old signature a new one no longer matches: by its changes against the new signature in
+    the same place, or as removed when there is none.
+    """
+    olds, news = old.overloads or (old,), new.overloads or (new,)
+    for index, was in enumerate(olds):
+        if was in news:
+            continue
+        prefix = f"overload {index + 1}: " if len(olds) > 1 else ""
+        if len(news) == 1:
+            now = news[0]
+        elif index < len(news):
+            now = news[index]
+            prefix = f"overload {index + 1}: "
+        else:
+            yield f"overload {index + 1} removed"
+            continue
+        yield from (f"{prefix}{change}" for change in _parameter_changes(was, now))
 
 
 def changes(old: Mapping[str, Item], new: Mapping[str, Item]) -> Iterator[str]:
@@ -223,10 +327,13 @@ def changes(old: Mapping[str, Item], new: Mapping[str, Item]) -> Iterator[str]:
         elif now.kind != was.kind:
             yield f"{path}: was {_a(was.kind)}, is {_a(now.kind)}"
         elif was.kind == "function":
-            yield from (f"{path}: {change}" for change in _parameter_changes(was, now))
-        elif was.text and was.text != now.text:
-            # An annotation added where there was none narrows nothing a caller relied on.
-            yield f"{path}: was `{was.text}`, is `{now.text}`"
+            yield from (f"{path}: {change}" for change in _signature_changes(was, now))
+        else:
+            if was.text and was.text != now.text:
+                # An annotation added where there was none narrows nothing a caller relied on.
+                yield f"{path}: was `{was.text}`, is `{now.text}`"
+            if was.writable and not now.writable:
+                yield f"{path}: can no longer be set"
 
 
 def _a(kind: str) -> str:

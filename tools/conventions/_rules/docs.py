@@ -18,6 +18,7 @@ import griffe
 
 from .._engine import Finding, Fixes, fixer, rule
 from .._project import Project, RunError
+from ._ast import all_value
 from ._public import Export, exports
 
 # A snippet marker line, e.g. `# --8<-- [start:task1]`; pymdownx strips the whole line, whatever
@@ -681,9 +682,11 @@ def reference_surface(project: Project) -> Iterator[Finding]:
     for path in sorted(shown - exported.keys()):
         module = path.rpartition(".")[0]
         file = project.module_path(module)
+        tree = project.tree(file) if file is not None else None
+        listed = all_value(tree) if tree is not None else None
         yield Finding(
             project.relative(file) if file is not None else module,
-            None,
+            listed.lineno if listed is not None else 1,
             "CON917",
             f"the API reference renders {path}, which {module}'s __all__ does not export",
         )

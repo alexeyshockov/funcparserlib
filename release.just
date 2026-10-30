@@ -13,7 +13,8 @@
 # Latest tag matching strictly `vX.Y.Z` (no `b1` / `rc1` / `.dev0` suffix).
 previous_stable_tag := `git tag --sort=-v:refname --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1`
 
-# `|| true` keeps it informational: a change is read and decided on, not refused.
+# Exit 1, a change found, is informational: a change is read and decided on, not refused. Exit 2,
+# a base it cannot read or a crash, fails the recipe.
 [doc("Show what a caller of the public API at [base] (default: previous stable tag) meets now")]
 api-diff base=previous_stable_tag:
     #!/usr/bin/env bash
@@ -22,7 +23,7 @@ api-diff base=previous_stable_tag:
         echo "no previous stable tag found; pass [base] explicitly" >&2
         exit 1
     fi
-    {{ tools }} conventions api-diff "{{ base }}" || true
+    {{ tools }} conventions api-diff "{{ base }}" || [ $? -eq 1 ]
 
 [doc("Pre-release report: current type coverage + API BC vs [base]")]
 release-check base=previous_stable_tag:

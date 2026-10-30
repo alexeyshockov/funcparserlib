@@ -3,6 +3,7 @@ pyrefly's list of the same definitions.
 """
 
 import ast
+import copy
 import json
 import re
 import subprocess
@@ -14,9 +15,6 @@ from pathlib import Path
 from .._project import Project, RunError
 from .._toolbox import INTERPRETER, distributions, floor
 from ._ast import all_value, bare_names, resolved
-
-# The `coverage report` layouts this module reads.
-PYREFLY_SCHEMAS = frozenset({"0.2"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +30,7 @@ class Definition:
 
     @property
     def qualified(self) -> str:
-        return f"{self.module}.{self.name}"
+        return f"{self.module}.{self.name}" if self.module else self.name
 
     @property
     def in_packages(self) -> bool:
@@ -53,18 +51,32 @@ class Export:
 
 
 def module_level(body: Sequence[ast.stmt]) -> Iterator[ast.stmt]:
-    """The statements that run when a module is imported, inside `if` and `try` blocks included."""
+    """The statements that run when a module is imported, inside `if`, `try`, `with` and loop blocks
+    included.
+    """
     for node in body:
         yield node
-        if isinstance(node, ast.If):
+        if isinstance(node, ast.If | ast.For | ast.AsyncFor | ast.While):
             yield from module_level(node.body)
             yield from module_level(node.orelse)
+        elif isinstance(node, ast.With | ast.AsyncWith):
+            yield from module_level(node.body)
         elif isinstance(node, ast.Try | ast.TryStar):
             yield from module_level(node.body)
             for handler in node.handlers:
                 yield from module_level(handler.body)
             yield from module_level(node.orelse)
             yield from module_level(node.finalbody)
+
+
+def _targets(node: ast.expr) -> Iterator[str]:
+    if isinstance(node, ast.Name):
+        yield node.id
+    elif isinstance(node, ast.Tuple | ast.List):
+        for element in node.elts:
+            yield from _targets(element)
+    elif isinstance(node, ast.Starred):
+        yield from _targets(node.value)
 
 
 def _binds(node: ast.stmt, name: str) -> bool:
@@ -75,14 +87,51 @@ def _binds(node: ast.stmt, name: str) -> bool:
     if isinstance(node, ast.AnnAssign):
         return isinstance(node.target, ast.Name) and node.target.id == name
     if isinstance(node, ast.Assign):
-        return any(isinstance(t, ast.Name) and t.id == name for t in node.targets)
+        return any(name in _targets(t) for t in node.targets)
+    if isinstance(node, ast.For | ast.AsyncFor):
+        return name in _targets(node.target)
+    if isinstance(node, ast.With | ast.AsyncWith):
+        return any(
+            item.optional_vars is not None and name in _targets(item.optional_vars)
+            for item in node.items
+        )
     return False
+
+
+def _imported_module(node: ast.Import, name: str) -> str | None:
+    """The module an `import` statement binds to `name`, if it binds it."""
+    for alias in node.names:
+        if alias.asname == name:
+            return alias.name
+        if alias.asname is None and alias.name.partition(".")[0] == name:
+            return name
+    return None
+
+
+def _lazy_import(
+    tree: ast.Module, module: str, is_package: bool, name: str
+) -> tuple[str, str] | None:
+    """The `from ... import` a module-level `__getattr__` serves `name` by, if it has one."""
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == "__getattr__":
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.ImportFrom):
+                    for alias in inner.names:
+                        if (alias.asname or alias.name) == name:
+                            return resolved(module, is_package, inner), alias.name
+    return None
+
+
+def _module_definition(project: Project, dotted: str) -> Definition:
+    parent, _, last = dotted.rpartition(".")
+    return Definition(parent, last, project.module_path(dotted), None)
 
 
 def definition(project: Project, module: str, name: str) -> Definition | None:
     """Where `name`, as `module` binds it, is defined: through `from ... import` re-exports, those
-    under `if TYPE_CHECKING:` included. A name no module on the way binds is the submodule of that
-    name, or `None` when there is none.
+    under `if TYPE_CHECKING:` and those a module-level `__getattr__` makes included. A name bound by
+    `import` is that module. A name no module on the way binds is the submodule of that name, or
+    `None` when there is none.
     """
     seen: set[tuple[str, str]] = set()
     while (module, name) not in seen:
@@ -92,14 +141,19 @@ def definition(project: Project, module: str, name: str) -> Definition | None:
             return Definition(module, name, None, None)
         if (tree := project.tree(path)) is None:
             return None
+        is_package = path.name == "__init__.py"
         imported: tuple[str, str] | None = None
         for node in module_level(tree.body):
             if _binds(node, name):
                 return Definition(module, name, path, node)
+            if isinstance(node, ast.Import) and (target := _imported_module(node, name)):
+                return _module_definition(project, target)
             if isinstance(node, ast.ImportFrom):
                 for alias in node.names:
                     if (alias.asname or alias.name) == name:
-                        imported = (resolved(module, path.name == "__init__.py", node), alias.name)
+                        imported = (resolved(module, is_package, node), alias.name)
+        if imported is None:
+            imported = _lazy_import(tree, module, is_package, name)
         if imported is None:
             break
         module, name = imported
@@ -140,6 +194,8 @@ def pyrefly_public(project: Project) -> frozenset[str]:
     `pyrefly coverage report --public-only`, the report `just type-coverage` gates on, at the
     interpreter and floor the toolbox gives it. Methods and attributes are left out.
 
+    The report is read by its layout, whatever `schema_version` it states.
+
     Raises:
         RunError: pyrefly cannot run, or reports in a layout this module does not read.
     """
@@ -166,19 +222,20 @@ def _pyrefly_public(project: Project) -> frozenset[str]:
     except json.JSONDecodeError:
         tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
         raise RunError(f"pyrefly coverage report gave no report: {' / '.join(tail)}") from None
-    if (schema := report.get("schema_version")) not in PYREFLY_SCHEMAS:
-        raise RunError(
-            f"pyrefly's coverage report is schema {schema!r}; the runner reads"
-            f" {', '.join(sorted(PYREFLY_SCHEMAS))}"
-        )
     found: set[str] = set()
-    for module in report["module_reports"]:
-        prefix = f"{module['name']}."
-        found.update(
-            name
-            for name in module["names"]
-            if name.startswith(prefix) and "." not in name.removeprefix(prefix)
-        )
+    try:
+        for module in report["module_reports"]:
+            prefix = f"{module['name']}."
+            found.update(
+                name
+                for name in module["names"]
+                if name.startswith(prefix) and "." not in name.removeprefix(prefix)
+            )
+    except KeyError, TypeError, AttributeError:
+        raise RunError(
+            f"pyrefly's coverage report (schema {report.get('schema_version')!r}) has no"
+            " module_reports of names, the layout the runner reads"
+        ) from None
     return frozenset(found)
 
 
@@ -222,16 +279,58 @@ def spelled(node: ast.expr) -> Iterator[list[str]]:
             yield from spelled(child)
 
 
-def resolve(project: Project, module: str, parts: Sequence[str]) -> Definition | None:
-    """What the dotted name `parts`, spelled in `module`, is defined as; `None` for an attribute of
-    a class or of anything that is not a module.
+def nested(site: Definition, name: str) -> Definition | None:
+    """The class `name` a class body defines, if it defines one."""
+    if not isinstance(site.node, ast.ClassDef):
+        return None
+    for stmt in site.node.body:
+        if isinstance(stmt, ast.ClassDef) and stmt.name == name:
+            return Definition(site.module, f"{site.name}.{name}", site.path, stmt)
+    return None
+
+
+def resolve(
+    project: Project, module: str, parts: Sequence[str], within: Definition | None = None
+) -> Definition | None:
+    """What the dotted name `parts`, spelled in `module`, is defined as: a class nested in a class
+    included, and read in the body of the class `within` first. `None` for any other attribute of a
+    class, or of anything that is not a module.
     """
-    site = definition(project, module, parts[0])
+    site = (nested(within, parts[0]) if within is not None else None) or definition(
+        project, module, parts[0]
+    )
     for attr in parts[1:]:
-        if site is None or site.path is None or site.node is not None:
+        if site is None:
+            return None
+        if isinstance(site.node, ast.ClassDef):
+            site = nested(site, attr)
+            continue
+        if site.path is None or site.node is not None:
             return None
         site = definition(project, site.qualified, attr)
     return site
+
+
+def is_overload(node: ast.stmt) -> bool:
+    return isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and "overload" in bare_names(
+        node.decorator_list
+    )
+
+
+def signatures(project: Project, site: Definition) -> list[ast.stmt]:
+    """The statements a caller sees a definition by: each overload of an overloaded top-level
+    function, otherwise the definition itself.
+    """
+    assert site.node is not None and site.path is not None
+    if not is_overload(site.node) or (tree := project.tree(site.path)) is None:
+        return [site.node]
+    return [
+        node
+        for node in module_level(tree.body)
+        if is_overload(node)
+        and isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        and node.name == site.name
+    ]
 
 
 # --- What a public signature reaches ---
@@ -252,6 +351,19 @@ def internal_constructor(node: ast.ClassDef) -> str | None:
 
 
 @dataclass(frozen=True, slots=True)
+class Member:
+    """One statement a class's public surface is read from."""
+
+    owner: Definition
+    """The class whose body holds the statement."""
+    node: ast.stmt
+    params: frozenset[str]
+    """The type parameters in scope."""
+    label: str
+    """The name the member is reached by: `__init__` for a private field of a generated one."""
+
+
+@dataclass(frozen=True, slots=True)
 class Reach:
     """What a public signature reaches, from the definitions the public modules export."""
 
@@ -260,15 +372,25 @@ class Reach:
     """Each exported definition's qualified name, and the public name it is imported by."""
 
     def spelling(self, site: Definition) -> str:
-        return self.exported.get(site.qualified, site.qualified)
+        outer, inner = site.name, ""
+        while f"{site.module}.{outer}" not in self.exported and "." in outer:
+            outer, _, last = outer.rpartition(".")
+            inner = f".{last}{inner}"
+        public = self.exported.get(f"{site.module}.{outer}")
+        return site.qualified if public is None else f"{public}{inner}"
 
-    def members(self, site: Definition) -> Iterator[tuple[str, ast.stmt, frozenset[str], str]]:
-        """A class's public members, those of its bases in the packages included, each with its
-        module, the type parameters in scope and the name it is reached by; a member a nearer class
-        defines hides a base's. A dataclass's private fields are its generated `__init__`'s.
+    def importable(self, site: Definition) -> bool:
+        """Whether a public module exports the class, or a class it is nested in."""
+        return self.spelling(site) != site.qualified or site.qualified in self.exported
+
+    def members(self, site: Definition) -> Iterator[Member]:
+        """A class's public members, those of its bases in the packages included; a member a nearer
+        class defines hides a base's, and an overloaded method is its overloads. The private fields
+        of the dataclasses its generated `__init__` collects are that `__init__`'s.
         """
         assert isinstance(site.node, ast.ClassDef)
-        seen: set[str] = set()
+        hidden: set[str] = set()
+        generated: bool | None = None
         pending = [site]
         done: set[str] = set()
         while pending:
@@ -277,21 +399,29 @@ class Reach:
                 continue
             done.add(cls.qualified)
             params = type_params(node)
-            generated = generates_init(node) and not any(
-                member_name(stmt) == "__init__" for stmt in node.body
-            )
+            names = {name for stmt in node.body if (name := member_name(stmt)) is not None}
+            if generated is None and "__init__" in names:
+                generated = False
+            elif generated is None and generates_init(node):
+                generated = True
+            overloaded = {
+                stmt.name
+                for stmt in node.body
+                if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef) and is_overload(stmt)
+            }
             for stmt in node.body:
                 name = member_name(stmt)
-                if name is None:
+                if name is None or name in hidden:
+                    continue
+                if name in overloaded and not is_overload(stmt):
                     continue
                 if public_member(name):
-                    if not (isinstance(stmt, ast.AnnAssign) and name in seen):
-                        seen.add(name)
-                        yield cls.module, stmt, params, name
-                elif generated and "__init__" not in seen and init_field(stmt):
-                    yield cls.module, stmt, params, "__init__"
+                    yield Member(cls, stmt, params, name)
+                elif generated and is_dataclass(node) and init_field(stmt):
+                    yield Member(cls, stmt, params, "__init__")
+            hidden |= names
             if generated:
-                seen.add("__init__")
+                hidden.add("__init__")
             for base in node.bases:
                 parts = next(iter(spelled(base)), None)
                 if parts is not None and (found := resolve(self.project, cls.module, parts)):
@@ -299,33 +429,43 @@ class Reach:
                         pending.append(found)
 
     def named(
-        self, module: str, annotation: ast.expr | None, params: frozenset[str]
+        self,
+        module: str,
+        annotation: ast.expr | None,
+        params: frozenset[str],
+        within: Definition | None = None,
     ) -> Iterator[Definition]:
-        """The definitions in the packages `annotation` names, a type alias's value read through."""
-        pending = [] if annotation is None else [(module, annotation, params)]
+        """The definitions in the packages `annotation` names, each type alias's value read through,
+        with the names of the class `within` read first.
+        """
+        pending = [] if annotation is None else [(module, annotation, params, within)]
         aliases: set[str] = set()
         while pending:
-            module, expr, scope = pending.pop()
+            module, expr, scope, owner = pending.pop()
             for parts in spelled(expr):
                 if len(parts) == 1 and parts[0] in scope:
                     continue
-                site = resolve(self.project, module, parts)
+                site = resolve(self.project, module, parts, owner)
                 if site is None or not site.in_packages:
                     continue
                 if isinstance(site.node, ast.ClassDef):
                     yield site
                 elif (value := alias_value(site.node)) is not None:
-                    # An exported alias is a name the caller can write; an unexported one is
-                    # spelled out by the caller, so the classes in its value are what they need.
-                    if site.qualified not in self.exported and site.qualified not in aliases:
+                    if site.qualified not in aliases:
                         aliases.add(site.qualified)
-                        pending.append((site.module, value, frozenset()))
+                        alias_params = (
+                            type_params(site.node)
+                            if isinstance(site.node, ast.TypeAlias)
+                            else frozenset()
+                        )
+                        pending.append((site.module, value, alias_params, None))
 
     def factory_returns(self, cls: Definition, spelled_as: str) -> bool:
         """Whether `spelled_as`, read in the class's module or a public one exporting it, is a
-        public function or method whose return annotation names `cls`, or a public attribute of an
+        public function or method one of whose signatures returns `cls`, or a public attribute of an
         exported class (a property, or an annotated name) whose class's `__call__` returns `cls`:
-        `conn.copy()` where `copy` is an object.
+        `conn.copy()` where `copy` is an object. A class a returned callable takes as a parameter is
+        not returned.
         """
         head, *rest = spelled_as.split(".")
         # Read where the class is defined, then where the reference shows it: a public module
@@ -340,41 +480,35 @@ class Reach:
             rest = []
         if owner is None or not owner.in_packages:
             return False
-        target: ast.stmt | None = owner.node
+        assert owner.node is not None
+        targets: list[ast.stmt] = signatures(self.project, owner)
         if rest:
             if (
                 len(rest) != 1
-                or not isinstance(target, ast.ClassDef)
+                or not isinstance(owner.node, ast.ClassDef)
                 or owner.qualified not in self.exported
                 or not public_member(rest[0])
             ):
                 return False
-            target = next(
-                (
-                    stmt
-                    for _, stmt, _, label in self.members(owner)
-                    if label == rest[0] and isinstance(stmt, ast.stmt)
-                ),
-                None,
-            )
-            if (called := self._called(owner.module, target)) is not None:
-                owner, target = (
-                    called,
-                    next(
-                        (stmt for _, stmt, _, label in self.members(called) if label == "__call__"),
-                        None,
-                    ),
-                )
+            found = [m.node for m in self.members(owner) if m.label == rest[0]]
+            if found and (called := self._called(owner.module, found[0])) is not None:
+                owner = called
+                found = [m.node for m in self.members(called) if m.label == "__call__"]
+            targets = found
         elif owner.qualified not in self.exported:
             return False
-        if not isinstance(target, ast.FunctionDef | ast.AsyncFunctionDef):
+        return any(self._returns(owner, target, cls) for target in targets)
+
+    def _returns(self, owner: Definition, target: ast.stmt, cls: Definition) -> bool:
+        if not isinstance(target, ast.FunctionDef | ast.AsyncFunctionDef) or target.returns is None:
             return False
-        returns = next(iter(spelled(target.returns)), None) if target.returns is not None else None
+        returns = next(iter(spelled(target.returns)), None)
         if owner.qualified == cls.qualified and returns is not None and returns[-1] == "Self":
             return True
+        produced = _Produced().visit(copy.deepcopy(target.returns))
         return any(
             site.qualified == cls.qualified
-            for site in self.named(owner.module, target.returns, frozenset())
+            for site in self.named(owner.module, produced, frozenset(), owner)
         )
 
     def _called(self, module: str, member: ast.stmt | None) -> Definition | None:
@@ -405,7 +539,24 @@ class Reach:
         )
 
 
-def type_params(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> frozenset[str]:
+class _Produced(ast.NodeTransformer):
+    """`Callable[[...], R]` read as `R`: what calling the annotated value hands out."""
+
+    def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
+        parts = dotted_name(node.value)
+        if (
+            parts is not None
+            and parts[-1] == "Callable"
+            and isinstance(node.slice, ast.Tuple)
+            and len(node.slice.elts) == 2
+        ):
+            return self.visit(node.slice.elts[1])
+        return self.generic_visit(node)
+
+
+def type_params(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef | ast.TypeAlias,
+) -> frozenset[str]:
     return frozenset(
         p.name
         for p in node.type_params
@@ -415,6 +566,11 @@ def type_params(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> 
 
 # The decorators that generate `__init__` from the annotated fields of a class body.
 DATACLASSES = frozenset({"dataclass", "refclass", "valueclass"})
+
+
+def is_dataclass(node: ast.ClassDef) -> bool:
+    """Whether a dataclass decorator collects the class's fields, `init=False` or not."""
+    return bool(bare_names(node.decorator_list) & DATACLASSES)
 
 
 def generates_init(node: ast.ClassDef) -> bool:
@@ -436,7 +592,7 @@ def init_field(node: ast.stmt) -> bool:
     """Whether a class-body statement is a dataclass field its generated `__init__` takes."""
     if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
         return False
-    if (kind := dotted_name(node.annotation)) is not None and kind[-1] == "ClassVar":
+    if (kind := dotted_name(node.annotation)) is not None and kind[-1] in ("ClassVar", "KW_ONLY"):
         return False
     value = node.value
     return not (
@@ -450,20 +606,48 @@ def init_field(node: ast.stmt) -> bool:
 
 
 def member_name(node: ast.stmt) -> str | None:
-    """The name a method or an annotated attribute of a class body binds."""
+    """The name a method, an annotated attribute or a plain assignment of a class body binds; a
+    plain assignment to a dunder (`__slots__`, `__match_args__`) is the class's machinery.
+    """
     if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
         return node.name
     if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
         return node.target.id
+    if (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(target := node.targets[0], ast.Name)
+        and not (target.id.startswith("__") and target.id.endswith("__"))
+    ):
+        return target.id
     return None
 
 
+def _type_expression(node: ast.expr) -> bool:
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return all(
+            (isinstance(side, ast.Constant) and side.value is None) or _type_expression(side)
+            for side in (node.left, node.right)
+        )
+    return isinstance(node, ast.Name | ast.Attribute | ast.Subscript)
+
+
 def alias_value(node: ast.stmt | None) -> ast.expr | None:
+    """The value a type alias names: a `type` statement's, a `TypeAlias`-annotated name's, or a
+    plain assignment's whose value is a type expression (`Handler = Callable[[Event], None]`).
+    """
     if isinstance(node, ast.TypeAlias):
         return node.value
     if isinstance(node, ast.AnnAssign) and node.value is not None:
         spelled_as = dotted_name(node.annotation)
         return node.value if spelled_as is not None and spelled_as[-1] == "TypeAlias" else None
+    if (
+        isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and _type_expression(node.value)
+    ):
+        return node.value
     return None
 
 
@@ -472,13 +656,17 @@ def dotted_name(node: ast.expr) -> list[str] | None:
 
 
 def annotations_of(node: ast.stmt) -> Iterator[ast.expr | None]:
-    """The annotations of a function's parameters and return, or of an annotated name, and the
-    bounds and constraints of a class's or a function's type parameters.
+    """The annotations of a function's parameters and return, or of an annotated name, the value of
+    a type alias, and the bounds and constraints of a class's, a function's or an alias's type
+    parameters.
     """
-    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef | ast.TypeAlias):
         for param in node.type_params:
             if isinstance(param, ast.TypeVar):
                 yield param.bound
+    if (value := alias_value(node)) is not None:
+        yield value
+        return
     if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
         arguments = node.args
         for arg in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]:
