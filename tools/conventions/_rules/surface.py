@@ -200,14 +200,16 @@ def reached_classes(project: Project) -> Iterator[Finding]:
     of every class reported here.
 
     CON417: A class whose docstring says "its constructor is internal" names, in that paragraph, a
-    public factory that returns it.
+    public factory that returns it, or a public attribute that holds it.
 
     Reason: users get such a class from the factory, so its constructor's parameters are not part of
     the API; CON416 and the API diff skip them. The factory is what makes the sentence true.
 
     Fix: write `` `connect()` `` (or `` `Pool.lease()` ``) in the sentence: a function a public
-    module exports, or a public method of an exported class, that returns the class. With no such
-    factory, export the classes the constructor names instead.
+    module exports, or a public method of an exported class, that returns the class. A class users
+    only read off another names that attribute without a call, `` `Match.target` ``: a property or
+    an annotated attribute of an exported class whose type names the class. With neither, export the
+    classes the constructor names instead.
     """
     exported = {
         site.qualified: f"{e.module}.{e.name}"
@@ -227,7 +229,8 @@ def reached_classes(project: Project) -> Iterator[Finding]:
         if isinstance(site.node, ast.ClassDef):
             mark = internal_constructor(site.node)
             if mark is not None and not any(
-                reach.factory_returns(site, f) for f in FACTORY.findall(mark)
+                reach.factory_returns(site, name, bool(call))
+                for name, call in FACTORY.findall(mark)
             ):
                 yield Finding(
                     project.relative(site.path),

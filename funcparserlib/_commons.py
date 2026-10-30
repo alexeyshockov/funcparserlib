@@ -126,14 +126,15 @@ def adopt_exceptions(module: str, names: Iterable[str], namespace: Mapping[str, 
     """Give `module`'s name to each exception among `names` that a private module below it defines.
 
     Sets the class's `__module__`, which a traceback, a class repr and a pickle read. A public
-    module calls it as its last statement: `adopt_exceptions(__name__, __all__, globals())`.
+    module calls it as its last statement: `adopt_exceptions(__name__, __all__, globals())`. A name
+    the namespace does not bind, one a module-level `__getattr__` serves, is left as it is.
 
     Raises:
         NameError: an adopted class's annotation names what its module does not bind at runtime.
     """
     prefix = f"{module}."
     for name in names:
-        exported = namespace[name]
+        exported = namespace.get(name)
         if not (isinstance(exported, type) and issubclass(exported, BaseException)):
             continue
         below = exported.__module__.removeprefix(prefix)

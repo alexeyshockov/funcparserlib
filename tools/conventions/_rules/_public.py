@@ -337,7 +337,8 @@ def signatures(project: Project, site: Definition) -> list[ast.stmt]:
 
 # The sentence a class's docstring carries when users get it from a factory, never by calling it.
 INTERNAL_CONSTRUCTOR = "its constructor is internal"
-FACTORY = re.compile(r"`([A-Za-z_][\w.]*)\(\)`")
+# A factory is spelled with its call, `connect()`; an accessor without, `Match.target`.
+FACTORY = re.compile(r"`([A-Za-z_][\w.]*)(\(\))?`")
 
 
 def public_member(name: str) -> bool:
@@ -460,12 +461,13 @@ class Reach:
                         )
                         pending.append((site.module, value, alias_params, None))
 
-    def factory_returns(self, cls: Definition, spelled_as: str) -> bool:
+    def factory_returns(self, cls: Definition, spelled_as: str, called: bool = True) -> bool:
         """Whether `spelled_as`, read in the class's module or a public one exporting it, is a
         public function or method one of whose signatures returns `cls`, or a public attribute of an
         exported class (a property, or an annotated name) whose class's `__call__` returns `cls`:
         `conn.copy()` where `copy` is an object. A class a returned callable takes as a parameter is
-        not returned.
+        not returned. Not `called`, it is a public attribute of an exported class whose value is
+        `cls`: `Match.target`.
         """
         head, *rest = spelled_as.split(".")
         # Read where the class is defined, then where the reference shows it: a public module
@@ -491,11 +493,13 @@ class Reach:
             ):
                 return False
             found = [m.node for m in self.members(owner) if m.label == rest[0]]
-            if found and (called := self._called(owner.module, found[0])) is not None:
-                owner = called
-                found = [m.node for m in self.members(called) if m.label == "__call__"]
+            if not called:
+                return bool(found) and self._holds(owner, found[0], cls)
+            if found and (callee := self._called(owner.module, found[0])) is not None:
+                owner = callee
+                found = [m.node for m in self.members(callee) if m.label == "__call__"]
             targets = found
-        elif owner.qualified not in self.exported:
+        elif owner.qualified not in self.exported or not called:
             return False
         return any(self._returns(owner, target, cls) for target in targets)
 
@@ -511,17 +515,22 @@ class Reach:
             for site in self.named(owner.module, produced, frozenset(), owner)
         )
 
+    def _holds(self, owner: Definition, member: ast.stmt, cls: Definition) -> bool:
+        """Whether a property or an annotated attribute holds `cls`, in a union or an alias
+        included.
+        """
+        annotation = _attribute_annotation(member)
+        if annotation is None:
+            return False
+        produced = _Produced().visit(copy.deepcopy(annotation))
+        return any(
+            site.qualified == cls.qualified
+            for site in self.named(owner.module, produced, frozenset(), owner)
+        )
+
     def _called(self, module: str, member: ast.stmt | None) -> Definition | None:
         """The class of a property or an annotated attribute, when it is one in the packages."""
-        if isinstance(member, ast.AnnAssign):
-            annotation: ast.expr | None = member.annotation
-        elif isinstance(member, ast.FunctionDef) and bare_names(member.decorator_list) & {
-            "property",
-            "cached_property",
-        }:
-            annotation = member.returns
-        else:
-            return None
+        annotation = _attribute_annotation(member)
         parts = next(iter(spelled(annotation)), None) if annotation is not None else None
         site = resolve(self.project, module, parts) if parts is not None else None
         if site is None or not isinstance(site.node, ast.ClassDef):
@@ -537,6 +546,18 @@ class Reach:
                 if e.definition is not None
             },
         )
+
+
+def _attribute_annotation(member: ast.stmt | None) -> ast.expr | None:
+    """The annotation of an annotated attribute, or the return of a property."""
+    if isinstance(member, ast.AnnAssign):
+        return member.annotation
+    if isinstance(member, ast.FunctionDef) and bare_names(member.decorator_list) & {
+        "property",
+        "cached_property",
+    }:
+        return member.returns
+    return None
 
 
 class _Produced(ast.NodeTransformer):

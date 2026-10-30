@@ -145,7 +145,9 @@ next to its config.
   classes it names and need not be exported itself; a private base class is not a signature. A
   class users only get from a factory says so in its docstring, naming the factory: "Users get it
   from `connect()`; its constructor is internal." Its constructor's parameters are then not API,
-  and the factory is a public function or method that returns the class (CON417).
+  and the factory is a public function or method that returns the class, or, for a class users
+  only read off another, a public attribute that holds it, named without a call: "Users get it
+  from `Match.target`" (CON417).
 - **An exception carries the name it is imported by.** A public module that exports an exception
   defined in a private module below it ends with `adopt_exceptions(__name__, __all__, globals())`
   from `_commons`, so a traceback, a class repr and a pickle name the public module (CON408). Other
