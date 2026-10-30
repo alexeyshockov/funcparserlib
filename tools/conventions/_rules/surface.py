@@ -93,8 +93,8 @@ def declared_surface(project: Project) -> Iterator[Finding]:
 
     Reason: every rule that asks what a module exports reads `__all__` from source, without
     importing the package, and so does pyrefly's public-API report. A name added by `+=`,
-    `.extend()` or a computed value is missed by one reader or both, silently: pyrefly drops the
-    whole list of a module whose `__all__` it cannot evaluate.
+    `.extend()` or a computed value is missed by one reader or both, silently: pyrefly counts every
+    plain name of a module whose `__all__` it cannot evaluate, and no imported one.
 
     Fix: list every exported name in the one `__all__ = [...]`.
 
@@ -212,7 +212,7 @@ def reached_classes(project: Project) -> Iterator[Finding]:
                     f"{reach.spelling(site)} says {INTERNAL_CONSTRUCTOR!r}, and its docstring"
                     " names no public factory returning it",
                 )
-            members = list(reach.members(site))
+            members = [(site.module, site.node, type_params(site.node), ""), *reach.members(site)]
         else:
             members = [(site.module, site.node, frozenset(), "")]
         owner = reach.spelling(site)

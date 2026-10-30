@@ -322,11 +322,19 @@ class Reach:
                         pending.append((site.module, value, frozenset()))
 
     def factory_returns(self, cls: Definition, spelled_as: str) -> bool:
-        """Whether `spelled_as`, read in the class's module, is a public function or method whose
-        return annotation names `cls`.
+        """Whether `spelled_as`, read in the class's module or a public one exporting it, is a
+        public function or method whose return annotation names `cls`, or a public attribute of an
+        exported class (a property, or an annotated name) whose class's `__call__` returns `cls`:
+        `conn.copy()` where `copy` is an object.
         """
         head, *rest = spelled_as.split(".")
-        owner = resolve(self.project, cls.module, [head])
+        # Read where the class is defined, then where the reference shows it: a public module
+        # exporting it, beside the factory.
+        homes = [cls.module, *(e.module for e in exports(self.project) if e.definition == cls)]
+        owner = next(
+            (site for home in homes if (site := resolve(self.project, home, [head])) is not None),
+            None,
+        )
         if owner is None and spelled_as in self._public_paths():
             owner = self._public_paths()[spelled_as]
             rest = []
@@ -343,12 +351,20 @@ class Reach:
                 return False
             target = next(
                 (
-                    s
-                    for s in target.body
-                    if isinstance(s, ast.FunctionDef | ast.AsyncFunctionDef) and s.name == rest[0]
+                    stmt
+                    for _, stmt, _, label in self.members(owner)
+                    if label == rest[0] and isinstance(stmt, ast.stmt)
                 ),
                 None,
             )
+            if (called := self._called(owner.module, target)) is not None:
+                owner, target = (
+                    called,
+                    next(
+                        (stmt for _, stmt, _, label in self.members(called) if label == "__call__"),
+                        None,
+                    ),
+                )
         elif owner.qualified not in self.exported:
             return False
         if not isinstance(target, ast.FunctionDef | ast.AsyncFunctionDef):
@@ -360,6 +376,23 @@ class Reach:
             site.qualified == cls.qualified
             for site in self.named(owner.module, target.returns, frozenset())
         )
+
+    def _called(self, module: str, member: ast.stmt | None) -> Definition | None:
+        """The class of a property or an annotated attribute, when it is one in the packages."""
+        if isinstance(member, ast.AnnAssign):
+            annotation: ast.expr | None = member.annotation
+        elif isinstance(member, ast.FunctionDef) and bare_names(member.decorator_list) & {
+            "property",
+            "cached_property",
+        }:
+            annotation = member.returns
+        else:
+            return None
+        parts = next(iter(spelled(annotation)), None) if annotation is not None else None
+        site = resolve(self.project, module, parts) if parts is not None else None
+        if site is None or not isinstance(site.node, ast.ClassDef):
+            return None
+        return site
 
     def _public_paths(self) -> Mapping[str, Definition]:
         return self.project.memo(
@@ -439,7 +472,13 @@ def dotted_name(node: ast.expr) -> list[str] | None:
 
 
 def annotations_of(node: ast.stmt) -> Iterator[ast.expr | None]:
-    """The annotations of a function's parameters and return, or of an annotated name."""
+    """The annotations of a function's parameters and return, or of an annotated name, and the
+    bounds and constraints of a class's or a function's type parameters.
+    """
+    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+        for param in node.type_params:
+            if isinstance(param, ast.TypeVar):
+                yield param.bound
     if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
         arguments = node.args
         for arg in [*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs]:
