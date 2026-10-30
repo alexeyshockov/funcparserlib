@@ -12,7 +12,8 @@ import griffe
 
 from .._engine import Finding, rule
 from .._project import Project, RunError
-from ._ast import bare_names, exported_by, resolved
+from ._ast import bare_names
+from ._public import definition, exports
 
 # A class deriving from one of these is an exception by kind, and open without saying so.
 # Resolved by name rather than `issubclass`, since nothing here imports the package.
@@ -30,25 +31,13 @@ REASON_FLOOR = 80
 
 
 def class_definition(
-    project: Project, module: str, name: str, seen: frozenset[str] = frozenset()
+    project: Project, module: str, name: str
 ) -> tuple[str, Path, ast.ClassDef] | None:
     """Where `name`, exported by `module`, is defined as a class, through any re-exports."""
-    path = project.module_path(module)
-    if path is None or module in seen or (tree := project.tree(path)) is None:
+    site = definition(project, module, name)
+    if site is None or site.path is None or not isinstance(site.node, ast.ClassDef):
         return None
-    for node in tree.body:
-        if isinstance(node, ast.ClassDef) and node.name == name:
-            return module, path, node
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        for alias in node.names:
-            if (alias.asname or alias.name) != name:
-                continue
-            target = resolved(module, path.name == "__init__.py", node)
-            if target != module and project.module_path(target) is not None:
-                return class_definition(project, target, alias.name, seen | {module})
-    return None
+    return site.module, site.path, site.node
 
 
 def exported_classes(project: Project) -> Mapping[str, tuple[Path, ast.ClassDef]]:
@@ -58,13 +47,10 @@ def exported_classes(project: Project) -> Mapping[str, tuple[Path, ast.ClassDef]
 
 def _exported_classes(project: Project) -> Mapping[str, tuple[Path, ast.ClassDef]]:
     found: dict[str, tuple[Path, ast.ClassDef]] = {}
-    for module in project.modules:
-        if not module.public or (tree := project.tree(module.path)) is None:
-            continue
-        for name in sorted(exported_by(tree)):
-            if (hit := class_definition(project, module.name, name)) is not None:
-                defined_in, path, node = hit
-                found[f"{defined_in}.{node.name}"] = (path, node)
+    for export in exports(project):
+        site = export.definition
+        if site is not None and site.path is not None and isinstance(site.node, ast.ClassDef):
+            found[site.qualified] = (site.path, site.node)
     return found
 
 

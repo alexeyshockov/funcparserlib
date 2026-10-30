@@ -1,0 +1,12 @@
+<!-- Generated; propose changes in an issue rather than editing this file.
+     A member of an exported class without an underscore is API, so one only the package uses has
+     one, and other modules of the package use it (CONVENTIONS.md, Source). PyCharm reads `obj._x`
+     as the class's alone: the inspection runs where code is written as users write it. -->
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyProtectedMemberInspection" enabled="true" level="WEAK WARNING" enabled_by_default="false">
+      <scope name="Tests and examples" level="WEAK WARNING" enabled="true" />
+    </inspection_tool>
+  </profile>
+</component>

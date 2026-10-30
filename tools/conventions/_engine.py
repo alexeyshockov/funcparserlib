@@ -25,6 +25,8 @@ class Rule:
     code: str
     check: Check | None
     doc: str
+    warning: bool = False
+    """A warning is printed and never fails the run: two readings that may differ by design."""
 
     @property
     def summary(self) -> str:
@@ -61,11 +63,12 @@ def fixer(*codes: str) -> Callable[[Fix], Fix]:
     return register
 
 
-def rule(*codes: str) -> Callable[[Check], Check]:
+def rule(*codes: str, warning: bool = False) -> Callable[[Check], Check]:
     """Register a check under the codes it reports; the first code holds the check.
 
     A check reporting several codes is registered once, under its first, and each other code gets
-    its own documentation from the matching `code:` paragraph of the docstring.
+    its own documentation from the matching `code:` paragraph of the docstring. A `warning` check's
+    findings are printed, and leave the exit status as the other findings set it.
     """
 
     def register(check: Check) -> Check:
@@ -73,7 +76,7 @@ def rule(*codes: str) -> Callable[[Check], Check]:
         for index, code in enumerate(codes):
             if code in RULES:
                 raise ValueError(f"{code} is registered twice")
-            RULES[code] = Rule(code, check if index == 0 else None, docs[code])
+            RULES[code] = Rule(code, check if index == 0 else None, docs[code], warning)
         return check
 
     return register
@@ -177,3 +180,7 @@ def run(project: Project) -> list[Finding]:
             elif code not in fired[path, line]:
                 kept.append(Finding(path, line, STALE, f"{code} does not fire on this line"))
     return sorted(kept, key=lambda f: (f.path, f.line or 0, f.code, f.message))
+
+
+def is_warning(finding: Finding) -> bool:
+    return (rule := RULES.get(finding.code)) is not None and rule.warning

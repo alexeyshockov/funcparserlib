@@ -132,7 +132,19 @@ next to its config.
   exports. Package: what other modules of the package use, with no underscore. Module: everything
   else, with a leading underscore, so the call site says the name is this file's alone. `__all__`
   appears in public modules only, and in one every name is exported or underscored; a helper other
-  modules need lives in a private module.
+  modules need lives in a private module. It is one literal list (CON409), read from source by the
+  runner and by pyrefly's public-API report, and the two count the same definitions (CON415).
+- **A member has two levels.** On an exported class a member without an underscore is API, and one
+  with an underscore is not: any module of the package may use it. Nothing marks a member as its
+  class's alone, so no check that reads `obj._x` that way runs over the package: ruff's SLF rules
+  are not selected, and the shared PyCharm profile (`.idea/`) runs its protected-member inspection
+  on tests, examples and benchmarks only.
+- **A class a public signature hands out is exported** (CON416): a caller annotates with the type
+  of what it is handed or has to pass. A type alias is read through to the classes it names and
+  need not be exported itself; a private base class is not a signature. A class users only get
+  from a factory says so in its docstring, naming the factory: "Users get it from `connect()`;
+  its constructor is internal." Its constructor's parameters are then not API, and the factory
+  is a public function or method whose return annotation names the class (CON417).
 - **An exception carries the name it is imported by.** A public module that exports an exception
   defined in a private module below it ends with `adopt_exceptions(__name__, __all__, globals())`
   from `_commons`, so a traceback, a class repr and a pickle name the public module (CON408). Other
@@ -337,7 +349,9 @@ lives in `tools/`; the rules for writing pages are this section.
       body's compression. Not an engine.
 
 The conventions runner's CON9xx holds the site to itself: highlights, includes, links, snippets
-and the glossary.
+and the glossary. One is a warning, printed and never failing the run: CON917, where the API
+reference renders a top-level name the module's `__all__` does not export, or leaves out one it
+does. The reference may differ on purpose; read it and decide.
 
 Verification: `just tools::conventions`, then `just docs-build`, which clears Zensical's
 cache before building so generated API reference pages reflect current source. `just docs-hl-fix`
@@ -444,8 +458,10 @@ attestations, so no API token is stored anywhere. A release commits nothing to `
    just release-check
    ```
 
-   It prints the current type-completeness score and griffe's breaking-change report against the
-   latest stable tag (no pre-release suffix). Both are informational; read them and decide.
+   It prints the current type-completeness score and what a caller of the public API at the latest
+   stable tag (no pre-release suffix) meets now: each removal and each changed parameter, return or
+   annotation, read from the same surface the conventions rules check. Both are informational; read
+   them and decide.
 
 2. Land the CHANGELOG, if the project has one: rename the unreleased section to `## [X.Y.Z]`,
    dated, and finalise the entries. Everything the release ships is settled in the tree before it

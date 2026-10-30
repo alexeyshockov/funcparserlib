@@ -18,6 +18,7 @@ import griffe
 
 from .._engine import Finding, Fixes, fixer, rule
 from .._project import Project, RunError
+from ._public import Export, exports
 
 # A snippet marker line, e.g. `# --8<-- [start:task1]`; pymdownx strips the whole line, whatever
 # its indent and comment character.
@@ -550,11 +551,78 @@ def reference_docstrings(project: Project) -> Iterator[Finding]:
     (griffe-inherited-docstrings) counts. A name re-exported from a package no block names is not
     followed.
     """
-    if not _site(project):
+    if (reference := _reference(project)) is None:
         return
+    seen: set[str] = set()
+    filters = reference.filters
+
+    def check(obj: griffe.Object, shown: str) -> Iterator[Finding]:
+        if obj.path in seen:
+            return
+        seen.add(obj.path)
+        if not obj.docstring and obj.filepath is not None and not isinstance(obj.filepath, list):
+            path = project.relative(obj.filepath)
+            yield Finding(path, obj.lineno, "CON916", f"{shown} has no docstring")
+
+    def members(cls: griffe.Class, shown: str) -> Iterator[Finding]:
+        yield from check(cls, shown)
+        for name, member in cls.members.items():
+            if isinstance(member, griffe.Alias) or not _kept(name, filters):
+                continue
+            if isinstance(member, griffe.Class):
+                yield from members(member, f"{shown}.{name}")
+            elif member.is_function or (member.is_attribute and "property" in member.labels):
+                yield from check(member, f"{shown}.{name}")
+
+    for shown, obj in reference.shown():
+        if isinstance(obj, griffe.Class):
+            yield from members(obj, shown)
+        elif obj.is_function:
+            yield from check(obj, shown)
+
+
+@dataclass(frozen=True, slots=True)
+class _Reference:
+    """The API reference as griffe loads it for the docs build: the `:::` targets, read with
+    `zensical.toml`'s python handler paths, filters and extensions.
+    """
+
+    loader: griffe.GriffeLoader
+    targets: Sequence[str]
+    filters: Sequence[tuple[re.Pattern[str], bool]]
+
+    def shown(self) -> Iterator[tuple[str, griffe.Object]]:
+        """Each top-level object a target renders, by the path the page shows it under."""
+        for target in self.targets:
+            try:
+                module = self.loader.modules_collection[target]
+            except KeyError:
+                raise RunError(
+                    f"griffe finds no module {target}, which a `:::` block names"
+                ) from None
+            for name, member in module.members.items():
+                # Exports first: asking an import what it is resolves it; `__future__` does not.
+                if (module.exports is not None or member.is_alias) and not member.is_exported:
+                    continue
+                if not _kept(name, self.filters):
+                    continue
+                try:
+                    yield f"{target}.{name}", member.final_target if member.is_alias else member
+                except griffe.AliasResolutionError:
+                    continue
+
+
+def _reference(project: Project) -> _Reference | None:
+    """The API reference griffe renders; `None` without a site or a `:::` block."""
+    return project.memo("reference", lambda: _load_reference(project))
+
+
+def _load_reference(project: Project) -> _Reference | None:
+    if not _site(project):
+        return None
     targets = _reference_targets(project)
     if not targets:
-        return
+        return None
     handler = _python_handler(project)
     options = handler.get("options", {})
     assert isinstance(options, dict)
@@ -576,45 +644,49 @@ def reference_docstrings(project: Project) -> Iterator[Finding]:
         loader.resolve_aliases(implicit=False, external=False)
     except (ImportError, griffe.GriffeError) as e:
         raise RunError(f"griffe cannot read the API reference's targets: {e}") from None
-    seen: set[str] = set()
+    return _Reference(loader, list(dict.fromkeys(targets)), filters)
 
-    def check(obj: griffe.Object, shown: str) -> Iterator[Finding]:
-        if obj.path in seen:
-            return
-        seen.add(obj.path)
-        if not obj.docstring and obj.filepath is not None and not isinstance(obj.filepath, list):
-            path = project.relative(obj.filepath)
-            yield Finding(path, obj.lineno, "CON916", f"{shown} has no docstring")
 
-    def members(cls: griffe.Class, shown: str) -> Iterator[Finding]:
-        yield from check(cls, shown)
-        for name, member in cls.members.items():
-            if isinstance(member, griffe.Alias) or not _kept(name, filters):
-                continue
-            if isinstance(member, griffe.Class):
-                yield from members(member, f"{shown}.{name}")
-            elif member.is_function or (member.is_attribute and "property" in member.labels):
-                yield from check(member, f"{shown}.{name}")
+@rule("CON917", warning=True)
+def reference_surface(project: Project) -> Iterator[Finding]:
+    """The API reference renders what the public modules export, and nothing else.
 
-    for target in targets:
-        try:
-            module = loader.modules_collection[target]
-        except KeyError:
-            raise RunError(f"griffe finds no module {target}, which a `:::` block names") from None
-        for name, member in module.members.items():
-            # Exports first: asking an import what it is resolves it; `__future__` does not resolve.
-            if (module.exports is not None or member.is_alias) and not member.is_exported:
-                continue
-            if not _kept(name, filters):
-                continue
-            try:
-                obj = member.final_target if member.is_alias else member
-            except griffe.AliasResolutionError:
-                continue
-            if isinstance(obj, griffe.Class):
-                yield from members(obj, f"{target}.{name}")
-            elif obj.is_function:
-                yield from check(obj, f"{target}.{name}")
+    Reason: the reference is griffe's reading of the package and the surface is the runner's and
+    pyrefly's; a name only one of them has is a page a caller cannot find, or one documenting an
+    import that fails. The reference may leave a name out on purpose, so this is a warning.
+
+    Fix: add the `:::` block or the filter that renders the name, or export what the page shows.
+
+    Scope: the top-level names each block naming a public module renders, against the names its
+    `__all__` exports. A name defined outside the packages is the docs build's to render or not.
+    """
+    if (reference := _reference(project)) is None:
+        return
+    public = {module.name for module in project.modules if module.public}
+    targets = public.intersection(reference.targets)
+    exported: dict[str, Export] = {
+        f"{e.module}.{e.name}": e
+        for e in exports(project)
+        if e.module in targets and (e.definition is None or e.definition.path is not None)
+    }
+    shown = {path for path, _ in reference.shown() if path.rpartition(".")[0] in targets}
+    for path, export in sorted(exported.items()):
+        if path not in shown and _kept(export.name, reference.filters):
+            yield Finding(
+                project.relative(export.path),
+                export.line,
+                "CON917",
+                f"{path} is exported, and the API reference does not render it",
+            )
+    for path in sorted(shown - exported.keys()):
+        module = path.rpartition(".")[0]
+        file = project.module_path(module)
+        yield Finding(
+            project.relative(file) if file is not None else module,
+            None,
+            "CON917",
+            f"the API reference renders {path}, which {module}'s __all__ does not export",
+        )
 
 
 # --- Links ---

@@ -12,6 +12,19 @@ from pathlib import Path
 from .._engine import Finding, Fixes, fixer, rule
 from .._project import Project
 from ._ast import all_value, exported_by, resolved
+from ._public import (
+    FACTORY,
+    INTERNAL_CONSTRUCTOR,
+    Export,
+    Reach,
+    annotations_of,
+    definition,
+    exports,
+    internal_constructor,
+    module_level,
+    pyrefly_public,
+    type_params,
+)
 from .names import source_roots
 from .sealing import class_definition, exception_classes
 
@@ -50,6 +63,186 @@ def surface(project: Project) -> Iterator[Finding]:
             )
         elif module.public and tree.body and value is None:
             yield Finding(relative, 1, "CON400", f"{module.name} is public and declares no __all__")
+
+
+def _all_changes(tree: ast.Module) -> Iterator[ast.stmt]:
+    """The module-level statements that bind or change `__all__`."""
+    for node in module_level(tree.body):
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, "id", None) == "__all__" for t in node.targets
+        ):
+            yield node
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign) and (
+            getattr(node.target, "id", None) == "__all__"
+        ):
+            yield node
+        elif (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(func := node.value.func, ast.Attribute)
+            and getattr(func.value, "id", None) == "__all__"
+        ):
+            yield node
+
+
+@rule("CON409", "CON415")
+def declared_surface(project: Project) -> Iterator[Finding]:
+    """A public module's `__all__` is read from its source, and pyrefly reads the same surface.
+
+    CON409: A public module binds `__all__` once, to a literal list or tuple of strings.
+
+    Reason: every rule that asks what a module exports reads `__all__` from source, without
+    importing the package, and so does pyrefly's public-API report. A name added by `+=`,
+    `.extend()` or a computed value is missed by one reader or both, silently: pyrefly drops the
+    whole list of a module whose `__all__` it cannot evaluate.
+
+    Fix: list every exported name in the one `__all__ = [...]`.
+
+    CON415: Every definition a public module exports is one pyrefly counts as public, and the other
+    way round.
+
+    Reason: `just type-coverage` gates the public API on pyrefly's list of it, and every other rule
+    on the names `__all__` exports, resolved to their definitions. A definition only one of them
+    counts is checked by half the gates.
+
+    Fix: read which side is right. A name re-exported in a way one reader does not follow (a star
+    import, an import inside a function) is spelled as a plain `from ... import`; a reader that is
+    wrong goes to the backlog with the case that shows it.
+
+    Scope: definitions in the project's packages. A re-exported submodule, and a name defined
+    outside the packages, are not definitions pyrefly lists.
+    """
+    for module in project.modules:
+        if not module.public or (tree := project.tree(module.path)) is None:
+            continue
+        changes = list(_all_changes(tree))
+        literal = (
+            len(changes) == 1
+            and isinstance(changes[0], ast.Assign | ast.AnnAssign)
+            and isinstance(value := changes[0].value, ast.List | ast.Tuple)
+            and all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in value.elts)
+        )
+        if changes and not literal:
+            yield Finding(
+                project.relative(module.path),
+                changes[-1].lineno,
+                "CON409",
+                f"{module.name} builds __all__ instead of listing it once, literally",
+            )
+    exported: dict[str, Export] = {}
+    for export in exports(project):
+        if export.definition is not None and export.definition.in_packages:
+            exported.setdefault(export.definition.qualified, export)
+    counted = pyrefly_public(project)
+    for qualified, export in sorted(exported.items()):
+        if qualified not in counted:
+            yield Finding(
+                project.relative(export.path),
+                export.line,
+                "CON415",
+                f"{export.module} exports {export.name}, defined as {qualified}, which pyrefly"
+                " does not count as public",
+            )
+    for qualified in sorted(counted - exported.keys()):
+        module, _, name = qualified.rpartition(".")
+        path = project.module_path(module)
+        site = definition(project, module, name) if path is not None else None
+        yield Finding(
+            project.relative(path) if path is not None else module,
+            site.node.lineno if site is not None and site.node is not None else None,
+            "CON415",
+            f"pyrefly counts {qualified} as public, and no public module's __all__ exports it",
+        )
+
+
+# --- The classes a public signature hands out ---
+
+
+@rule("CON416", "CON417")
+def reached_classes(project: Project) -> Iterator[Finding]:
+    """A class a public signature hands out is one a caller can import.
+
+    CON416: Every class a public signature names is exported by a public module.
+
+    Reason: a caller who is handed a value, or has to pass one, annotates with its type. A class
+    only a private module defines is one the caller cannot name without a private import, and one
+    the API reference and the API diff do not show.
+
+    Fix: export the class from the public module whose API hands it out. A constructor users never
+    call says so instead (CON417). A type alias is read through, so the classes its value names
+    count; the alias itself need not be exported. A private base class is not a signature.
+
+    Scope: the parameters and returns of every exported function, and of every public method of an
+    exported class, its bases' in the packages included; the annotations of their public attributes;
+    and, in turn, those of every class reported here.
+
+    CON417: A class whose docstring says "its constructor is internal" names, in that paragraph, a
+    public factory that returns it.
+
+    Reason: users get such a class from the factory, so its constructor's parameters are not part of
+    the API; CON416 and the API diff skip them. The factory is what makes the sentence true.
+
+    Fix: write `` `connect()` `` (or `` `Pool.lease()` ``) in the sentence: a function a public
+    module exports, or a public method of an exported class, whose return annotation names the
+    class. With no such factory, export the classes the constructor names instead.
+    """
+    exported = {
+        site.qualified: f"{e.module}.{e.name}"
+        for e in reversed(exports(project))
+        if (site := e.definition) is not None and site.in_packages
+    }
+    reach = Reach(project, exported)
+    pending = [e.definition for e in exports(project) if e.definition and e.definition.in_packages]
+    visited: set[str] = set()
+    reported: set[tuple[str, int, str]] = set()
+    while pending:
+        site = pending.pop(0)
+        if site.qualified in visited or site.path is None or site.node is None:
+            continue
+        visited.add(site.qualified)
+        if isinstance(site.node, ast.ClassDef):
+            mark = internal_constructor(site.node)
+            if mark is not None and not any(
+                reach.factory_returns(site, f) for f in FACTORY.findall(mark)
+            ):
+                yield Finding(
+                    project.relative(site.path),
+                    site.node.lineno,
+                    "CON417",
+                    f"{reach.spelling(site)} says {INTERNAL_CONSTRUCTOR!r}, and its docstring"
+                    " names no public factory returning it",
+                )
+            members = list(reach.members(site))
+        else:
+            members = [(site.module, site.node, frozenset(), "")]
+        owner = reach.spelling(site)
+        for module, member, params, label in members:
+            if (
+                isinstance(site.node, ast.ClassDef)
+                and internal_constructor(site.node) is not None
+                and label in ("__init__", "__new__")
+            ):
+                continue
+            scope = params | (
+                type_params(member)
+                if isinstance(member, ast.FunctionDef | ast.AsyncFunctionDef)
+                else frozenset()
+            )
+            where = owner if member is site.node else f"{owner}.{label}"
+            path = project.module_path(module)
+            for annotation in annotations_of(member):
+                for named in reach.named(module, annotation, scope):
+                    pending.append(named)
+                    key = (module, member.lineno, named.qualified)
+                    if named.qualified in exported or key in reported:
+                        continue
+                    reported.add(key)
+                    yield Finding(
+                        project.relative(path) if path is not None else module,
+                        member.lineno,
+                        "CON416",
+                        f"{where} names {named.qualified}, which no public module exports",
+                    )
 
 
 # --- The exceptions a public module adopts ---

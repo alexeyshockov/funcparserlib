@@ -9,7 +9,7 @@ import signal
 import subprocess
 import sys
 import traceback
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import NoReturn
@@ -18,7 +18,8 @@ import click
 from packaging.version import InvalidVersion, Version
 
 from . import _rules  # noqa: F401  # registers the rules
-from ._engine import FIXERS, RULES, run
+from ._api import diff
+from ._engine import FIXERS, RULES, is_warning, run
 from ._output import FORMATS, render
 from ._project import Project, RunError
 from ._rules.release import versions as version_rules
@@ -50,7 +51,7 @@ class _Overdue(BaseException):
 
 
 @contextmanager
-def _verdict() -> Iterator[None]:
+def _verdict() -> Generator[None]:
     """Turn what keeps a run from a verdict into exit 2: config, a crash, or the deadline."""
 
     def overdue(_signum: int, _frame: object) -> None:
@@ -94,8 +95,15 @@ def check(root: Path | None, fmt: str | None) -> None:
     if fmt is None:
         fmt = "github" if os.environ.get("GITHUB_ACTIONS") == "true" else "text"
     with _verdict():
-        findings = run(Project(root or _toplevel()))
-    click.echo(render(findings, fmt), nl=False)
+        found = run(Project(root or _toplevel()))
+    findings = [f for f in found if not is_warning(f)]
+    warnings = [f for f in found if is_warning(f)]
+    if fmt == "text":
+        click.echo(render(findings, fmt), nl=False)
+        for line in render(warnings, fmt).splitlines():
+            click.secho(f"warning: {line}", err=True, bold=True, fg="yellow")
+    else:
+        click.echo(render(found, fmt), nl=False)
     if findings and fmt == "text":
         click.echo(
             f"{len(findings)} findings; `conventions explain CODE` gives the reason and the fix.",
@@ -155,6 +163,23 @@ ROOT_OPTION = click.option(
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     help="The repository root (default: the git toplevel of the working directory).",
 )
+
+
+@cli.command("api-diff")
+@click.argument("base")
+@ROOT_OPTION
+def api_diff(base: str, root: Path | None) -> None:
+    """Print what a caller of the public API at BASE meets in the working tree, one change a line.
+
+    Removals and changes only: an addition breaks no caller. Exit 1 when anything changed.
+    """
+    with _verdict():
+        found = diff(root or _toplevel(), base)
+    for line in found:
+        click.echo(line)
+    if not found:
+        click.echo(f"no change to the public API since {base}")
+    sys.exit(FINDINGS if found else CLEAN)
 
 
 @cli.command()

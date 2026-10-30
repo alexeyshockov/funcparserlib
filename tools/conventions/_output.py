@@ -3,7 +3,7 @@
 import json
 from collections.abc import Sequence
 
-from ._engine import Finding
+from ._engine import Finding, is_warning
 
 FORMATS = ("text", "json", "github")
 
@@ -14,7 +14,13 @@ def render(findings: Sequence[Finding], fmt: str) -> str:
             return "".join(f"{_location(f)}: {f.code} {f.message}\n" for f in findings)
         case "json":
             rows = [
-                {"path": f.path, "line": f.line, "code": f.code, "message": f.message}
+                {
+                    "path": f.path,
+                    "line": f.line,
+                    "code": f.code,
+                    "severity": "warning" if is_warning(f) else "error",
+                    "message": f.message,
+                }
                 for f in findings
             ]
             return json.dumps(rows, indent=2) + "\n"
@@ -29,12 +35,13 @@ def _location(f: Finding) -> str:
 
 
 def _annotation(f: Finding) -> str:
-    """A GitHub Actions `error` workflow command, escaped as the runner parses it."""
+    """A GitHub Actions `error` or `warning` workflow command, escaped as the runner parses it."""
     props = f"file={_property(f.path)}"
     if f.line is not None:
         props += f",line={f.line}"
     props += f",title={_property(f.code)}"
-    return f"::error {props}::{_data(f.message)}\n"
+    level = "warning" if is_warning(f) else "error"
+    return f"::{level} {props}::{_data(f.message)}\n"
 
 
 def _data(value: str) -> str:

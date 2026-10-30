@@ -7,7 +7,8 @@ from pathlib import Path
 
 from .._engine import Finding, rule
 from .._project import Project
-from ._ast import alias_name, exported_by, resolved
+from ._ast import alias_name
+from ._public import exports
 
 # `CONVENTIONS.md`'s shared list; a project adds its own in `[tool.conventions] initialisms`.
 SHARED_INITIALISMS = ("API", "HTTP", "ID", "RPC", "URL")
@@ -102,37 +103,13 @@ def _misnamed_twins(defs: dict[str, Def]) -> Iterator[tuple[Def, str]]:
                 break
 
 
-def _defined_at(
-    project: Project, trees: dict[str, ast.Module], module: str, name: str
-) -> tuple[str, str] | None:
-    """Where `module.name` is defined in the packages, following `from ... import` re-exports."""
-    for _ in range(len(trees)):
-        tree = trees.get(module)
-        if tree is None:
-            return None
-        path = project.module_path(module)
-        is_package = path is not None and path.name == "__init__.py"
-        imported = None
-        for node in tree.body:
-            if isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    if (alias.asname or alias.name) == name:
-                        imported = (resolved(module, is_package, node), alias.name)
-        if imported is None:
-            return module, name
-        module, name = imported
-    return None
-
-
-def _exported(project: Project, trees: dict[str, ast.Module]) -> set[tuple[str, str]]:
+def _exported(project: Project) -> set[tuple[str, str]]:
     """The defining module and top-level name of everything a public module's `__all__` lists."""
-    found: set[tuple[str, str]] = set()
-    for module in project.modules:
-        if module.public and module.name in trees:
-            for name in exported_by(trees[module.name]):
-                if (site := _defined_at(project, trees, module.name, name)) is not None:
-                    found.add(site)
-    return found
+    return {
+        (site.module, site.name)
+        for export in exports(project)
+        if (site := export.definition) is not None and site.in_packages
+    }
 
 
 @rule("CON101", "CON102")
@@ -168,7 +145,7 @@ def async_twins(project: Project) -> Iterator[Finding]:
         for module in project.modules
         if (tree := project.tree(module.path)) is not None
     }
-    exported = _exported(project, trees)
+    exported = _exported(project)
     for module in project.modules:
         if (tree := trees.get(module.name)) is None:
             continue

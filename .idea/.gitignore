@@ -1,0 +1,12 @@
+# Generated; propose changes in an issue rather than editing this file.
+#
+# PyCharm's state is each developer's own. Shared: the inspection profile and the scope it names.
+/*
+!/.gitignore
+!/inspectionProfiles/
+/inspectionProfiles/*
+!/inspectionProfiles/Project_Default.xml
+!/inspectionProfiles/profiles_settings.xml
+!/scopes/
+/scopes/*
+!/scopes/Tests_and_examples.xml

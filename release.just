@@ -13,7 +13,8 @@
 # Latest tag matching strictly `vX.Y.Z` (no `b1` / `rc1` / `.dev0` suffix).
 previous_stable_tag := `git tag --sort=-v:refname --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1`
 
-[doc("Show API breaking changes vs [base] (default: previous stable tag) using griffe")]
+# `|| true` keeps it informational: a change is read and decided on, not refused.
+[doc("Show what a caller of the public API at [base] (default: previous stable tag) meets now")]
 api-diff base=previous_stable_tag:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -21,11 +22,7 @@ api-diff base=previous_stable_tag:
         echo "no previous stable tag found; pass [base] explicitly" >&2
         exit 1
     fi
-    for package in $({{ tools }} conventions packages); do
-        name=$(basename "$package")
-        echo "▸ $name public API vs {{ base }} (griffe check, breaking changes only)"
-        {{ tools }} griffe check "$name" -a "{{ base }}" -s "$(dirname "$package")" || true
-    done
+    {{ tools }} conventions api-diff "{{ base }}" || true
 
 [doc("Pre-release report: current type coverage + API BC vs [base]")]
 release-check base=previous_stable_tag:
