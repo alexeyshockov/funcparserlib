@@ -118,5 +118,73 @@ def test_the_first_spec_to_match_makes_the_token(specs: list[TokenSpec], text: s
 def test_specs_with_scoped_flags_join_into_one_pattern() -> None:
     compiled = [(s.type, re.compile(s.pattern, s.flags)) for s in OVERLAPPING]
     assert _combined(compiled[:2] + compiled[3:]) is not None
-    assert _combined(compiled) is None
     assert _combined([("by_name", re.compile(r"(?P<q>')x(?P=q)"))]) is None
+
+
+# A reference to a group moves with the group; what only looks like one stays as it is.
+
+REFERENCES = [
+    TokenSpec("pair", r"(a)(b)\2\1"),
+    TokenSpec("quoted", r"(['\"])x*\1"),
+    TokenSpec("twice", r"(?i:(y))\1", re.DOTALL),
+    TokenSpec("backslash", r"\\1"),
+    TokenSpec("octal", r"\101|\060|\01"),
+    TokenSpec("class", r"[\1\]\[]"),
+    TokenSpec("class_with_bracket", r"[]\1]"),
+    TokenSpec("after_a_class", r"(b)[x[]\1"),
+    TokenSpec("other", r"."),
+]
+
+
+@given(st.text("abxyYA01'\"\\[]\x01", max_size=30))
+def test_specs_with_references_to_groups_tokenize_as_each_spec_does(text: str) -> None:
+    tokens = [(t.type, t.value) for t in make_tokenizer(REFERENCES)(text)]
+    assert tokens == first_match(REFERENCES, text)
+
+
+@pytest.mark.parametrize(
+    ("text", "token_type"),
+    [
+        ("abba", "pair"),
+        ("'xx'", "quoted"),
+        ("yy", "twice"),
+        ("b[b", "after_a_class"),
+        ("bxb", "after_a_class"),
+    ],
+)
+def test_a_reference_finds_its_own_group(text: str, token_type: str) -> None:
+    assert [(t.type, t.value) for t in make_tokenizer(REFERENCES)(text)] == [(token_type, text)]
+
+
+def test_specs_with_references_to_numbered_groups_join_into_one_pattern() -> None:
+    assert _combined([(s.type, re.compile(s.pattern, s.flags)) for s in REFERENCES]) is not None
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        TokenSpec("named", r"(?P<q>a)(b)\2"),
+        TokenSpec("verbose", r"(a)\1  # [", re.VERBOSE),
+        TokenSpec("condition", r"(a)?(?(1)b|c)"),
+    ],
+)
+@given(st.text("abc", max_size=10))
+def test_a_reference_that_cannot_move_stays_in_its_own_pattern(spec: TokenSpec, text: str) -> None:
+    specs = [TokenSpec("first", r"(z)"), spec, TokenSpec("other", r".")]
+    assert _combined([(s.type, re.compile(s.pattern, s.flags)) for s in specs]) is None
+    assert [(t.type, t.value) for t in make_tokenizer(specs)(text)] == first_match(specs, text)
+
+
+def test_a_reference_past_what_re_reads_as_one_stays_in_its_own_pattern() -> None:
+    groups = "".join(f"({c})" for c in "abcdefghij" * 5)
+    specs = [TokenSpec("many", groups), TokenSpec("more", groups), TokenSpec("ref", r"(q)\1")]
+    assert _combined([(s.type, re.compile(s.pattern)) for s in specs]) is None
+    assert [t.value for t in make_tokenizer(specs)("qq")] == ["qq"]
+
+
+def test_render_marks_the_character_no_spec_matches() -> None:
+    tokenize = make_tokenizer([TokenSpec("word", r"[a-z]+"), TokenSpec("nl", r"\n")])
+    with pytest.raises(LexerError) as e:
+        list(tokenize("ab\ncd?e\nf"))
+    assert e.value.render() == "2,3: cannot tokenize data\n2 | cd?e\n      ^"
+    assert e.value.render("ab\ncd?e\nf") == e.value.render()

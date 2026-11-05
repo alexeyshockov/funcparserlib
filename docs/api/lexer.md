@@ -7,3 +7,7 @@
 ::: funcparserlib.lexer.TokenSpec.__init__
 
 ::: funcparserlib.lexer.Token
+
+::: funcparserlib.lexer.LexerError
+
+::: funcparserlib.lexer.LexerError.render

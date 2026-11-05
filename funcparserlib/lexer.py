@@ -25,7 +25,7 @@ import dataclasses as dc
 import re
 from collections.abc import Callable, Iterable, Sequence
 from re import Pattern
-from typing import Any, cast, final
+from typing import Any, final
 
 from ._commons import valueclass, with_hint
 
@@ -37,36 +37,75 @@ type Spec = tuple[str, tuple[Any, ...]]
 
 _CompiledSpec = tuple[str, Pattern[str]]
 
+# What `_renumbered()` reads: an escape, and the brackets of a character class.
+_REGEXP_PIECE = re.compile(r"\\[0-9]+|\\.|\[\^?\]?|\]", re.DOTALL)
+
 # The flags a group can scope, `(?i:...)`; any other flag keeps a spec out of a joined pattern.
 _NAMED_GROUP = re.compile(r"\(\?P<\w+>")
 _SCOPED_FLAGS = {re.IGNORECASE: "i", re.MULTILINE: "m", re.DOTALL: "s", re.VERBOSE: "x"}
 
 
-def _combined(specs: Sequence[_CompiledSpec]) -> Pattern[str] | None:
-    """One pattern for `specs`, its group `t<n>` matching where the n-th spec is the first to match.
+def _renumbered(pattern: str, offset: int, *, movable: bool) -> str | None:
+    """`pattern` with its references to numbered groups moved up by `offset`.
 
-    A spec's named groups become non-capturing, as a token is the whole match. `None` when a spec
-    cannot be joined: it refers to a group, which joining would renumber or rename, or it has a flag
-    a group cannot scope.
+    `None` when it has a reference that cannot move: `movable` is false, or the new number is one
+    the `re` module would read as an octal escape.
+    """
+    in_class = False
+    parts = []
+    end = 0
+    for m in _REGEXP_PIECE.finditer(pattern):
+        piece = m.group()
+        if piece.startswith("["):
+            in_class = not piece.endswith("]") or not in_class
+        elif piece == "]":
+            in_class = False
+        elif piece[1].isdigit() and not in_class and not _is_octal(piece[1:]):
+            number = int(piece[1:]) + offset
+            if not movable or len(piece) > 3 or number > 99:
+                return None
+            parts += [pattern[end : m.start()], f"\\{number}"]
+            end = m.end()
+    return "".join([*parts, pattern[end:]])
+
+
+def _is_octal(digits: str) -> bool:
+    """Whether the `re` module reads `digits`, after a backslash, as an octal escape."""
+    return digits[0] == "0" or (len(digits) >= 3 and set(digits[:3]) <= set("01234567"))
+
+
+def _combined(specs: Sequence[_CompiledSpec]) -> tuple[Pattern[str], list[str]] | None:
+    """One pattern for `specs`, and the token type of each of its groups a spec is wrapped in.
+
+    The group of the first spec to match is the `lastindex` of the match. A spec's named groups
+    become non-capturing, as a token is the whole match. `None` when a spec cannot be joined: it
+    refers to a group by name or in a condition, it refers to one by number where a name or a
+    comment gets in the way of moving the number, or it has a flag a group cannot scope.
     """
     parts = []
-    for n, (_, regexp) in enumerate(specs):
+    types = [""]
+    for token_type, regexp in specs:
         pattern = regexp.pattern
-        if re.search(r"\\[1-9]|\(\?P=|\(\?\(", pattern):
+        if re.search(r"\(\?P=|\(\?\(", pattern):
             return None
         # Each `(?P<` is a group only if they number as many as the groups the pattern names.
         if len(_NAMED_GROUP.findall(pattern)) != len(regexp.groupindex):
             return None
-        pattern = _NAMED_GROUP.sub("(?:", pattern)
         flags = regexp.flags & ~re.UNICODE
+        movable = not regexp.groupindex and not flags & re.VERBOSE
+        renumbered = _renumbered(pattern, len(types), movable=movable)
+        if renumbered is None:
+            return None
+        pattern = _NAMED_GROUP.sub("(?:", renumbered)
         letters = "".join(letter for flag, letter in _SCOPED_FLAGS.items() if flags & flag)
         if flags & ~sum(_SCOPED_FLAGS):
             return None
         # A verbose pattern may end in a comment, which a newline closes.
         end = "\n" if flags & re.VERBOSE else ""
-        parts.append(f"(?P<t{n}>(?{letters}:{pattern}{end}))")
+        parts.append(f"((?{letters}:{pattern}{end}))")
+        types += [token_type, *[""] * (regexp.groups - len(regexp.groupindex))]
     try:
-        return re.compile("|".join(parts))
+        return re.compile("|".join(parts)), types
     except re.error:
         # Such as a global flag, `(?i)`, inside a spec's pattern.
         return None
@@ -83,8 +122,20 @@ class LexerError(Exception):
         self.msg: str = msg
 
     def __str__(self) -> str:
+        """The place and the line, as `cannot tokenize data: line,column: "text"`."""
         line, pos = self.place
         return f'cannot tokenize data: {line},{pos}: "{self.msg}"'
+
+    def render(self, source: str | None = None) -> str:
+        """The place, then the line with `^` under the character no token spec matches.
+
+        The error holds its line, so `source` makes no difference: it is there so that a handler can
+        render a `LexerError` and a `funcparserlib.parser.NoParseError` the same way.
+        """
+        line, pos = self.place
+        gutter = f"{line} | "
+        marker = " " * (len(gutter) + pos - 1) + "^"
+        return f"{line},{pos}: cannot tokenize data\n{gutter}{self.msg}\n{marker}"
 
 
 @final
@@ -204,20 +255,27 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
 
     compiled = tuple(compile_specs())
     combined = _combined(compiled)
-    types = {f"t{n}": token_type for n, (token_type, _) in enumerate(compiled)}
+    pattern, types = combined if combined is not None else (None, [])
 
-    def match_specs(s: str, i: int, position: Place) -> Token:
-        line, pos = position
-        m: re.Match[str] | None = None
-        token_type = ""
-        if combined is not None:
-            if m := combined.match(s, i):
-                token_type = types[cast("str", m.lastgroup)]
-        else:
-            for token_type, spec_regexp in compiled:  # noqa: B007 — the matching spec's type
-                if m := spec_regexp.match(s, i):
-                    break
-        if m is not None:
+    def first_match(s: str, i: int) -> tuple[str, re.Match[str] | None]:
+        for token_type, regexp in compiled:
+            if m := regexp.match(s, i):
+                return token_type, m
+        return "", None
+
+    def f(s: str) -> Iterable[Token]:
+        length = len(s)
+        line, pos = 1, 0
+        i = 0
+        while i < length:
+            if pattern is not None:
+                m = pattern.match(s, i)
+                token_type = types[m.lastindex or 0] if m is not None else ""
+            else:
+                token_type, m = first_match(s, i)
+            if m is None:
+                # Lines are counted by "\n" alone, as the token positions are.
+                raise LexerError((line, pos + 1), s.split("\n")[line - 1].rstrip("\r"))
             value = m.group()
             if not value:
                 raise ValueError(
@@ -225,21 +283,12 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
                     f" at {line},{pos + 1}"
                 )
             nls = value.count("\n")
-            n_line = line + nls
-            n_pos = pos + len(value) if nls == 0 else len(value) - value.rfind("\n") - 1
-            return Token(token_type, value, (line, pos + 1), (n_line, n_pos))
-        # Lines are counted by "\n" alone, as the token positions are.
-        err_line = s.split("\n")[line - 1].rstrip("\r")
-        raise LexerError((line, pos + 1), err_line)
-
-    def f(s: str) -> Iterable[Token]:
-        length = len(s)
-        line, pos = 1, 0
-        i = 0
-        while i < length:
-            t = match_specs(s, i, (line, pos))
-            yield t
-            line, pos = cast("Place", t.end)
-            i += len(t.value)
+            if nls:
+                end_line, end_pos = line + nls, len(value) - value.rfind("\n") - 1
+            else:
+                end_line, end_pos = line, pos + len(value)
+            yield Token(token_type, value, (line, pos + 1), (end_line, end_pos))
+            line, pos = end_line, end_pos
+            i = m.end()
 
     return f

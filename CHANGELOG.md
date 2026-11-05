@@ -26,6 +26,8 @@ messages name what was expected more precisely; see Changed.
 - Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
 - `Parser.compile()`: a grammar as generated Python functions, several times faster for the parses that succeed. A
   `CompiledParser` gives the values and the errors of the parser it comes from
+- `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
+  `NoParseError.render()` does
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
   and `~p` / `anything_but(p)`
 - `funcparserlib.util.expand_tuple_args()`, which adapts a function of N arguments to the tuple that
