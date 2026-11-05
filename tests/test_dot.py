@@ -10,6 +10,10 @@ class DotTest(unittest.TestCase):
     def t(self, data: str, expected: Graph | None = None) -> None:
         assert parse(tokenize(data)) == expected
 
+    def test_numbers(self) -> None:
+        for text in ("1", "-5", ".5", "-.5", "1.5", "-1.5", "2."):
+            assert [(t.type, t.value) for t in tokenize(text)] == [("Number", text)]
+
     def test_comments(self) -> None:
         self.t(
             """

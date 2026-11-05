@@ -109,7 +109,7 @@ def _tokenizer() -> Callable[[str], Iterable[Token]]:
         TokenSpec("Space", r"[ \t\r\n]+"),
         TokenSpec("Name", r"[A-Za-z\200-\377_][A-Za-z\200-\377_0-9]*"),
         TokenSpec("Op", r"[{};,=\[\]]|(->)|(--)"),
-        TokenSpec("Number", r"-?(\.[0-9]+)|([0-9]+(\.[0-9]*)?)"),
+        TokenSpec("Number", r"-?(\.[0-9]+|[0-9]+(\.[0-9]*)?)"),
         TokenSpec("String", r'"[^"]*"'),  # '\"' escapes are ignored
     ]
     return make_tokenizer(specs)
