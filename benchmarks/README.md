@@ -13,4 +13,5 @@ and 3.15 it varies by about 1 ms.
   calculator of `examples/`.
 - `bench_combinators.py`: one combinator each, over a long input, so a regression points at its combinator.
 - `bench_comparison.py`: the JSON grammar against the same grammar in parsy and pyparsing (`_json_other.py`), text
-  in, values out; each case asserts it returns what `json.loads()` does.
+  in, values out, with funcparserlib as a token grammar and as a text grammar (`_json_text.py`), each interpreted and
+  compiled; each case asserts it returns what `json.loads()` does.

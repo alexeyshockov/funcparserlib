@@ -33,12 +33,12 @@ dealing with DOT.
 
 import os
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from functools import cache
 from re import MULTILINE
 from typing import NamedTuple, TypeVar
 
-from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
+from funcparserlib.lexer import LexerError, Token, Tokenizer, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     ForwardDeclParser,
     NoParseError,
@@ -99,7 +99,7 @@ def tokenize(s: str) -> Sequence[Token]:
 
 # Built once: the specs and the grammar do not depend on the input.
 @cache
-def _tokenizer() -> Callable[[str], Iterable[Token]]:
+def _tokenizer() -> Tokenizer:
     """The DOT tokenizer."""
     specs = [
         TokenSpec("Comment", r"/\*(.|[\r\n])*?\*/", MULTILINE),

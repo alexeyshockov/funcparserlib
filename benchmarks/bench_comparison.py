@@ -1,6 +1,7 @@
 """funcparserlib against parsy and pyparsing: the same JSON document, text in, Python values out.
 
-funcparserlib tokenizes and then parses; parsy and pyparsing parse the text directly. Each grammar
+funcparserlib runs the grammar four ways: a token grammar tokenizes and then parses, a text grammar
+reads the text directly, as parsy and pyparsing do, and each of the two also compiled. Each grammar
 is built once, before the timing. The `json` group compares the whole job; `bench_json_parse` in
 bench_grammars.py is funcparserlib's parsing half alone.
 """
@@ -11,15 +12,32 @@ from typing import Any
 import pytest
 
 from benchmarks._json_other import parsy_loads, pyparsing_loads
+from benchmarks._json_text import COMPILED, GRAMMAR
 from benchmarks.bench_grammars import JSON_TEXT
 from tests import json as json_grammar
 
 EXPECTED = json.loads(JSON_TEXT)
+TOKENS_COMPILED = json_grammar._grammar().compile(json_grammar._tokenizer())
 
 
 @pytest.mark.benchmark(group="json")
 def bench_funcparserlib_json(benchmark: Any) -> None:
     assert benchmark(json_grammar.loads, JSON_TEXT) == EXPECTED
+
+
+@pytest.mark.benchmark(group="json")
+def bench_funcparserlib_json_compiled(benchmark: Any) -> None:
+    assert benchmark(TOKENS_COMPILED.parse_text, JSON_TEXT) == EXPECTED
+
+
+@pytest.mark.benchmark(group="json")
+def bench_funcparserlib_text_json(benchmark: Any) -> None:
+    assert benchmark(GRAMMAR.parse_text, JSON_TEXT) == EXPECTED
+
+
+@pytest.mark.benchmark(group="json")
+def bench_funcparserlib_text_json_compiled(benchmark: Any) -> None:
+    assert benchmark(COMPILED.parse_text, JSON_TEXT) == EXPECTED
 
 
 @pytest.mark.benchmark(group="json")

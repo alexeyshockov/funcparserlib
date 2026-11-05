@@ -26,13 +26,13 @@ The parser is based on [the JSON grammar][1].
 
 import re
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from functools import cache
 from pprint import pformat
 from re import VERBOSE, Match
 from typing import Any, TypeVar
 
-from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
+from funcparserlib.lexer import LexerError, Token, Tokenizer, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     ForwardDeclParser,
     NoParseError,
@@ -68,7 +68,7 @@ def tokenize(s: str) -> list[Token]:
 
 # Built once: the specs and the grammar do not depend on the input.
 @cache
-def _tokenizer() -> Callable[[str], Iterable[Token]]:
+def _tokenizer() -> Tokenizer:
     """The JSON tokenizer."""
     specs = [
         TokenSpec("space", r"[ \t\r\n]+"),
