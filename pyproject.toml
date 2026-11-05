@@ -45,6 +45,7 @@ examples = ["markdown-it-py ~=4.0", "ruamel.yaml ~=0.19"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = [
     # The other parsing libraries bench_comparison.py measures against.
+    "orjson ~=3.11",
     "parsy ~=2.2",
     "pyparsing ~=3.3",
     "pytest-benchmark ~=5.2",
