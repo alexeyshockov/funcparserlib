@@ -7,11 +7,13 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+from funcparserlib import parser as parser_module
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
+    ParsingError,
     State,
     TokenDescription,
     a,
@@ -20,6 +22,7 @@ from funcparserlib.parser import (
     forward_decl,
     many,
     maybe,
+    parser,
     some,
     tok,
 )
@@ -112,6 +115,11 @@ def test_a_failure_before_the_committed_parser_reads_a_token_is_not_committed() 
 def test_many_and_maybe_fail_with_a_committed_failure() -> None:
     assert error(many(CALL) + -finished, "f(x)f(y)").expected == ("'x'",)
     assert error(maybe(CALL) + WORD, "f(y)").expected == ("'x'",)
+
+
+def test_a_committed_failure_is_final_inside_a_negation() -> None:
+    assert error(~commit(x + y), "xz").expected == ("'y'",)
+    assert error(a("x").but_not(commit(x + y)), "xz").expected == ("'y'",)
 
 
 GRAMMARS = st.sampled_from(["fx", "f(x)", "fy", "f(y)", "f(", "", "(x)"])
@@ -307,7 +315,7 @@ def test_a_skipped_token_test_names_the_token() -> None:
 # The optimised parsers, fused token tests and `|` dispatched by the next token, give what the
 # plain combinators give: the parsers built with `debug` on, which are neither fused nor dispatched.
 
-WRAPPERS = ["label", "map", "skip", "maybe", "commit", "context"]
+WRAPPERS = ["label", "map", "skip", "maybe", "commit", "context", "not", "but_not"]
 TERMS = st.recursive(
     st.tuples(st.just("a"), st.sampled_from("xyz")),
     lambda kids: st.one_of(
@@ -327,6 +335,8 @@ WRAP: dict[str, Callable[[Parser[str, Any]], Parser[str, Any]]] = {
     "maybe": maybe,
     "commit": commit,
     "context": lambda p: p.context("ctx"),
+    "not": lambda p: ~p,
+    "but_not": lambda p: p.but_not(a("y")),
 }
 
 
@@ -350,11 +360,101 @@ def outcome(p: Parser[str, Any], text: str) -> object:
 
 @given(GRAMMARS, st.text("xyz", max_size=6))
 def test_the_optimised_parsers_parse_as_the_plain_ones(grammar: Any, text: str) -> None:
-    from funcparserlib import parser
-
-    plain_debug, parser.debug = parser.debug, True
+    plain_debug, parser_module.debug = parser_module.debug, True
     try:
         plain = build(grammar)
     finally:
-        parser.debug = plain_debug
+        parser_module.debug = plain_debug
     assert outcome(build(grammar), text) == outcome(plain, text)
+
+
+def nested() -> Parser[str, Any]:
+    """Lists of `n` and `m`, and a list of a list, chosen among by the next token."""
+    value: Any = forward_decl().named("value")
+    items = -a("[") + maybe(value) + -a("]")
+    pair = -a("(") + value + -a(",") + value + -a(")")
+    value.define(items | pair | a("n") | a("m"))
+    return value
+
+
+@given(st.text("[](,)nmx", max_size=12))
+def test_a_recursive_dispatched_grammar_parses_as_the_plain_one(text: str) -> None:
+    plain_debug, parser_module.debug = parser_module.debug, True
+    try:
+        plain = nested()
+    finally:
+        parser_module.debug = plain_debug
+    assert outcome(nested(), text) == outcome(plain, text)
+
+
+class CountedReads(list[str]):
+    """Tokens that count how many times a parser read one."""
+
+    reads = 0
+
+    def __getitem__(self, i: Any) -> Any:
+        self.reads += 1
+        return super().__getitem__(i)
+
+
+@pytest.mark.parametrize("failing", ["x", "]x"])
+def test_a_failure_deep_in_a_dispatched_grammar_takes_time_linear_in_the_depth(
+    failing: str,
+) -> None:
+    depth = 20
+    tokens = CountedReads("[" * depth + failing)
+    with pytest.raises(NoParseError):
+        nested().parse(tokens)
+    assert tokens.reads < 50 * depth
+
+
+def test_a_failure_before_any_token_in_nested_choices_takes_time_linear_in_the_nesting() -> None:
+    depth = 20
+    p: Parser[str, Any] = x | y | z
+    for level in range(depth):
+        p = declared(p) | a(f"p{level}") | a(f"q{level}")
+    tokens = CountedReads("w")
+    with pytest.raises(NoParseError):
+        p.parse(tokens)
+    assert tokens.reads < 50 * depth
+
+
+def test_the_message_of_dispatched_alternatives_is_the_last_alternatives() -> None:
+    @parser("number")
+    def number(tokens: Any, s: State) -> Any:
+        return ParsingError(s.expect(number), "got no number")
+
+    assert error(y | z | x + number, "xw").msg == "got no number: 'w', expected: number"
+    assert error(x + number | y | z, "xw").msg == "got unexpected token: 'w', expected: number"
+
+
+def declared(p: Parser[str, Any]) -> Parser[str, Any]:
+    """`p` behind a forward declaration: `|` cannot tell which tokens it starts with."""
+    declaration: Any = forward_decl()
+    declaration.define(p)
+    return declaration
+
+
+def test_a_labelled_choice_among_dispatched_alternatives_is_named_by_its_label() -> None:
+    word = (a("p") | a("q") | a("r")).named("word")
+    p = declared(x) | word | declared(z) | y
+    assert error(p, "w").expected == ("'x'", "word", "'z'", "'y'")
+
+
+def test_a_choice_named_after_use_among_dispatched_alternatives_is_named_by_its_label() -> None:
+    word = a("p") | a("q") | a("r")
+    p = declared(x) | word | declared(z) | y
+    word.named("word")
+    assert error(p, "w").expected == ("'x'", "word", "'z'", "'y'")
+
+
+def test_a_chain_of_alternatives_builds_one_dispatch_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+    table = parser_module._dispatch_table
+    monkeypatch.setattr(
+        parser_module, "_dispatch_table", lambda alts: calls.append(alts) or table(alts)
+    )
+    p = functools.reduce(operator.or_, [a(c) for c in "abcdefgh"])
+    assert calls == []
+    assert [p.parse("h"), p.parse("a")] == ["h", "a"]
+    assert len(calls) == 1

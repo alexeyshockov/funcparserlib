@@ -471,8 +471,8 @@ class Parser[A, B]:
     # The keys, `_key(token)`, of every token the parser can start with, when known; a parser with
     # them consumes at least that token.
     _first: frozenset[object] | None = None
-    # A `|` parser: its alternatives, nested `|` flattened, in the order they are tried.
-    _alts: tuple[Parser[Any, Any], ...] = ()
+    # A `|` parser: the two parsers it was built from.
+    _parts: tuple[Parser[Any, Any], Parser[Any, Any]] | None = None
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
@@ -703,7 +703,7 @@ class Parser[A, B]:
                 return res
             res_not = other.run(tokens, res.state.reset_pos_to(s))
             if isinstance(res_not, ParsingError):
-                return res
+                return res_not if res_not.committed else res
             return ParsingError(s.expect(_but_not))
 
         return _but_not
@@ -913,39 +913,55 @@ class Parser[A, B]:
                 return res
             return other.run(tokens, res.state.reset_pos_to(s))
 
-        alts = (*(self._alts or (self,)), *(other._alts or (other,)))
         first = None if self._first is None or other._first is None else self._first | other._first
-        table = None if debug else _dispatch_table(alts)
-        if table is None:
+        if debug or not _narrows((*_alternatives(self), *_alternatives(other))):
             p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(tried)
         else:
-            by_key, unknown = table
+            # Built on the first run: of `p1 | p2 | p3`, only the outermost parser ever runs.
+            alts: tuple[Parser[Any, Any], ...] = ()
+            table: _Dispatch | None = None
 
             def dispatched(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
+                nonlocal alts, table
+                if table is None:
+                    # A parser may be named after this one is built.
+                    alts = (*_alternatives(self), *_alternatives(other))
+                    table = _dispatch_table(alts)
                 pos = s.pos
                 if pos < len(tokens):
                     t = tokens[pos]
+                    by_key, unknown = table
                     try:
-                        candidates = by_key.get(t if t.__class__ is str else _key(t), unknown)
+                        candidates, rest = by_key.get(t if t.__class__ is str else _key(t), unknown)
                     except TypeError:  # an unhashable key
                         return tried(tokens, s)
                     st = s
+                    failures: list[ParsingResult[Any]] = []
                     for alt in candidates:
                         res = alt.run(tokens, st)
-                        if res.__class__ is not ParsingError:
-                            # The alternatives skipped could not read the token, and what they
-                            # expected is forgotten once parsing gets past it.
-                            if res.state.pos > pos:
+                        if res.__class__ is not ParsingError or res.committed:
+                            # What the alternatives skipped expected at `pos` is forgotten once
+                            # parsing got past it.
+                            if res.state.max > pos:
                                 return res
                             break
-                        if res.committed:
-                            break
+                        failures.append(res)
                         st = res.state.reset_pos_to(s)
-                # Every alternative in order, for the state and errors that trying them gives.
+                    else:
+                        if candidates:
+                            # A candidate is never run again: that would double the work at each
+                            # level of a nested grammar.
+                            if st.max == pos:
+                                return _failed_in_order(tokens, s, alts, candidates, failures)
+                            last = failures[-1]
+                            for alt in rest:
+                                last = alt.run(tokens, st)
+                                st = last.state.reset_pos_to(s)
+                            return last
                 return tried(tokens, s)
 
             p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(dispatched)
-        p._alts = alts
+        p._parts = (self, other)
         return p
 
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
@@ -1118,6 +1134,8 @@ class Parser[A, B]:
                 return ParsingError(s2, "got unexpected end of input")
             res = self.run(tokens, s)
             if isinstance(res, ParsingError):
+                if res.committed:
+                    return res
                 return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
             return ParsingError(s.expect(_invert))
 
@@ -1446,21 +1464,72 @@ def _key(t: object) -> object:
     return getattr(t, "type", t)
 
 
-type _Dispatch = tuple[dict[object, tuple[Parser[Any, Any], ...]], tuple[Parser[Any, Any], ...]]
+type _Alternatives = tuple[tuple[Parser[Any, Any], ...], tuple[Parser[Any, Any], ...]]
+type _Dispatch = tuple[dict[object, _Alternatives], _Alternatives]
 
 
-def _dispatch_table(alts: tuple[Parser[Any, Any], ...]) -> _Dispatch | None:
-    """For each token key, the alternatives that can start with it, in order; then the ones that can
-    start with any token. `None` when it would not narrow the choice.
+def _alternatives(p: Parser[Any, Any]) -> tuple[Parser[Any, Any], ...]:
+    """What `|` chooses among in `p`: a labelled parser is one alternative, as its label is what an
+    error names.
     """
-    known = [alt._first for alt in alts if alt._first is not None]
-    if len(alts) < 3 or len(known) < 2:
-        return None
-    keys: set[object] = set().union(*known)
+    alts: list[Parser[Any, Any]] = []
+    stack = [p]
+    while stack:
+        q = stack.pop()
+        if q._parts is None or q._label:
+            alts.append(q)
+        else:
+            stack += reversed(q._parts)
+    return tuple(alts)
+
+
+def _narrows(alts: tuple[Parser[Any, Any], ...]) -> bool:
+    """Whether looking at the next token would narrow the choice among `alts`."""
+    return len(alts) >= 3 and sum(alt._first is not None for alt in alts) >= 2
+
+
+def _dispatch_table(alts: tuple[Parser[Any, Any], ...]) -> _Dispatch:
+    """For each token key, the alternatives that can start with it, in order, and the ones after the
+    last of them; then the same for a key no alternative names.
+    """
+
+    def split(indices: list[int]) -> _Alternatives:
+        return tuple(alts[i] for i in indices), alts[indices[-1] + 1 :] if indices else alts
+
+    keys: set[object] = set().union(*(alt._first for alt in alts if alt._first is not None))
     by_key = {
-        key: tuple(alt for alt in alts if alt._first is None or key in alt._first) for key in keys
+        key: split([i for i, alt in enumerate(alts) if alt._first is None or key in alt._first])
+        for key in keys
     }
-    return by_key, tuple(alt for alt in alts if alt._first is None)
+    return by_key, split([i for i, alt in enumerate(alts) if alt._first is None])
+
+
+def _failed_in_order(
+    tokens: Sequence[Any],
+    s: State,
+    alts: tuple[Parser[Any, Any], ...],
+    candidates: tuple[Parser[Any, Any], ...],
+    failures: list[ParsingResult[Any]],
+) -> ParsingResult[Any]:
+    """The failure of `alts` at `s`, where every one of `candidates` failed reading no token.
+
+    `failures` holds what each candidate gave, run after the one before it, so each added its
+    expected parsers to those of the last. The other alternatives run here, between them.
+    """
+    st, res = s, failures[-1]
+    done = len(s.expected)
+    candidate = 0
+    for alt in alts:
+        if candidate < len(candidates) and alt is candidates[candidate]:
+            res = failures[candidate]
+            added = res.state.expected[done:]
+            done += len(added)
+            candidate += 1
+            st = State(st.pos, st.max, (*st.expected, *added), s.context, s.problems)
+        else:
+            res = alt.run(tokens, st)
+            st = res.state.reset_pos_to(s)
+    return ParsingError(st, cast("ParsingError", res).message)
 
 
 def _token_test(test: _TokenTest) -> Parser[Any, Any]:
@@ -1615,7 +1684,8 @@ def a[A](value: A) -> Parser[A, A]:
             objects contain their position in the source file) and good separation of the
             lexical and syntactic levels of the grammar.
     """
-    name = getattr(value, "name", value)  # TODO Explain what is going on here
+    # An object with a `name`, such as a `Token` or an enum member, is shown in errors by it.
+    name = getattr(value, "name", value)
 
     def eq_value(t: A) -> bool:
         return t == value
