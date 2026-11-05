@@ -2,6 +2,8 @@
 
 ::: funcparserlib.lexer.make_tokenizer
 
+::: funcparserlib.lexer.Tokenizer
+
 ::: funcparserlib.lexer.TokenSpec
 
 ::: funcparserlib.lexer.TokenSpec.__init__

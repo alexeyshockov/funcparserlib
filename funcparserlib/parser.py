@@ -95,7 +95,7 @@ from operator import attrgetter
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
 from ._commons import valueclass, with_hint
-from .lexer import Place, Token
+from .lexer import Place, Token, Tokenizer
 
 _log = logging.getLogger("funcparserlib")
 
@@ -679,10 +679,10 @@ class Parser[A, B]:
             )
         return res.value
 
-    def compile(self) -> CompiledParser[A, B]:
+    def compile(self, tokenizer: Tokenizer | None = None) -> CompiledParser[A, B]:
         """Generate Python functions that parse as this parser does, several times faster.
 
-        Type: `(Parser[A, B]) -> CompiledParser[A, B]`
+        Type: `(Parser[A, B], Tokenizer | None) -> CompiledParser[A, B]`
 
         Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
         functions handle the parses that succeed; for any other, `CompiledParser.parse()` runs this
@@ -694,6 +694,9 @@ class Parser[A, B]:
         parser is a snapshot of the grammar, and does not follow a `forward_decl()` defined again
         afterwards. A grammar nested too deeply to compile stays interpreted, as does a `many()` of
         a parser that matches no tokens.
+
+        Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
+        in less memory still.
 
         Examples:
             ```pycon
@@ -708,10 +711,13 @@ class Parser[A, B]:
             ```
         """
         # Imported here: the module reads the classes of this one.
-        from ._compile import Internals, compile_grammar  # noqa: PLC0415
+        from ._compile import Internals, compile_grammar, compile_text  # noqa: PLC0415
 
         internals = Internals(_Tuple, _IGNORED, _ignore, _token_value)
-        return CompiledParser(self, compile_grammar(self, internals))
+        fast_text = None
+        if tokenizer is not None and tokenizer._pattern is not None:
+            fast_text = compile_text(self, internals, tokenizer._scan)
+        return CompiledParser(self, compile_grammar(self, internals), tokenizer, fast_text)
 
     def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
@@ -1197,11 +1203,17 @@ class CompiledParser[A, B]:
     """
 
     def __init__(
-        self, parser: Parser[A, B], fast: Callable[[Sequence[A]], tuple[B, int] | None] | None
+        self,
+        parser: Parser[A, B],
+        fast: Callable[[Sequence[A]], tuple[B, int] | None] | None,
+        tokenizer: Tokenizer | None = None,
+        fast_text: Callable[[str], tuple[B, int] | None] | None = None,
     ) -> None:
         """`parser`, with its generated functions, `None` for a grammar that stays interpreted."""
         self._parser = parser
         self._fast = fast
+        self._tokenizer = tokenizer
+        self._fast_text = fast_text
 
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
@@ -1215,6 +1227,34 @@ class CompiledParser[A, B]:
         """
         res = None if self._fast is None or debug else self._fast(tokens)
         return self._parser.parse(tokens, describe=describe) if res is None else res[0]
+
+    def parse_text(
+        self, text: str, *, describe: Callable[[A], TokenDescription] | None = None
+    ) -> B:
+        """Parse the text with the tokenizer given to `Parser.compile()`.
+
+        Type: `(str) -> B`
+
+        It gives what `Parser.parse()` gives for the tokens of `text`, and raises what the tokenizer
+        and `Parser.parse()` raise. A grammar that reads tokens only through `tok()`, with a
+        tokenizer whose specs join into one regexp, runs on the text without making a `Token`:
+        for any other, this is `CompiledParser.parse()` of the tokens.
+
+        Raises `ValueError` when `Parser.compile()` got no tokenizer.
+        """
+        if self._tokenizer is None:
+            raise with_hint(
+                ValueError("a compiled parser without a tokenizer cannot parse text"),
+                "Pass the tokenizer of the grammar to `Parser.compile()`:"
+                " `grammar.compile(tokenize)`.",
+            )
+        if self._fast_text is None or debug:
+            return self.parse(cast("Sequence[A]", list(self._tokenizer(text))), describe=describe)
+        res = self._fast_text(text)
+        if res is not None:
+            return res[0]
+        tokens = cast("Sequence[A]", list(self._tokenizer(text)))
+        return self._parser.parse(tokens, describe=describe)
 
 
 def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:

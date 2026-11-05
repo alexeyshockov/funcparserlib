@@ -94,8 +94,7 @@ T = TypeVar("T")
 
 
 def tokenize(s: str) -> Sequence[Token]:
-    useless = ["Comment", "NL", "Space"]
-    return [x for x in _tokenizer()(s) if x.type not in useless]
+    return list(_tokenizer()(s))
 
 
 # Built once: the specs and the grammar do not depend on the input.
@@ -112,7 +111,7 @@ def _tokenizer() -> Callable[[str], Iterable[Token]]:
         TokenSpec("Number", r"-?(\.[0-9]+|[0-9]+(\.[0-9]*)?)"),
         TokenSpec("String", r'"[^"]*"'),  # '\"' escapes are ignored
     ]
-    return make_tokenizer(specs)
+    return make_tokenizer(specs, skip={"Comment", "NL", "Space"})
 
 
 def parse(tokens: Sequence[Token]) -> Graph:

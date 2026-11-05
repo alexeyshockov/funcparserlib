@@ -46,7 +46,7 @@ Let's identify token types in our numeric expressions language:
     * `(`, `)`, `*`, `+`, `/`, `-`, `**`
 
 We will define our token specs and pass them to `make_tokenizer()` to generate our tokenizer. We will also drop
-whitespace tokens from the result, since we don't need them.
+whitespace tokens from the result with `skip`, since we don't need them.
 
 Some imports first:
 
@@ -66,8 +66,8 @@ The tokenizer itself:
 ...         TokenSpec("int", r"[+\-]?\d+"),
 ...         TokenSpec("op", r"(\*\*)|[+\-*/()]"),
 ...     ]
-...     tokenizer = make_tokenizer(specs)
-...     return [t for t in tokenizer(s) if t.type != "whitespace"]
+...     tokenizer = make_tokenizer(specs, skip={"whitespace"})
+...     return list(tokenizer(s))
 
 ```
 

@@ -118,9 +118,12 @@ def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
 class _Compiler:
     """Generates the functions of the grammar `root`."""
 
-    def __init__(self, root: Parser[Any, Any], internals: Internals) -> None:
+    def __init__(
+        self, root: Parser[Any, Any], internals: Internals, *, values: bool = False
+    ) -> None:
         self.root = _target(root)
         self.internals = internals
+        self.values = values
         self.names: dict[str, Any] = {
             "IGNORED": internals.ignored,
             "IGV": IgnoredValue,
@@ -320,13 +323,19 @@ class _Compiler:
         if test is None:
             raise AssertionError(f"{p.name} tests no token")
         if test.token is None:
+            if self.values:
+                raise _Declined(f"{p.name} tests a token, and there are only its values")
             return f"{pos} < len(T) and {self.constant(test.pred)}(T[{pos}])"
         self.tests_token_types = True
         type_, value = test.token
         condition = f"Y[{pos}] == {self.literal(type_)}"
         if value is not None:
-            condition += f" and T[{pos}].value == {self.literal(value)}"
+            condition += f" and {self.token_value(pos)} == {self.literal(value)}"
         return condition
+
+    def token_value(self, pos: str) -> str:
+        """The value of the token at `pos`."""
+        return f"T[{pos}]" if self.values else f"T[{pos}].value"
 
     def start_tests(self, p: Parser[Any, Any], pos: str, seen: set[int]) -> list[str] | None:
         """The token tests `p` can run at `pos` before it reads a token, `None` when unknown."""
@@ -439,7 +448,7 @@ class _Compiler:
             kind: _Kind = "plain" if not test.convs else "unknown"
             for conv in test.convs:
                 if conv is self.internals.token_value:
-                    expr, kind = expr + ".value", "plain"
+                    expr, kind = self.token_value(pos), "plain"
                 elif conv is self.internals.ignore:
                     expr, kind = "IGNORED", "ignored"
                 else:
@@ -521,6 +530,8 @@ class _Compiler:
         self.emit(inner, pos, want, after)
 
     def emit_opaque(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        if self.values:
+            raise _Declined(f"{p.name} reads tokens, and there are only their values")
         res = self.fresh("r")
         self.line(f"{res} = {self.constant(p, 'P')}.run(T, State({pos}, {pos}))")
 
@@ -741,6 +752,21 @@ class _Compiler:
         return "\n\n".join(functions) + "\n", entry
 
 
+def _functions(
+    root: Parser[Any, Any], internals: Internals, *, values: bool
+) -> tuple[Callable[[Any, list[str | None], int], Any], bool] | None:
+    """The function running `root`, and whether it reads token types; `None` when it cannot be."""
+    try:
+        compiler = _Compiler(root, internals, values=values)
+        source, entry = compiler.source()
+        code = compile(source, "<funcparserlib grammar>", "exec")
+    except (_Declined, SyntaxError, RecursionError, MemoryError):
+        # A `SyntaxError` or `MemoryError` is nesting past what CPython compiles.
+        return None
+    exec(code, compiler.names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
+    return compiler.names[entry], compiler.tests_token_types
+
+
 def compile_grammar[A, B](
     root: Parser[A, B], internals: Internals
 ) -> Callable[[Sequence[A]], tuple[B, int] | None] | None:
@@ -749,17 +775,10 @@ def compile_grammar[A, B](
     The function returns `None` when the interpreted parser has to decide. `compile_grammar` returns
     `None` for a grammar that stays interpreted.
     """
-    try:
-        compiler = _Compiler(root, internals)
-        source, entry = compiler.source()
-        code = compile(source, "<funcparserlib grammar>", "exec")
-    except (_Declined, SyntaxError, RecursionError, MemoryError):
-        # A `SyntaxError` or `MemoryError` is nesting past what CPython compiles.
+    functions = _functions(root, internals, values=False)
+    if functions is None:
         return None
-    exec(code, compiler.names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
-    run: Callable[[Sequence[A], list[str | None], int], tuple[B, int] | None]
-    run = compiler.names[entry]
-    tests_token_types = compiler.tests_token_types
+    run, tests_token_types = functions
 
     def fast(tokens: Sequence[A]) -> tuple[B, int] | None:
         if tests_token_types:
@@ -770,8 +789,38 @@ def compile_grammar[A, B](
         else:
             types = [None] * (len(tokens) + 1)
         try:
-            return run(tokens, types, 0)
+            result: tuple[B, int] | None = run(tokens, types, 0)
         except Exception:  # noqa: BLE001 — whatever it was, the interpreted parser raises it again
             return None
+        return result
+
+    return fast
+
+
+def compile_text[B](
+    root: Parser[Any, B],
+    internals: Internals,
+    scan: Callable[[str], tuple[list[str], list[str | None]] | None],
+) -> Callable[[str], tuple[B, int] | None] | None:
+    """A function giving the value and the end position of the text `scan` splits into tokens.
+
+    It runs on the values and types of the tokens, without `Token` objects, so it returns `None` for
+    a grammar that reads a token any other way than through `tok()`. The function returns `None`
+    when the tokenizer and the interpreted parser have to decide.
+    """
+    functions = _functions(root, internals, values=True)
+    if functions is None:
+        return None
+    run, _ = functions
+
+    def fast(text: str) -> tuple[B, int] | None:
+        try:
+            scanned = scan(text)
+            result: tuple[B, int] | None = None
+            if scanned is not None:
+                result = run(scanned[0], scanned[1], 0)
+        except Exception:  # noqa: BLE001 — whatever it was, the interpreted parser raises it again
+            return None
+        return result
 
     return fast

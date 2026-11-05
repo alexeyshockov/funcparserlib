@@ -188,6 +188,32 @@ funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: '*', expected:
 This makes a failed parse slower, and calls the functions you gave to `>>` twice, so compile a grammar when most of what
 it reads is valid and its `>>` functions only compute a value.
 
+Given a tokenizer, a compiled grammar parses text itself. As long as the grammar reads tokens through `tok()`, this
+makes no `Token` objects, which takes less time and much less memory. What goes wrong is reported as usual, from the
+tokenizer and the parser:
+
+```pycon
+>>> tokenizer = make_tokenizer(
+...     [
+...         TokenSpec("whitespace", r"\s+"),
+...         TokenSpec("int", r"\d+"),
+...         TokenSpec("op", r"[*]"),
+...     ],
+...     skip={"whitespace"},
+... )
+>>> digit = tok("int") >> int
+>>> product = (digit + many(-op("*") + digit) + -finished).compile(tokenizer)
+
+>>> product.parse_text("2 * 3 * 4")
+(2, [3, 4])
+
+>>> product.parse_text("2 * x")
+Traceback (most recent call last):
+    ...
+funcparserlib.lexer.LexerError: cannot tokenize data: 1,5: "2 * x"
+
+```
+
 ## Watch Out for Left Recursion
 
 There are certain kinds grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion in

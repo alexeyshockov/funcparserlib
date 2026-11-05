@@ -188,3 +188,37 @@ def test_render_marks_the_character_no_spec_matches() -> None:
         list(tokenize("ab\ncd?e\nf"))
     assert e.value.render() == "2,3: cannot tokenize data\n2 | cd?e\n      ^"
     assert e.value.render("ab\ncd?e\nf") == e.value.render()
+
+
+# `skip` leaves token types out of the result, not out of the positions.
+
+
+def test_skipped_tokens_keep_the_positions_of_the_others() -> None:
+    tokenize = make_tokenizer(SPECS, skip={"space", "nl"})
+    tokens = list(tokenize("ab  c\n  de"))
+    assert [(t.value, t.start, t.end) for t in tokens] == [
+        ("ab", (1, 1), (1, 2)),
+        ("c", (1, 5), (1, 5)),
+        ("de", (2, 3), (2, 4)),
+    ]
+
+
+@given(TEXT)
+def test_skip_leaves_out_what_a_filter_would(text: str) -> None:
+    every = list(make_tokenizer(SPECS)(text))
+    assert list(make_tokenizer(SPECS, skip={"space"})(text)) == [
+        t for t in every if t.type != "space"
+    ]
+
+
+@pytest.mark.parametrize("skip", [{"spaces"}, "space"])
+def test_skip_of_a_type_no_spec_has_raises(skip: set[str] | str) -> None:
+    with pytest.raises(ValueError, match="token types no specification has"):
+        make_tokenizer(SPECS, skip=skip)
+
+
+def test_a_skipped_token_does_not_hide_text_no_spec_matches() -> None:
+    tokenize = make_tokenizer([TokenSpec("word", r"[a-z]+")], skip={"word"})
+    assert list(tokenize("ab")) == []
+    with pytest.raises(LexerError):
+        list(tokenize("ab?"))

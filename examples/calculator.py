@@ -8,13 +8,14 @@ from funcparserlib.parser import Parser, finished, forward_decl, many, tok
 
 # --8<-- [start:tokenizer]
 tokenize = make_tokenizer(
-    [TokenSpec("space", r"\s+"), TokenSpec("number", r"\d+(\.\d*)?"), TokenSpec("op", r"[-+*/()]")]
+    [TokenSpec("space", r"\s+"), TokenSpec("number", r"\d+(\.\d*)?"), TokenSpec("op", r"[-+*/()]")],
+    skip={"space"},
 )
 
 
 def tokens(text: str) -> list[Token]:
     """The tokens of `text`, without whitespace."""
-    return [t for t in tokenize(text) if t.type != "space"]
+    return list(tokenize(text))
 
 
 # --8<-- [end:tokenizer]

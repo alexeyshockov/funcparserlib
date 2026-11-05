@@ -12,7 +12,7 @@ from hypothesis import strategies as st
 
 from examples import kdl
 from funcparserlib import parser as parser_module
-from funcparserlib.lexer import Token
+from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
@@ -514,3 +514,177 @@ def test_debug_logs_as_the_parser_does(
     with caplog.at_level(logging.DEBUG, logger="funcparserlib"):
         assert compiled.parse(tokens("ab")) == ("x", "x")
     assert "trying" in caplog.text
+
+
+# Text parsed without `Token` objects: `parse_text()` gives what the tokenizer and the parser give.
+
+TEXT_SPECS = [
+    TokenSpec("space", r"[ \n]+"),
+    TokenSpec("a", r"a+"),
+    TokenSpec("b", r"b"),
+    TokenSpec("c", r"(c)x\1"),
+    TokenSpec("empty_in_context", r"(?=z)"),
+]
+tokenizer = make_tokenizer(TEXT_SPECS, skip={"space"})
+
+
+def parse_tokens(grammar: P, text: str) -> object:
+    return grammar.parse(list(tokenizer(text)))
+
+
+def text_outcome(parse: Any, text: str) -> tuple[object, ...]:
+    try:
+        return outcome(parse, text)
+    except LexerError as e:
+        return (LexerError, str(e))
+
+
+def token_leaves() -> st.SearchStrategy[P]:
+    return st.sampled_from("abc").flatmap(
+        lambda t: st.sampled_from(
+            [tok(t), tok(t, "aa"), tok(t, "b"), -tok(t), tok(t) >> str.upper, pure(None), pure("p")]
+        )
+    )
+
+
+def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    pairs = st.tuples(kids, kids)
+    return st.one_of(
+        pairs.map(lambda k: k[0] + k[1]),
+        pairs.map(lambda k: k[0] | k[1]),
+        pairs.map(lambda k: k[0].but_not(k[1])),
+        kids.map(lambda k: k >> wrap),
+        kids.map(lambda k: -k),
+        kids.map(many),
+        kids.map(maybe),
+        kids.map(oneplus),
+        kids.map(commit),
+        kids.map(lambda k: k.when(short)),
+        kids.map(lambda k: k.check(short, "too long")),
+        kids.map(recursive),
+        kids.map(lambda k: k + -finished),
+    )
+
+
+token_grammars = st.recursive(token_leaves(), combined_without_tokens, max_leaves=12)
+texts = st.text("ab cx\nz?", max_size=12)
+
+
+@settings(max_examples=300, deadline=None)
+@given(token_grammars, st.lists(texts, min_size=4, max_size=4))
+def test_parse_text_parses_as_the_tokenizer_and_the_parser(
+    grammar: P, documents: list[str]
+) -> None:
+    compiled = grammar.compile(tokenizer)
+    for text in documents:
+        expected = text_outcome(lambda t: parse_tokens(grammar, t), text)
+        assert text_outcome(compiled.parse_text, text) == expected
+
+
+def test_parse_text_makes_no_tokens() -> None:
+    compiled = (many(tok("a")) + tok("b")).compile(tokenizer)
+    assert compiled._fast_text is not None
+    assert compiled._fast_text("aa b") == ((["aa"], "b"), 2)
+
+
+@pytest.mark.parametrize("text", ["a b", "aa\n b  a"])
+def test_parse_text_leaves_out_the_skipped_types(text: str) -> None:
+    grammar = many(tok("a") | tok("b"))
+    expected = grammar.parse(list(tokenizer(text)))
+    assert grammar.compile(tokenizer).parse_text(text) == expected
+
+
+def test_parse_text_raises_the_lexer_error_of_the_tokenizer() -> None:
+    compiled = many(tok("a")).compile(tokenizer)
+    with pytest.raises(LexerError) as e:
+        compiled.parse_text("aa\na ?")
+    assert e.value.place == (2, 3)
+
+
+def test_parse_text_reads_past_where_the_grammar_stops_as_the_tokenizer_does() -> None:
+    with pytest.raises(LexerError):
+        tok("a").compile(tokenizer).parse_text("a ?")
+
+
+def test_parse_text_raises_the_error_of_the_parser_with_positions() -> None:
+    compiled = (tok("a") + tok("b")).compile(tokenizer)
+    with pytest.raises(NoParseError, match="1,3-1,3: got unexpected token: 'a', expected: b"):
+        compiled.parse_text("a a")
+
+
+def test_parse_text_of_a_pattern_matching_nothing_raises_as_the_tokenizer_does() -> None:
+    with pytest.raises(ValueError, match="matched the empty string"):
+        many(tok("a")).compile(tokenizer).parse_text("az")
+
+
+def test_describe_reaches_an_error_of_parse_text() -> None:
+    compiled = tok("a").compile(tokenizer)
+    with pytest.raises(NoParseError, match="<b>"):
+        compiled.parse_text("b", describe=lambda t: parser_module.TokenDescription(f"<{t.value}>"))
+
+
+def test_a_failed_parse_of_text_calls_a_conversion_in_two_passes() -> None:
+    seen: list[str] = []
+    with pytest.raises(NoParseError):
+        ((tok("a") >> seen.append) + tok("b")).compile(tokenizer).parse_text("a a")
+    assert seen == ["a", "a"]
+
+
+@pytest.mark.parametrize(
+    "grammar",
+    [
+        some(lambda t: t.type == "a") + tok("b"),
+        a(Token("a", "a")) + tok("b"),
+        Parser(tok("a").run) + tok("b"),
+    ],
+)
+def test_a_grammar_that_reads_tokens_parses_text_through_tokens(grammar: P) -> None:
+    compiled = grammar.compile(tokenizer)
+    assert compiled._fast_text is None
+    assert compiled.parse_text("a b") == grammar.parse(list(tokenizer("a b")))
+
+
+def test_specs_that_do_not_join_parse_text_through_tokens() -> None:
+    tokenize = make_tokenizer([TokenSpec("q", r"(?P<q>a)(?P=q)"), TokenSpec("b", r"b")])
+    compiled = (tok("q") + tok("b")).compile(tokenize)
+    assert compiled._fast_text is None
+    assert compiled.parse_text("aab") == ("aa", "b")
+
+
+def test_parse_text_without_a_tokenizer_raises() -> None:
+    with pytest.raises(ValueError, match="without a tokenizer"):
+        tok("a").compile().parse_text("a")
+
+
+def test_parse_text_with_debug_runs_no_generated_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    compiled = (tok("a") + tok("b")).compile(tokenizer)
+    assert compiled._fast_text is not None
+
+    def fail(_text: str) -> None:
+        pytest.fail("generated code ran under debug")
+
+    monkeypatch.setattr(compiled, "_fast_text", fail)
+    monkeypatch.setattr(parser_module, "debug", True)
+    assert compiled.parse_text("a b") == ("a", "b")
+
+
+def test_a_parser_reading_past_the_last_token_stays_in_the_compiled_pass() -> None:
+    compiled = many(tok("a")).compile(tokenizer)
+    assert compiled._fast_text is not None
+    assert compiled._fast_text("a a") == (["a", "a"], 2)
+
+
+def test_a_pattern_matching_nothing_before_a_token_raises_as_the_tokenizer_does() -> None:
+    tokenize = make_tokenizer(
+        [TokenSpec("a", r"a"), TokenSpec("gap", r"(?=z)"), TokenSpec("z", r"z")]
+    )
+    compiled = many(tok("a") | tok("z")).compile(tokenize)
+    with pytest.raises(ValueError, match="matched the empty string"):
+        compiled.parse_text("az")
+
+
+def test_the_kdl_grammar_parses_text_without_tokens() -> None:
+    compiled = kdl.document.compile(kdl.tokenize)
+    assert compiled._fast_text is not None
+    text = 'server "web" port=8080 {\n  (t)route "/api" #true\n}\n'
+    assert compiled.parse_text(text) == kdl.parse(text)

@@ -19,11 +19,11 @@
 
 """Regexp-based tokenizers: turn text into a sequence of `Token` objects for the parser."""
 
-__all__ = ["make_tokenizer", "TokenSpec", "Token", "LexerError", "Place", "Spec"]
+__all__ = ["make_tokenizer", "Tokenizer", "TokenSpec", "Token", "LexerError", "Place", "Spec"]
 
 import dataclasses as dc
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from re import Pattern
 from typing import Any, final
 
@@ -202,11 +202,94 @@ class Token:
         return f"{self._pos_str().ljust(20)} {self.type.ljust(14)} '{self.value}'"
 
 
-def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterable[Token]]:
+@final
+class Tokenizer:
+    """A function from text to tokens.
+
+    Users get it from `make_tokenizer()`; its constructor is internal.
+    """
+
+    def __init__(self, specs: tuple[tuple[str, Pattern[str]], ...], skip: frozenset[str]) -> None:
+        """A tokenizer of `specs` that leaves out the token types in `skip`."""
+        self._specs = specs
+        self._skip = skip
+        combined = _combined(specs)
+        self._pattern: Pattern[str] | None = combined[0] if combined is not None else None
+        self._types: list[str] = combined[1] if combined is not None else []
+
+    def _first_match(self, s: str, i: int) -> tuple[str, re.Match[str] | None]:
+        for token_type, regexp in self._specs:
+            if m := regexp.match(s, i):
+                return token_type, m
+        return "", None
+
+    def __call__(self, s: str) -> Iterable[Token]:
+        """The tokens of `s`, one at a time.
+
+        Raises `LexerError` on reaching text no token spec matches.
+        """
+        pattern, types, skip = self._pattern, self._types, self._skip
+        length = len(s)
+        line, pos = 1, 0
+        i = 0
+        while i < length:
+            if pattern is not None:
+                m = pattern.match(s, i)
+                token_type = types[m.lastindex or 0] if m is not None else ""
+            else:
+                token_type, m = self._first_match(s, i)
+            if m is None:
+                # Lines are counted by "\n" alone, as the token positions are.
+                raise LexerError((line, pos + 1), s.split("\n")[line - 1].rstrip("\r"))
+            value = m.group()
+            if not value:
+                raise ValueError(
+                    f"the pattern of token {token_type!r} matched the empty string"
+                    f" at {line},{pos + 1}"
+                )
+            nls = value.count("\n")
+            if nls:
+                end_line, end_pos = line + nls, len(value) - value.rfind("\n") - 1
+            else:
+                end_line, end_pos = line, pos + len(value)
+            if token_type not in skip:
+                yield Token(token_type, value, (line, pos + 1), (end_line, end_pos))
+            line, pos = end_line, end_pos
+            i = m.end()
+
+    def _scan(self, s: str) -> tuple[list[str], list[str | None]] | None:
+        """The values and the types of the tokens of `s`, the types ending in `None`.
+
+        `None` when the tokens do not add up to `s`, or a pattern matched the empty string: then
+        `Tokenizer.__call__()` has an error to raise. This reads one pattern, so it takes specs that
+        join into one.
+        """
+        pattern, types, skip = self._pattern, self._types, self._skip
+        if pattern is None:
+            return None
+        values: list[str] = []
+        kinds: list[str | None] = []
+        end = 0
+        for m in pattern.finditer(s):
+            value = m.group()
+            if not value:
+                return None
+            end += len(value)
+            token_type = types[m.lastindex or 0]
+            if token_type not in skip:
+                values.append(value)
+                kinds.append(token_type)
+        if end != len(s):
+            return None
+        kinds.append(None)
+        return values, kinds
+
+
+def make_tokenizer(specs: Sequence[TokenSpec | Spec], *, skip: Collection[str] = ()) -> Tokenizer:
     # noinspection GrazieInspection
     """Make a function that tokenizes text based on the regexp specs.
 
-    Type: `(Sequence[TokenSpec | Tuple]) -> Callable[[str], Iterable[Token]]`
+    Type: `(Sequence[TokenSpec | Tuple]) -> Tokenizer`
 
     A token spec is `TokenSpec` instance.
 
@@ -217,8 +300,11 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
         positional arguments for `re.compile()`: either just (_pattern_,) or
         (_pattern_, _flags_).
 
-    It returns a tokenizer function that takes a string and returns an iterable of `Token` objects,
-    or raises `LexerError` if it cannot tokenize the string according to its token specs.
+    It returns a `Tokenizer`, a function that takes a string and returns an iterable of `Token`
+    objects, or raises `LexerError` if it cannot tokenize the string according to its token specs.
+
+    The token types in `skip` are read and left out of the result, which suits whitespace and
+    comments. A name no spec has raises `ValueError`.
 
     Examples:
         ```pycon
@@ -226,9 +312,9 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
         ...     TokenSpec("space", r"\\s+"),
         ...     TokenSpec("id", r"\\w+"),
         ...     TokenSpec("op", r"[,!]"),
-        ... ])
+        ... ], skip={"space"})
         >>> text = "Hello, World!"
-        >>> [t for t in tokenize(text) if t.type != "space"]  # noqa
+        >>> list(tokenize(text))
         [Token('id', 'Hello'), Token('op', ','), Token('id', 'World'), Token('op', '!')]
         >>> text = "Bye?"
         >>> list(tokenize(text))
@@ -254,41 +340,10 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
             yield token_type, regexp
 
     compiled = tuple(compile_specs())
-    combined = _combined(compiled)
-    pattern, types = combined if combined is not None else (None, [])
-
-    def first_match(s: str, i: int) -> tuple[str, re.Match[str] | None]:
-        for token_type, regexp in compiled:
-            if m := regexp.match(s, i):
-                return token_type, m
-        return "", None
-
-    def f(s: str) -> Iterable[Token]:
-        length = len(s)
-        line, pos = 1, 0
-        i = 0
-        while i < length:
-            if pattern is not None:
-                m = pattern.match(s, i)
-                token_type = types[m.lastindex or 0] if m is not None else ""
-            else:
-                token_type, m = first_match(s, i)
-            if m is None:
-                # Lines are counted by "\n" alone, as the token positions are.
-                raise LexerError((line, pos + 1), s.split("\n")[line - 1].rstrip("\r"))
-            value = m.group()
-            if not value:
-                raise ValueError(
-                    f"the pattern of token {token_type!r} matched the empty string"
-                    f" at {line},{pos + 1}"
-                )
-            nls = value.count("\n")
-            if nls:
-                end_line, end_pos = line + nls, len(value) - value.rfind("\n") - 1
-            else:
-                end_line, end_pos = line, pos + len(value)
-            yield Token(token_type, value, (line, pos + 1), (end_line, end_pos))
-            line, pos = end_line, end_pos
-            i = m.end()
-
-    return f
+    unknown = set(skip) - {token_type for token_type, _ in compiled}
+    if unknown:
+        raise with_hint(
+            ValueError(f"skip names token types no specification has: {sorted(unknown)}"),
+            "Name the token types of the specs, as a collection of strings: `skip={'space'}`.",
+        )
+    return Tokenizer(compiled, frozenset(skip))

@@ -6,7 +6,7 @@ The assertions are static, made by `just types-api`; see this directory's confte
 from collections.abc import Callable
 from typing import assert_type
 
-from funcparserlib.lexer import Token
+from funcparserlib.lexer import Token, make_tokenizer
 from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
@@ -56,6 +56,7 @@ _ = assert_type((x + x) >> join, Parser[str, str])
 
 _ = assert_type(n.compile(), CompiledParser[Token, int])
 _ = assert_type(n.compile().parse([]), int)
+_ = assert_type(n.compile(make_tokenizer([])).parse_text(""), int)
 _ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
 _ = assert_type(many(n), Parser[Token, list[int]])

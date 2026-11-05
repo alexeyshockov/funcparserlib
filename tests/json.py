@@ -63,7 +63,7 @@ JsonMember = tuple[str, JsonValue]
 
 
 def tokenize(s: str) -> list[Token]:
-    return [x for x in _tokenizer()(s) if x.type != "space"]
+    return list(_tokenizer()(s))
 
 
 # Built once: the specs and the grammar do not depend on the input.
@@ -86,7 +86,7 @@ def _tokenizer() -> Callable[[str], Iterable[Token]]:
         TokenSpec("op", r"[{}\[\]\-,:]"),
         TokenSpec("name", r"[A-Za-z_][A-Za-z_0-9]*"),
     ]
-    return make_tokenizer(specs)
+    return make_tokenizer(specs, skip={"space"})
 
 
 def parse(tokens: Sequence[Token]) -> JsonValue:

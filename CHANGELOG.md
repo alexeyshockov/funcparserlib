@@ -26,6 +26,9 @@ messages name what was expected more precisely; see Changed.
 - Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
 - `Parser.compile()`: a grammar as generated Python functions, several times faster for the parses that succeed. A
   `CompiledParser` gives the values and the errors of the parser it comes from
+- `make_tokenizer(specs, skip=...)` leaves token types such as whitespace out of the result, and returns a `Tokenizer`
+- `Parser.compile(tokenizer)` and `CompiledParser.parse_text(text)`: text parsed without making `Token` objects, as long
+  as the grammar reads tokens through `tok()`
 - `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
   `NoParseError.render()` does
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
