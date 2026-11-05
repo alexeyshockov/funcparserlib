@@ -64,6 +64,9 @@ __all__ = [
     "Parser",
     "CompiledParser",
     "longest",
+    "prefixed",
+    "counted",
+    "switch",
     "ForwardDeclParser",
     "State",
     "NoParseError",
@@ -92,7 +95,7 @@ __all__ = [
 import logging
 import re
 import warnings
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from operator import attrgetter
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
@@ -146,6 +149,33 @@ class _Character:
         self.value = value
         self.start = place
         self.end = place
+
+
+class _Byte(int):
+    """A byte, shown in hexadecimal with its offset."""
+
+    offset: int
+
+    def __new__(cls, value: int, offset: int) -> Self:
+        byte = super().__new__(cls, value)
+        byte.offset = offset
+        return byte
+
+    def __str__(self) -> str:
+        return f"0x{int(self):02x} at offset 0x{self.offset:x}"
+
+
+class _Offsets(Sequence[Any]):
+    """The bytes of a buffer, for errors: each knows its offset."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __getitem__(self, i: Any) -> Any:
+        return _Byte(self._data[i], i)
 
 
 class _Located(Sequence[Any]):
@@ -746,6 +776,17 @@ class Parser[A, B]:
         res = self.run(cast("Any", text), State(start, start))
         return self._result(res, _Located(text, skip), _describe)
 
+    def parse_bytes(self, data: bytes) -> B:
+        """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
+
+        Type: `(bytes) -> B`
+
+        It is for a grammar of the parsers of `funcparserlib.binary.Binary`, and raises what
+        `Parser.parse()` raises.
+        """
+        res = self.run(cast("Any", data), State(0, 0))
+        return self._result(res, _Offsets(data), _describe)
+
     def _result(
         self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
     ) -> B:
@@ -798,6 +839,7 @@ class Parser[A, B]:
         from ._compile import Internals, compile_grammar, compile_text, reads_text, reads_tokens  # noqa: PLC0415
 
         internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
+        # What reads text reads bytes too: generated code takes either.
         if reads_text(self):
             fast_text = compile_text(self, internals, None)
             return CompiledParser(self, None, None, fast_text, reads_tokens=False)
@@ -1395,6 +1437,13 @@ class CompiledParser[A, B]:
                 res = None
         return res[0] if res is not None else self._interpreted(text, describe)
 
+    def parse_bytes(self, data: bytes) -> B:
+        """Parse the bytes, as `Parser.parse_bytes()` does.
+
+        Type: `(bytes) -> B`
+        """
+        return self.parse_text(cast("Any", data))
+
     def _interpreted(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
         """The result of `text` without the functions generated for text."""
         if self._tokenizer is None:
@@ -1404,6 +1453,8 @@ class CompiledParser[A, B]:
                     "Pass the tokenizer of the grammar to `Parser.compile()`:"
                     " `grammar.compile(tokenize)`.",
                 )
+            if isinstance(text, bytes):
+                return self._parser.parse_bytes(text)
             return self._parser.parse_text(text)
         tokens: list[Any] = []
         try:
@@ -1430,7 +1481,7 @@ class CompiledParser[A, B]:
             raise e from error
         raise error
 
-    def try_parse(self, text: str) -> B | None:
+    def try_parse(self, text: str | bytes) -> B | None:
         """The value of `text`, or `None` where it does not parse.
 
         Type: `(str) -> B | None`
@@ -1443,15 +1494,175 @@ class CompiledParser[A, B]:
         """
         if self._fast_text is not None and not debug:
             try:
-                res = self._fast_text(text)
+                res = self._fast_text(cast("str", text))
             except _Undecided:
                 pass
             else:
                 return None if res is None else res[0]
         try:
-            return self._interpreted(text, None)
+            return self._interpreted(cast("str", text), None)
         except (NoParseError, ParseErrors, LexerError, RecursionError):
             return None
+
+
+def _moved(s: State, offset: int) -> State:
+    """`s` of a region that starts at `offset`, in the input around it."""
+    problems = tuple(
+        CheckFailure(p.message, p.start + offset, p.end + offset, p.context) for p in s.problems
+    )
+    return State(s.pos + offset, s.max + offset, s.expected, s.context, problems)
+
+
+def _read_region(
+    p: Parser[Any, Any],
+    body: Parser[Any, Any],
+    region: Sequence[Any],
+    start: int,
+    at: State,
+    s: State,
+) -> ParsingResult[Any]:
+    """What `body` of `p` gives for `region`, in the state of the input around it.
+
+    `at` is the state at `start`, and `s` the one `p` started in.
+    """
+    inner = body.run(region, State(0, 0, (), at.context, ()))
+    st = _moved(inner.state, start)
+    problems = (*at.problems, *st.problems)
+    moved = State(st.pos, max(st.max, s.max), st.expected, s.context, problems)
+    if inner.__class__ is ParsingError:
+        return inner.replace_state(moved)
+    if inner.state.pos != len(region):
+        return ParsingError(moved.expect(p))
+    return ParsingSuccess(inner.value, moved)
+
+
+@overload
+def prefixed(length: Parser[int, int]) -> Parser[int, bytes]: ...
+
+
+@overload
+def prefixed(length: Parser[str, int]) -> Parser[str, str]: ...
+
+
+@overload
+def prefixed[A, B](length: Parser[A, int], body: Parser[A, B]) -> Parser[A, B]: ...
+
+
+def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> Parser[Any, Any]:
+    """Return a parser of as many tokens as `length` parses, as they are or through `body`.
+
+    Type: `(Parser[A, int]) -> Parser[A, bytes | str]`,
+    `(Parser[A, int], Parser[A, B]) -> Parser[A, B]`
+
+    It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
+    parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
+    length that is negative or runs past the input fails.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.binary import Binary
+        >>> b = Binary()
+        >>> prefixed(b.byte).parse_bytes(b"\\x02hi")
+        b'hi'
+        >>> prefixed(b.byte, many(b.byte)).parse_bytes(b"\\x02hi")
+        [104, 105]
+        >>> prefixed(b.byte).parse_bytes(b"\\x09hi")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: length 9 runs past the end: 0x09 at offset 0x0
+
+        ```
+    """
+
+    @_parser(f"tokens counted by {length.name}", shape=True)
+    def _prefixed(tokens: Sequence[Any], s: State) -> ParsingResult[Any]:
+        res = length.run(tokens, s)
+        if res.__class__ is ParsingError:
+            return res
+        start = res.state.pos
+        end = start + res.value
+        if res.value < 0 or end > len(tokens):
+            return ParsingError(s, f"length {res.value} runs past the end")
+        region = tokens[start:end]
+        if body is None:
+            return ParsingSuccess(region, res.state.reset_pos(end))
+        return _read_region(_prefixed, body, region, start, res.state, s)
+
+    _prefixed._form = ("prefixed", length, body)
+    return _prefixed
+
+
+def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B]]:
+    """Return a parser of as many of `item` as `length` parses, in a list.
+
+    Type: `(Parser[A, int], Parser[A, B]) -> Parser[A, list[B]]`
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.binary import Binary
+        >>> b = Binary()
+        >>> counted(b.byte, b.fixed(">H")).parse_bytes(b"\\x02\\x00\\x01\\x00\\x02")
+        [1, 2]
+
+        ```
+    """
+
+    @_parser(f"items counted by {length.name}", shape=True)
+    def _counted(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
+        res = length.run(tokens, s)
+        if res.__class__ is ParsingError:
+            return cast("ParsingResult[list[B]]", res)
+        items: list[B] = []
+        st = res.state
+        for _ in range(res.value):
+            read = item.run(tokens, st)
+            if read.__class__ is ParsingError:
+                return cast("ParsingResult[list[B]]", read)
+            items.append(read.value)
+            st = read.state
+        return ParsingSuccess(items, st)
+
+    _counted._form = ("counted", length, item)
+    return _counted
+
+
+def switch[A, K, B](key: Parser[A, K], cases: Mapping[K | range, Parser[A, B]]) -> Parser[A, B]:
+    """Return a parser that reads `key`, then runs the parser `cases` holds for its value.
+
+    Type: `(Parser[A, K], Mapping[K | range, Parser[A, B]]) -> Parser[A, B]`
+
+    A key of `cases` is a value, or a `range` of values. For a value `cases` has no parser for, it
+    fails at the start of `key`. Unlike `p1 | p2`, no other case is tried.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.binary import Binary
+        >>> b = Binary()
+        >>> field = switch(b.byte, {1: b.fixed(">H"), range(2, 4): b.byte})
+        >>> field.parse_bytes(b"\\x01\\x00\\x07")
+        7
+        >>> field.parse_bytes(b"\\x03\\x07")
+        7
+
+        ```
+    """
+    table: dict[Any, Parser[A, B]] = {}
+    for case, p in cases.items():
+        for value in case if isinstance(case, range) else (case,):
+            table[value] = p
+
+    @_parser(f"one of the cases of {key.name}", shape=True)
+    def _switch(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        res = key.run(tokens, s)
+        if res.__class__ is ParsingError:
+            return cast("ParsingResult[B]", res)
+        p = table.get(res.value)
+        if p is None:
+            return ParsingError(s.expect(_switch))
+        return p.run(tokens, res.state)
+
+    _switch._form = ("switch", key, table)
+    return _switch
 
 
 @overload
@@ -1631,7 +1842,10 @@ def _parse_error[A](
     context = tuple(reversed(common))
     token: A | None = None
     description: TokenDescription | None
-    if st.max >= len(tokens) and isinstance(tokens, _Located):
+    if st.max >= len(tokens) and isinstance(tokens, _Offsets):
+        description = None
+        found = f"got unexpected end of input at offset 0x{len(tokens):x}"
+    elif st.max >= len(tokens) and isinstance(tokens, _Located):
         description = tokens.end()
         found = f"{_where(description)}got unexpected end of input"
     elif st.max < len(tokens):
@@ -1657,7 +1871,11 @@ def _problem_error[A](
     """The `NoParseError` of a failed `Parser.check()`, spanning the tokens it checked."""
     token: A | None = None
     description: TokenDescription | None
-    if isinstance(tokens, _Located):
+    if isinstance(tokens, _Offsets):
+        description = None
+        message = f"offset 0x{problem.start:x}: {problem.message}"
+        problem = CheckFailure(message, problem.start, problem.end, problem.context)
+    elif isinstance(tokens, _Located):
         in_text = problem.start < len(tokens)
         description = tokens.span(problem.start, problem.end) if in_text else tokens.end()
     elif problem.start < len(tokens):

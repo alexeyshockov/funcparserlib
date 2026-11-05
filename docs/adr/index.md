@@ -7,3 +7,4 @@ The architectural decisions behind funcparserlib, one record each. A new one sta
 - [ADR 0002 — A compiled pass for the parses that succeed](0002-a-compiled-pass-for-parses-that-succeed.md)
 - [ADR 0003 — Compiled grammars read text without tokens](0003-compiled-grammars-read-text-without-tokens.md)
 - [ADR 0004 — One definition per grammar](0004-one-definition-per-grammar.md)
+- [ADR 0005 — Byte grammars](0005-byte-grammars.md)

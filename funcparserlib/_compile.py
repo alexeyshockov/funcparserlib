@@ -45,6 +45,9 @@ _GROUP_SIZE = 32
 _MAX_START_TESTS = 16
 """A `commit()` with more token tests at its start leaves its failures to the interpreted parser."""
 
+_READS_INPUT = ("text", "text_end", "byte", "fixed", "previous")
+"""The forms of parsers that read text or bytes, and no tokens."""
+
 _TOKEN_CLASS = {Token}
 _token_type = attrgetter("type")
 
@@ -102,17 +105,23 @@ def _target(p: Parser[Any, Any]) -> Parser[Any, Any]:
 
 def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
     """The parsers `p` runs."""
+    found: list[Parser[Any, Any]]
     match _form(p):
-        case ("seq" | "alt" | "but_not", left, right):
-            return [_target(left), _target(right)]
+        case ("seq" | "alt" | "but_not" | "counted", left, right):
+            found = [left, right]
         case ("map" | "starmap" | "check" | "when", inner, _):
-            return [_target(inner)]
+            found = [inner]
         case ("ignore" | "many" | "oneplus" | "commit" | "context", inner):
-            return [_target(inner)]
+            found = [inner]
         case ("longest", parsers):
-            return [_target(q) for q in parsers]
+            found = list(parsers)
+        case ("prefixed", length, body):
+            found = [length] if body is None else [length, body]
+        case ("switch", key, cases):
+            found = [key, *cases.values()]
         case _:
-            return []
+            found = []
+    return [_target(q) for q in found]
 
 
 class _Compiler:
@@ -135,6 +144,7 @@ class _Compiler:
         self.constants: dict[int, str] = {}
         self.functions: dict[tuple[int, bool], str] = {}
         self.pending: list[tuple[Callable[[_Next], None], bool, str]] = []
+        self.tables: dict[str, dict[Any, str]] = {}
         self.lines: list[str] = []
         self.indent = 1
         self.loops = 0
@@ -206,8 +216,12 @@ class _Compiler:
                 result = frozenset(), True
             case ("finished",) | ("opaque",) | ("text_end", _):
                 result = None, True
-            case ("text", _, _, _):
+            case ("text", _, _, _) | ("byte",) | ("fixed", _, _):
                 result = None, False
+            case ("previous", _):
+                result = None, True
+            case ("prefixed" | "counted" | "switch", length, _):
+                result = None, of(length)[1]
             case ("longest", parsers):
                 found = [of(q) for q in parsers]
                 keys = [f for f, _ in found]
@@ -239,7 +253,9 @@ class _Compiler:
                     kind = "plain"
             case ("ignore", _):
                 kind = "ignored"
-            case ("many" | "oneplus", _) | ("text", _, _, _):
+            case ("many" | "oneplus", _) | ("text", _, _, _) | ("byte",) | ("previous", _):
+                kind = "plain"
+            case ("fixed", _, _) | ("counted", _, _) | ("prefixed", _, None):
                 kind = "plain"
             case ("longest", parsers):
                 kinds = {self.kind(q) for q in parsers}
@@ -375,6 +391,10 @@ class _Compiler:
         match _form(p):
             case ("test",) | ("opaque",) | ("text", _, _, _) | ("text_end", _):
                 return self.leaf_start_tests(p, pos)
+            case ("byte",) | ("fixed", _, _) | ("prefixed" | "counted" | "switch", _, _):
+                return None
+            case ("previous", _):
+                return []
             case ("longest", found):
                 parts = list(found)
             case ("seq", left, right):
@@ -444,6 +464,126 @@ class _Compiler:
     def emit_text_end(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         start = self.after_skip(_form(p)[1], pos)
         self.block(f"if {start} >= len(T):", lambda: then(start, _Value("plain", "None")))
+
+    def emit_byte(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        def body() -> None:
+            at = self.named_position(f"{pos} + 1")
+            then(at, _Value("plain", f"T[{pos}]") if want else None)
+
+        self.block(f"if {pos} < len(T):", body)
+
+    def emit_previous(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        value = _Value("plain", f"(T[{pos} - 1] & {_form(p)[1]})")
+        self.block(f"if {pos} > 0:", lambda: then(pos, value if want else None))
+
+    def emit_fixed(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        _, unpack, size = _form(p)
+
+        def body() -> None:
+            at = self.named_position(f"{pos} + {size}")
+            then(
+                at, _Value("plain", f"{self.constant(unpack, 'U')}(T, {pos})[0]") if want else None
+            )
+
+        self.block(f"if {pos} + {size} <= len(T):", body)
+
+    def function_for(self, p: Parser[Any, Any], want: bool) -> str:
+        """The name of the function of `p`, which `pending` gets on the first call."""
+        p = _target(p)
+        key = (id(p), want)
+        function = self.functions.get(key)
+        if function is None:
+            function = self.functions[key] = self.fresh("f")
+
+            def body(result: _Next) -> None:
+                self.emit(p, "p0", want, result, inline=True)
+
+            self.pending.append((body, want, function))
+        return function
+
+    def emit_prefixed(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        _, length, body = _form(p)
+        if self.values:
+            raise _Declined(f"{p.name} reads tokens, and there are only their values")
+
+        def after(at: str, value: _Value | None) -> None:
+            size = self.bound(value or _Value("ignored")).expr
+            end = self.named_position(f"{at} + {size}")
+
+            def read() -> None:
+                if body is None:
+                    then(end, _Value("plain", f"T[{at}:{end}]") if want else None)
+                    return
+                function = self.function_for(body, True)
+                res, name, stop = self.fresh("r"), self.fresh("v"), self.fresh("p")
+                self.line(f"{res} = {function}(T[{at}:{end}], Y[{at}:{end}] + [None], 0)")
+
+                def done() -> None:
+                    self.line(f"{name}, {stop} = {res}")
+                    kind = self.kind(body)
+                    self.block(
+                        f"if {stop} == {size}:",
+                        lambda: then(end, _Value(kind, name) if want else None),
+                    )
+
+                self.block(f"if {res} is not None:", done)
+
+            self.block(f"if {size} >= 0 and {end} <= len(T):", read)
+
+        self.emit(length, pos, True, after)
+
+    def emit_counted(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        _, length, item = _form(p)
+
+        def after(start: str, value: _Value | None) -> None:
+            size = self.bound(value or _Value("ignored")).expr
+            at, acc, count, read = (self.fresh(x) for x in ("p", "a", "c", "ok"))
+            self.line(f"{at} = {start}")
+            self.line(f"{acc} = []")
+            self.line(f"{count} = 0")
+            self.line(f"{read} = True")
+
+            def body() -> None:
+                self.line(f"{count} += 1")
+
+                def store(end: str, value: _Value | None) -> None:
+                    self.line(f"{acc}.append({value.expr if value else 'IGNORED'})")
+                    self.line(f"{at} = {end}")
+                    self.line("continue")
+
+                self.emit(item, at, True, store)
+                self.line(f"{read} = False")
+                self.line("break")
+
+            self.loops += 1
+            self.block(f"while {count} < {size}:", body)
+            self.loops -= 1
+            self.block(f"if {read}:", lambda: then(at, _Value("plain", acc) if want else None))
+
+        self.emit(length, pos, True, after)
+
+    def emit_switch(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        _, key, table = _form(p)
+        name = self.fresh("J")
+        self.tables[name] = {k: self.function_for(q, True) for k, q in table.items()}
+
+        def after(end: str, value: _Value | None) -> None:
+            k = self.bound(value or _Value("ignored")).expr
+            function, res, name_v, at = (self.fresh(x) for x in ("g", "r", "v", "p"))
+            self.line(f"{function} = {name}.get({k})")
+
+            def called() -> None:
+                self.line(f"{res} = {function}(T, Y, {end})")
+
+                def got() -> None:
+                    self.line(f"{name_v}, {at} = {res}")
+                    then(at, _Value("unknown", name_v) if want else None)
+
+                self.block(f"if {res} is not None:", got)
+
+            self.block(f"if {function} is not None:", called)
+
+        self.emit(key, pos, True, after)
 
     def emit_longest(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         best, name = self.fresh("p"), self.fresh("v")
@@ -847,8 +987,11 @@ def _functions(
     except (_Declined, SyntaxError, RecursionError, MemoryError):
         # A `SyntaxError` or `MemoryError` is nesting past what CPython compiles.
         return None
-    exec(code, compiler.names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
-    return compiler.names[entry], compiler.tests_token_types
+    names = compiler.names
+    exec(code, names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
+    for table, functions in compiler.tables.items():
+        names[table] = {key: names[function] for key, function in functions.items()}
+    return names[entry], compiler.tests_token_types
 
 
 def compile_grammar[A, B](
@@ -890,7 +1033,7 @@ def reads_text(root: Parser[Any, Any]) -> bool:
             p = _target(stack.pop())
             if id(p) not in seen:
                 seen.add(id(p))
-                if _form(p)[0] in ("text", "text_end"):
+                if _form(p)[0] in _READS_INPUT:
                     return True
                 stack += _parts(p)
     except _Declined:
