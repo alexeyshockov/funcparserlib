@@ -248,7 +248,9 @@ def test_yaml_rejects_what_the_subset_does_not_cover(text: str, message: str) ->
     ("text", "message"),
     [
         ("a: *nope\n", "undefined alias 'nope' at (1, 4)"),
-        ("a: 1\na: 2\n", "duplicate key 'a' at (2, 1)"),
+        ("a: 1\na: 2\n", "repeated key 'a' at (2, 1)"),
+        ("1: a\ntrue: b\n", "repeated key True at (2, 1)"),
+        ("<<: {a: 1}\n<<: {b: 2}\n", "repeated key '<<' at (2, 1)"),
         ("<<: 1\n", "merge value is not a mapping at (1, 1)"),
     ],
 )
@@ -256,6 +258,11 @@ def test_yaml_rejects_a_document_without_a_meaning(text: str, message: str) -> N
     with pytest.raises(yaml.ResolveError) as e:
         yaml.parse(text)
     assert str(e.value) == message
+
+
+def test_yaml_too_deep_a_document_raises_recursion_error() -> None:
+    with pytest.raises(RecursionError):
+        yaml.parse("[" * 5000 + "]" * 5000)
 
 
 YAML_FRAGMENTS = ["a", "1", "'q'", "- ", "k: ", "[", "]", "{", "}", ", ", "&x ", "*x", "<<: ", "|"]

@@ -10,7 +10,8 @@ every block below is included from it.
 
 The parser reads one document of block and flow collections, scalars of every style, anchors, aliases and merge keys.
 Plain scalars follow the YAML 1.2 core schema, so `no` is a string and `0o17` is a number. It leaves out tags,
-directives, multiple documents and keys that are not scalars. A duplicate key is an error.
+directives, multiple documents and keys that are not scalars. A repeated key is an error. The result is made of dicts,
+so `1` and `true` count as the same key: Python takes them as equal, and a dict would keep only one.
 
 ## The token stream
 

@@ -8,7 +8,8 @@ schema.
 
 The subset is one document of block and flow collections, scalars, anchors, aliases and merge keys.
 A tag, a directive, a second document or a key that is not a scalar fails with `NoParseError`,
-naming the token and its place. A duplicate key or an undefined alias fails with `ResolveError`.
+naming the token and its place. A repeated key or an undefined alias fails with `ResolveError`. The
+result is made of dicts, so keys that Python takes as equal, such as `1` and `true`, repeat.
 """
 
 from __future__ import annotations
@@ -277,6 +278,22 @@ def resolve(root: Node) -> object:
             for k, v in mapping.items():
                 into.setdefault(k, v)
 
+    def fill(result: dict[object, object], pairs: list[Pair]) -> None:
+        merged: dict[object, object] | None = None
+        for pair in pairs:
+            if pair.key.plain and pair.key.text == "<<":
+                if merged is not None:
+                    raise ResolveError(f"repeated key '<<' at {pair.key.place}")
+                merged = {}
+                merge(merged, value_of(pair.value), pair.key.place)
+                continue
+            k = value_of(pair.key)
+            if k in result:
+                raise ResolveError(f"repeated key {k!r} at {pair.key.place}")
+            result[k] = value_of(pair.value)
+        for k, v in (merged or {}).items():
+            result.setdefault(k, v)
+
     def value_of(n: Node) -> object:
         match n:
             case Alias(name, place):
@@ -299,17 +316,7 @@ def resolve(root: Node) -> object:
                 result_map: dict[object, object] = {}
                 if name is not None:
                     anchors[name] = result_map
-                merged: dict[object, object] = {}
-                for pair in pairs:
-                    if pair.key.plain and pair.key.text == "<<":
-                        merge(merged, value_of(pair.value), pair.key.place)
-                        continue
-                    k = value_of(pair.key)
-                    if k in result_map:
-                        raise ResolveError(f"duplicate key {k!r} at {pair.key.place}")
-                    result_map[k] = value_of(pair.value)
-                for k, v in merged.items():
-                    result_map.setdefault(k, v)
+                fill(result_map, pairs)
                 return result_map
 
     return value_of(root)
@@ -323,7 +330,8 @@ def parse(text: str) -> object:
     """The value of the YAML document `text`.
 
     Raises `ruamel.yaml.error.YAMLError` for text the scanner rejects, `NoParseError` for what the
-    grammar does not cover, and `ResolveError` for a document without a meaning.
+    grammar does not cover, `ResolveError` for a document without a meaning, and `RecursionError`
+    for one nested too deeply.
     """
     tokens = list(YAML(typ="safe", pure=True).scan(text))
     return resolve(document.parse(tokens, describe=describe))
