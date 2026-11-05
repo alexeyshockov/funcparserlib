@@ -1,5 +1,6 @@
 import warnings
 from collections.abc import Sequence
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -17,6 +18,7 @@ from funcparserlib.parser import (
     a,
     anything_but,
     finished,
+    forward_decl,
     many,
     maybe,
     oneplus,
@@ -270,7 +272,7 @@ def either(p: Parser[str, Any], q: Parser[str, Any]) -> Parser[str, Any]:
         if not isinstance(res, ParsingFailure) or res.committed:
             return res
         st = res.state
-        return q.run(tokens, State(s.pos, st.max, st.expected, s.context, s.problems))
+        return q.run(tokens, replace(s, max=st.max, expected=st.expected))
 
     return tried
 
@@ -290,3 +292,26 @@ def test_a_parsing_function_that_backtracks_reads_as_the_choice_does(text: str) 
 def test_a_parsing_function_that_backtracks_drops_the_failed_branch_checks() -> None:
     x = a("x").check(lambda _: False, "bad x")
     assert either(x + a("y"), a("x") + a("z")).parse("xz") == ("x", "z")
+
+
+def test_a_parsing_function_that_reads_run_sees_a_later_name() -> None:
+    p = a("x") + a("y")
+
+    @parser(None)
+    def reads(tokens: Sequence[str], s: State) -> ParsingResult[Any]:
+        return p.run(tokens, s)
+
+    p.named("pair")
+    with pytest.raises(NoParseError, match="expected: pair"):
+        reads.parse("z")
+
+
+def test_a_parsing_function_that_reads_run_sees_a_later_definition() -> None:
+    declared = forward_decl()
+
+    @parser(None)
+    def reads(tokens: Sequence[str], s: State) -> ParsingResult[Any]:
+        return declared.run(tokens, s)
+
+    declared.define(a("x"))
+    assert reads.parse("x") == "x"

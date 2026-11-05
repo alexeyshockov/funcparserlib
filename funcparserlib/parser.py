@@ -546,8 +546,10 @@ class Parser[A, B]:
     `ParsingFailure` if the parser fails; it does not raise `NoParseError`.
 
     A parsing function calls it to run other parsers; see `parser()`. `Parser.named()` and
-    `ForwardDeclParser.define()` replace it, so read `p.run` at each call instead of keeping it. To
-    parse a whole input, use `Parser.parse(tokens)`, which raises an error for a failure.
+    `ForwardDeclParser.define()` replace it, so read `p.run` at each call instead of keeping it.
+    `Parser(p)` and `define(p)` keep the `run` that `p` has then, so a later `p.named()` does not
+    reach them. To parse a whole input, use `Parser.parse(tokens)`, which raises an error for a
+    failure.
     """
 
     name: str | None = None
@@ -1722,7 +1724,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     `s.expect(p)`, where `p` is the parser that failed, so that the error names it.
 
     A function that tries another parser after a failure, whose state is `st`, goes on from
-    `State(s.pos, st.max, st.expected, s.context, s.problems)`, as `|` does: the error still names
+    `dataclasses.replace(s, max=st.max, expected=st.expected)`, as `|` does: the error still names
     what failed furthest, and what the failed parser recorded is gone. `st.reset_pos(s.pos)` keeps
     the `Parser.check()` errors of the failed parser, which reject input `|` accepts.
 
@@ -1743,6 +1745,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
         ```
 
         ```pycon
+        >>> from dataclasses import replace
         >>> def either(p, q):
         ...     @parser(None)
         ...     def tried(tokens, s):
@@ -1750,7 +1753,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
         ...         if not isinstance(res, ParsingFailure) or res.committed:
         ...             return res
         ...         st = res.state
-        ...         return q.run(tokens, State(s.pos, st.max, st.expected, s.context, s.problems))
+        ...         return q.run(tokens, replace(s, max=st.max, expected=st.expected))
         ...     return tried
         >>> pair = either(a("x") + a("y"), a("z"))
         >>> pair.parse("z")
