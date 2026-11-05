@@ -48,6 +48,9 @@ _MAX_START_TESTS = 16
 _READS_INPUT = ("text", "text_end", "byte", "fixed", "previous")
 """The forms of parsers that read text or bytes, and no tokens."""
 
+_FILENAME = "<funcparserlib grammar>"
+"""The file name of generated code, in its code objects and tracebacks."""
+
 _TOKEN_CLASS = {Token}
 _token_type = attrgetter("type")
 
@@ -997,10 +1000,15 @@ def _functions(
     try:
         compiler = _Compiler(root, internals, values=values)
         source, entry = compiler.source()
-        code = compile(source, "<funcparserlib grammar>", "exec")
-    except (_Declined, SyntaxError, RecursionError, MemoryError):
-        # A `SyntaxError` or `MemoryError` is nesting past what CPython compiles.
+        code = compile(source, _FILENAME, "exec")
+    except (_Declined, RecursionError, MemoryError):
+        # A `MemoryError` is nesting past what CPython compiles.
         return None
+    except SyntaxError as e:
+        # Nesting past what CPython compiles; any other is a mistake of the generator.
+        if e.msg.startswith("too many"):
+            return None
+        raise
     names = compiler.names
     exec(code, names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
     for table, functions in compiler.tables.items():

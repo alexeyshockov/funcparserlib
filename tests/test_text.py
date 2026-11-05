@@ -16,6 +16,7 @@ from funcparserlib.parser import (
     ParseErrors,
     Parser,
     ParsingSuccess,
+    _Undecided,
     a,
     commit,
     finished,
@@ -133,7 +134,8 @@ leaves: st.SearchStrategy[P] = st.sampled_from(
 )
 
 
-def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    """What generated code decides on its own."""
     pairs = st.tuples(kids, kids)
     return st.one_of(
         pairs.map(lambda k: k[0] + k[1]),
@@ -148,9 +150,7 @@ def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(many),
         kids.map(maybe),
         kids.map(oneplus),
-        kids.map(commit),
         kids.map(lambda k: k.when(short)),
-        kids.map(lambda k: k.check(short, "too long")),
         kids.map(lambda k: k.context("label")),
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
@@ -158,7 +158,14 @@ def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
     )
 
 
+def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    return st.one_of(
+        plain_combined(kids), kids.map(commit), kids.map(lambda k: k.check(short, "too long"))
+    )
+
+
 grammars = st.recursive(leaves, combined, max_leaves=10)
+plain_grammars = st.recursive(leaves, plain_combined, max_leaves=10)
 texts = st.text(alphabet="ab \n", max_size=8)
 
 
@@ -179,6 +186,29 @@ def test_a_compiled_text_grammar_parses_as_its_parser(grammar: P, documents: lis
         expected = outcome(grammar.parse_text, text)
         event(str(expected[0]))
         assert outcome(code.parse_text, text) == expected
+
+
+@settings(max_examples=150, deadline=None)
+@given(plain_grammars, st.lists(texts, min_size=4, max_size=4))
+def test_generated_code_decides_a_grammar_without_check_or_commit(
+    grammar: P, documents: list[str]
+) -> None:
+    code = grammar.compile()
+    assume(not code._reads_tokens and code._fast_text is not None)
+    fast = code._fast_text
+    assert fast is not None
+    for text in documents:
+        expected = outcome(grammar.parse_text, text)
+        if not isinstance(expected[0], str):
+            with pytest.raises(_Undecided):
+                fast(text)
+            continue
+        res = fast(text)
+        if expected[0] == "value":
+            assert res is not None
+            assert ("value", shape(res[0])) == expected
+        else:
+            assert res is None
 
 
 @settings(max_examples=150, deadline=None)

@@ -7,10 +7,11 @@ from enum import StrEnum
 from typing import Any, cast
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from examples import kdl
+from funcparserlib import _compile as compile_module
 from funcparserlib import parser as parser_module
 from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
@@ -33,6 +34,7 @@ from funcparserlib.parser import (
 )
 
 from . import dot, json
+from .conftest import GeneratedCodeError
 
 type P = Parser[Any, Any]
 
@@ -99,7 +101,8 @@ leaves: st.SearchStrategy[P] = st.sampled_from("abc").flatmap(
 )
 
 
-def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    """What generated code decides on its own."""
     pairs = st.tuples(kids, kids)
     return st.one_of(
         pairs.map(lambda k: k[0] + k[1]),
@@ -112,18 +115,25 @@ def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(many),
         kids.map(maybe),
         kids.map(oneplus),
-        kids.map(commit),
         kids.map(lambda k: k.when(short)),
-        kids.map(lambda k: k.check(short, "too long")),
         kids.map(lambda k: k.context("label")),
         kids.map(lambda k: k.named("name")),
-        kids.map(run_inner),
         kids.map(recursive),
         kids.map(lambda k: k + -finished),
     )
 
 
+def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    return st.one_of(
+        plain_combined(kids),
+        kids.map(commit),
+        kids.map(lambda k: k.check(short, "too long")),
+        kids.map(run_inner),
+    )
+
+
 grammars = st.recursive(leaves, combined, max_leaves=12)
+plain_grammars = st.recursive(leaves, plain_combined, max_leaves=12)
 inputs = st.lists(
     st.builds(Token, st.sampled_from("abc"), st.sampled_from(["xx", "yy"])), max_size=7
 )
@@ -135,6 +145,33 @@ def test_a_compiled_parser_parses_as_its_parser(grammar: P, documents: list[list
     compiled = grammar.compile()
     for document in documents:
         assert outcome(compiled.parse, document) == outcome(grammar.parse, document)
+
+
+@settings(max_examples=300, deadline=None)
+@given(plain_grammars, st.lists(inputs, min_size=4, max_size=4))
+def test_generated_code_decides_a_grammar_without_check_or_commit(
+    grammar: P, documents: list[list[Token]]
+) -> None:
+    fast = grammar.compile()._fast
+    assume(fast is not None)
+    assert fast is not None
+    for document in documents:
+        expected = outcome(grammar.parse, document)
+        res = fast(document)
+        if expected[0] == "value":
+            assert res is not None
+            assert ("value", shape(res[0])) == expected
+        else:
+            assert res is None
+
+
+def test_a_name_generated_code_lacks_fails_a_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(compiler: Any, p: P, pos: str, want: bool, then: Any) -> None:
+        compiler.line("missing")
+
+    monkeypatch.setattr(compile_module._Compiler, "emit_finished", broken)
+    with pytest.raises(GeneratedCodeError, match="missing"):
+        finished.compile().parse([])
 
 
 @pytest.mark.parametrize(
@@ -550,7 +587,8 @@ def token_leaves() -> st.SearchStrategy[P]:
     )
 
 
-def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+def plain_combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    """What generated code decides on its own."""
     pairs = st.tuples(kids, kids)
     return st.one_of(
         pairs.map(lambda k: k[0] + k[1]),
@@ -561,15 +599,22 @@ def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(many),
         kids.map(maybe),
         kids.map(oneplus),
-        kids.map(commit),
         kids.map(lambda k: k.when(short)),
-        kids.map(lambda k: k.check(short, "too long")),
         kids.map(recursive),
         kids.map(lambda k: k + -finished),
     )
 
 
+def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    return st.one_of(
+        plain_combined_without_tokens(kids),
+        kids.map(commit),
+        kids.map(lambda k: k.check(short, "too long")),
+    )
+
+
 token_grammars = st.recursive(token_leaves(), combined_without_tokens, max_leaves=12)
+plain_token_grammars = st.recursive(token_leaves(), plain_combined_without_tokens, max_leaves=12)
 texts = st.text("ab cx\nz?", max_size=12)
 
 
@@ -586,6 +631,30 @@ def test_parse_text_parses_as_the_tokenizer_and_the_parser(
             assert got[0] in ("error", "errors", ValueError) or got == expected
         else:
             assert got == expected
+
+
+@settings(max_examples=300, deadline=None)
+@given(plain_token_grammars, st.lists(texts, min_size=4, max_size=4))
+def test_generated_code_decides_the_tokens_of_a_text(grammar: P, documents: list[str]) -> None:
+    fast = grammar.compile(tokenizer)._fast_text
+    assume(fast is not None)
+    assert fast is not None
+    for text in documents:
+        try:
+            toks = list(tokenizer(text))
+        except (LexerError, ValueError):
+            continue
+        expected = outcome(grammar.parse, toks)
+        if not isinstance(expected[0], str):
+            with pytest.raises(parser_module._Undecided):
+                fast(text)
+            continue
+        res = fast(text)
+        if expected[0] == "value":
+            assert res is not None
+            assert ("value", shape(res[0])) == expected
+        else:
+            assert res is None
 
 
 def test_parse_text_makes_no_tokens() -> None:
