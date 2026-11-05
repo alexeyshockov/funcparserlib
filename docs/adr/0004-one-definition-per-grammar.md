@@ -78,8 +78,39 @@ the tokenizer raises, it was 48% to 76%: in the differences read, reading at the
 earlier mistake, as a tokenizer stops at the first text it cannot read, past any grammar error before
 it.
 
+Generated code tests the first character before it runs an alternative of `|` or `longest()` that starts
+with a regexp, as a failed regexp costs a call and a failed character test does not. What a regexp can
+start with comes from `re._parser`, which is private, so anything read differently than expected, such as
+a category like `\d`, a case-insensitive flag or a change in a later Python, leaves that alternative
+without a test. A wrong test would skip an alternative and could return another's value, with no fallback,
+so `tests/test_compile.py` compares the characters against real matches of random regexps. The tests are
+for `str`: a `bytes` input goes to the interpreted parser, where a `str` regexp raises. When `|` is all a
+function does, each alternative returns from it, without a flag for the ones after it.
+
+Measured with `just bench::micro`, Python 3.15 on an arm64 laptop, minimum:
+
+| Compiled grammar | Before | After |
+| --- | ---: | ---: |
+| KDL text, 46 KB generated | 18.57 ms | 13.30 ms |
+| JSON text, 50 KB | 5.48 ms | 5.06 ms |
+| JSON tokens, 50 KB | 3.20 ms | 3.13 ms |
+
+Generating the KDL text grammar takes 13 ms against 6 ms, most of it the character sets.
+
 Rejected:
 
+- **First-character tests from literals alone.** No private module, and 1.00x to 1.03x on KDL text, as its
+  alternatives start with regexps.
+- **A regexp of each terminal and the skip after it.** At most 1.05x on JSON text, and nothing on KDL text,
+  which skips nothing.
+- **Token values in the first sets of token grammars.** The hand-written bound for JSON tokens, with branches
+  on type and value, was 1.06x, of which returning from alternatives already gives 1.02x.
+- **A cut where failure can only mean the parse fails, from FIRST and FOLLOW sets.** A wrong cut only falls
+  back, but it took JSON tokens from 1.06x to 1.10x by hand, for an analysis of every parser's context.
+- **Packrat memoization, on for a grammar.** It removes 0% to 2% of parser runs in the JSON, DOT, Markdown
+  and YAML grammars, and made compiled KDL 1.4x slower and JSON 1.1x to 1.2x slower. Only a grammar that
+  reparses nested input at every level gains, from exponential time to linear; a failed parse still reruns
+  the interpreted parser, whose error state a memo would have to replay.
 - **Reading at the position as the definition of every grammar.** A 1.0 grammar has to parse to the same
   value, and overlapping specs show it would not always.
 - **A check that specs cannot overlap.** It held for no real grammar here.
@@ -95,7 +126,8 @@ Rejected:
 - The library has two kinds of grammar to explain and test, and generated code for both.
 - An interpreted text grammar is slow, as `Text` parsers cannot be fused as token tests are, and a failed
   parse pays for it: a text grammar that often fails on large input wants `try_parse()`.
-- `longest()` runs every alternative, in generated code too.
+- `longest()` runs every alternative that can start with the character at the position, in generated code
+  too.
 - A `Text` skips after what it reads, so the parser after a `Text` without `skip` does not skip what
   comes before it, but for `Text.end`.
 - `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`.

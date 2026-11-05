@@ -16,10 +16,12 @@ code, and a `str` constant is `ast.Constant`.
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Iterable, Sequence
+from contextlib import contextmanager
+from importlib import import_module
 from operator import attrgetter, index
 from pathlib import Path
-from re import Pattern
+from re import IGNORECASE, Pattern
 from typing import Any, Literal
 
 from ._commons import valueclass
@@ -54,6 +56,9 @@ _GROUP_SIZE = 32
 _MAX_START_TESTS = 16
 """A `commit()` with more token tests at its start leaves its failures to the interpreted parser."""
 
+_MAX_CLASS_RANGE = 8192
+"""A wider range of a character class leaves the regexp without a first-character test."""
+
 _READS_INPUT = ("text", "text_end", "byte", "fixed", "previous")
 """The forms of parsers that read text or bytes, and no tokens."""
 
@@ -77,6 +82,99 @@ class Internals:
 
 class _Declined(Exception):
     """The grammar stays interpreted."""
+
+
+@valueclass
+class _Chars:
+    """The characters of `chars`, or with `negated` every other character."""
+
+    chars: frozenset[str]
+    negated: bool = False
+
+
+_NO_CHARS = _Chars(frozenset())
+
+
+def _union(left: _Chars | None, right: _Chars | None) -> _Chars | None:
+    """The characters of both, `None` when either is unknown."""
+    if left is None or right is None:
+        return None
+    a, b = left.chars, right.chars
+    if left.negated:
+        return _Chars(a & b if right.negated else a - b, negated=True)
+    return _Chars(b - a, negated=True) if right.negated else _Chars(a | b)
+
+
+def _class_chars(items: Sequence[tuple[Any, Any]], names: Any) -> _Chars | None:
+    """The characters of a character class of `re._parser`, `None` for a category such as `\\d`."""
+    chars: set[str] = set()
+    negated = False
+    for op, arg in items:
+        if op is names.NEGATE:
+            negated = True
+        elif op is names.LITERAL:
+            chars.add(chr(arg))
+        elif op is names.RANGE and arg[1] - arg[0] <= _MAX_CLASS_RANGE:
+            chars.update(map(chr, range(arg[0], arg[1] + 1)))
+        else:
+            return None
+    return _Chars(frozenset(chars), negated=negated)
+
+
+def _node_chars(op: Any, arg: Any, names: Any) -> tuple[_Chars | None, bool]:
+    """What a node of `re._parser` can start with, and whether it can read nothing.
+
+    A node this function does not know gives `None`.
+    """
+    found: tuple[_Chars | None, bool] = None, False
+    if op is names.LITERAL:
+        found = _Chars(frozenset(chr(arg))), False
+    elif op is names.NOT_LITERAL:
+        found = _Chars(frozenset(chr(arg)), negated=True), False
+    elif op is names.IN:
+        found = _class_chars(arg, names), False
+    elif op in (names.ASSERT, names.ASSERT_NOT, names.AT):
+        found = _NO_CHARS, True
+    elif op is names.SUBPATTERN and not arg[1] & IGNORECASE:
+        found = _sequence_chars(arg[3], names)
+    elif op is names.ATOMIC_GROUP:
+        found = _sequence_chars(arg, names)
+    elif op is names.BRANCH:
+        branches = [_sequence_chars(branch, names) for branch in arg[1]]
+        chars: _Chars | None = _NO_CHARS
+        for branch, _ in branches:
+            chars = _union(chars, branch)
+        found = chars, any(nullable for _, nullable in branches)
+    elif op in (names.MAX_REPEAT, names.MIN_REPEAT, names.POSSESSIVE_REPEAT):
+        chars, nullable = _sequence_chars(arg[2], names)
+        found = chars, nullable or arg[0] == 0
+    return found
+
+
+def _sequence_chars(nodes: Iterable[tuple[Any, Any]], names: Any) -> tuple[_Chars | None, bool]:
+    """What a sequence of nodes of `re._parser` can start with, and whether it can read nothing."""
+    chars: _Chars | None = _NO_CHARS
+    for op, arg in nodes:
+        first, nullable = _node_chars(op, arg, names)
+        chars = _union(chars, first)
+        if not nullable:
+            return chars, False
+    return chars, True
+
+
+def _regexp_chars(regexp: Pattern[str]) -> _Chars | None:
+    """The characters a non-empty match of `regexp` can start with, `None` when unknown.
+
+    `re._parser` is private, and a construct or a version it does not read as this function expects
+    gives `None`: the regexp then runs at every position.
+    """
+    if regexp.flags & IGNORECASE:
+        return None
+    try:
+        parser, names = import_module("re._parser"), import_module("re._constants")
+        return _sequence_chars(parser.parse(regexp.pattern, regexp.flags), names)[0]
+    except Exception:  # noqa: BLE001 — a private module may change in any way
+        return None
 
 
 def _node(value: _Expr) -> ast.expr:
@@ -253,12 +351,16 @@ class _Compiler:
         self.loops = 0
         self.counter = 0
         self.tests_token_types = False
+        self.tests_chars = False
+        self.held_chars: dict[str, str] = {}
+        self.returns: _Next | None = None
 
         self.nodes: dict[int, Parser[Any, Any]] = {}
         self.uses: dict[int, int] = {}
         self.cycle_heads: set[int] = set()
         self._walk(self.root, set())
         self.first = self._first_sets()
+        self.chars = self._first_chars()
         self.kinds: dict[int, _Kind] = {}
         self.sizes: dict[int, int] = {}
         for p in self.nodes.values():
@@ -334,6 +436,60 @@ class _Compiler:
                 result = of(inner)
             case _:
                 raise AssertionError(f"no first set for form {_form(p)!r}")
+        return result
+
+    def _first_chars(self) -> dict[int, _Chars | None]:
+        """The characters each parser can start with, the least fixed point of `_chars_of`."""
+        regexps: dict[int, _Chars | None] = {}
+        for p in self.nodes.values():
+            match _form(p):
+                case ("text", match, None, _) if isinstance(match.__self__.pattern, str):
+                    regexps[id(p)] = _regexp_chars(match.__self__)
+                case _:
+                    pass
+        known: dict[int, _Chars | None] = dict.fromkeys(self.nodes, _NO_CHARS)
+        changed = True
+        while changed:
+            changed = False
+            for i, p in self.nodes.items():
+                new = self._chars_of(p, known, regexps)
+                if new != known[i]:
+                    known[i] = new
+                    changed = True
+        return known
+
+    def _chars_of(
+        self,
+        p: Parser[Any, Any],
+        known: dict[int, _Chars | None],
+        regexps: dict[int, _Chars | None],
+    ) -> _Chars | None:
+        def of(q: Parser[Any, Any]) -> _Chars | None:
+            return known[id(_target(q))]
+
+        result: _Chars | None = None
+        match _form(p):
+            case ("text", _, str(literal), _):
+                result = _Chars(frozenset(literal[0]))
+            case ("text", _, None, _):
+                result = regexps.get(id(p))
+            case ("seq", left, right):
+                nullable = self.first[id(_target(left))][1]
+                result = _union(of(left), of(right)) if nullable else of(left)
+            case ("alt", left, right):
+                result = _union(of(left), of(right))
+            case ("longest", parsers):
+                result = _NO_CHARS
+                for q in parsers:
+                    result = _union(result, of(q))
+            case ("pure", _):
+                result = _NO_CHARS
+            case ("many" | "oneplus" | "ignore" | "commit" | "context", inner):
+                result = of(inner)
+            case ("map" | "starmap" | "check" | "when" | "but_not", inner, _):
+                result = of(inner)
+            case _:
+                pass
         return result
 
     def kind(self, p: Parser[Any, Any]) -> _Kind:
@@ -461,11 +617,41 @@ class _Compiler:
     def start_test(self, p: Parser[Any, Any], pos: str) -> ast.expr | None:
         """The test that `p` can start at `pos`, when it saves running `p`."""
         first, nullable = self.first[id(p)]
-        if first is None or nullable or _form(p)[0] == "test":
+        if nullable or _form(p)[0] == "test":
             return None
+        if first is None:
+            return self.char_test(p, pos)
         if len(first) == 1:
             return _compare(_item("Y", pos), ast.Eq(), self.literal(next(iter(first))))
         return _compare(_item("Y", pos), ast.In(), self.constant(first, "S"))
+
+    def has_char_test(self, p: Parser[Any, Any]) -> bool:
+        """Whether a test of the first character saves running `p`, as a literal is as cheap."""
+        form = _form(p)
+        literal = form[0] == "text" and form[2] is not None
+        return self.chars[id(p)] is not None and not self.first[id(p)][1] and not literal
+
+    def char_test(self, p: Parser[Any, Any], pos: str) -> ast.expr | None:
+        """The test that the character at `pos` can start `p`, when it saves running `p`."""
+        p = _target(p)
+        chars = self.chars[id(p)]
+        if chars is None or not self.has_char_test(p):
+            return None
+        self.tests_chars = True
+        char: _Expr = self.held_chars.get(pos) or _slice("T", pos, _plus(pos, 1))
+        op = ast.NotIn() if chars.negated else ast.In()
+        return _compare(char, op, self.constant(chars.chars, "S"))
+
+    @contextmanager
+    def holding_char(self, parsers: Iterable[Parser[Any, Any]], pos: str) -> Generator[None]:
+        """Names the character at `pos` for the tests of `parsers` in the block."""
+        if pos in self.held_chars or not any(self.has_char_test(_target(q)) for q in parsers):
+            yield
+            return
+        name = self.held_chars[pos] = self.fresh("c")
+        self.assign(name, _slice("T", pos, _plus(pos, 1)))
+        yield
+        del self.held_chars[pos]
 
     def test_condition(self, p: Parser[Any, Any], pos: str) -> ast.expr:
         """Whether the token at `pos` passes the token test `p`."""
@@ -731,8 +917,16 @@ class _Compiler:
 
             self.block(_compare(end, ast.Gt(), best), store)
 
-        for parser in _form(p)[1]:
-            self.emit(parser, pos, want, keep)
+        def attempt(parser: Parser[Any, Any]) -> None:
+            test = self.char_test(parser, pos)
+            if test is None:
+                self.emit(parser, pos, want, keep)
+            else:
+                self.block(test, lambda: self.emit(parser, pos, want, keep))
+
+        with self.holding_char(_form(p)[1], pos):
+            for parser in _form(p)[1]:
+                attempt(parser)
         kind = self.kind(p)
         self.block(
             _compare(best, ast.GtE(), 0), lambda: then(best, _Value(kind, name) if want else None)
@@ -1052,19 +1246,35 @@ class _Compiler:
                 run()
 
         last = alts[-1]
-        if len(alts) == 2 and _form(last)[0] == "pure":
-            # `maybe(p)`: the default, which `p` overwrites when it succeeds.
-            self.emit_pure(last, pos, want, store(None))
-            start = self.start_test(alts[0], pos)
-            attempt(alts[0], None, *([start] if start else []))
-            result()
-            return
-        done = self.fresh("ok")
-        self.assign(done, False)
-        for i, alt in enumerate(alts):
-            start = self.start_test(alt, pos)
-            attempt(alt, done, *([_not(done)] if i else []), *([start] if start else []))
-        self.block(done, result)
+        with self.holding_char(alts, pos):
+            if then is self.returns:
+                # A success leaves the function, so reaching an alternative means the others failed.
+                for alt in alts:
+                    start = self.start_test(alt, pos)
+                    self.emit_returning(alt, pos, want, then, start)
+                return
+            if len(alts) == 2 and _form(last)[0] == "pure":
+                # `maybe(p)`: the default, which `p` overwrites when it succeeds.
+                self.emit_pure(last, pos, want, store(None))
+                start = self.start_test(alts[0], pos)
+                attempt(alts[0], None, *([start] if start else []))
+                result()
+                return
+            done = self.fresh("ok")
+            self.assign(done, False)
+            for i, alt in enumerate(alts):
+                start = self.start_test(alt, pos)
+                attempt(alt, done, *([_not(done)] if i else []), *([start] if start else []))
+            self.block(done, result)
+
+    def emit_returning(
+        self, alt: Parser[Any, Any], pos: str, want: bool, then: _Next, test: ast.expr | None
+    ) -> None:
+        """`alt` at `pos`, under `test` if there is one; `then` leaves the function."""
+        if test is None:
+            self.emit(alt, pos, want, then)
+        else:
+            self.block(test, lambda: self.emit(alt, pos, want, then))
 
     def emit_loop(
         self, inner: Parser[Any, Any], pos: str, want: bool, then: _Next, head: _Value | None
@@ -1109,6 +1319,7 @@ class _Compiler:
             def result(at: str, value: _Value | None, *, want: bool = want) -> None:
                 self.add(ast.Return(_tuple(_read(value), at) if want else _node(at)))
 
+            self.returns = result
             body(result)
             self.add(ast.Return(_node(None if want else -1)))
             functions.append(_function(name, self.body))
@@ -1143,10 +1354,10 @@ def _with_lines(module: ast.Module, line: int = 1) -> ast.Module:
 
 def _functions(
     root: Parser[Any, Any], internals: Internals, *, values: bool, filename: str | None, line: int
-) -> tuple[Callable[[Any, list[str | None], int], Any], bool, str | None] | None:
-    """The function running `root`, whether it reads token types, and its source for a `filename`.
+) -> tuple[Callable[[Any, list[str | None], int], Any], bool, bool, str | None] | None:
+    """The function running `root` and its source for a `filename`, `None` when it cannot be.
 
-    `None` when it cannot be.
+    Between them, whether it reads token types and whether it tests characters of a `str`.
     """
     try:
         compiler = _Compiler(root, internals, values=values)
@@ -1159,7 +1370,7 @@ def _functions(
     exec(code, names)  # noqa: S102 — the code is built from the grammar, see ADR 0002
     for table, functions in compiler.tables.items():
         names[table] = {key: names[function] for key, function in functions.items()}
-    return names[entry], compiler.tests_token_types, source
+    return names[entry], compiler.tests_token_types, compiler.tests_chars, source
 
 
 def compile_grammar[A, B](
@@ -1173,7 +1384,7 @@ def compile_grammar[A, B](
     functions = _functions(root, internals, values=False, filename=filename, line=line)
     if functions is None:
         return None, None
-    run, tests_token_types, source = functions
+    run, tests_token_types, _, source = functions
 
     def fast(tokens: Sequence[A]) -> tuple[B, int] | None:
         if tests_token_types:
@@ -1278,10 +1489,13 @@ def compile_text[B](
     functions = _functions(root, internals, values=scan is not None, filename=filename, line=1)
     if functions is None:
         return None, None
-    run, _, source = functions
+    run, _, tests_chars, source = functions
     skip = leading_skip(root)
 
     def fast(text: str) -> tuple[B, int] | None:
+        # A character test is false for `bytes`, where the parser raises `TypeError`.
+        if tests_chars and type(text) is not str:
+            raise internals.undecided
         try:
             if scan is None:
                 m = skip.match(text) if skip is not None else None

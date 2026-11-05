@@ -4,6 +4,7 @@ parser.
 
 import re
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -123,6 +124,9 @@ leaves: st.SearchStrategy[P] = st.sampled_from(
         skipping.literal("b"),
         plain.token("[ab]"),
         plain.token(" +"),
+        plain.token("[^a]+"),
+        plain.token("(?i:A)b?"),
+        plain.token(r"\w+"),
         plain.literal("a"),
         plain.literal("\n"),
         skipping.end,
@@ -988,3 +992,40 @@ def test_recover_with_tokens() -> None:
 def test_recover_in_try_parse_rejects() -> None:
     assert config.compile().try_parse("a = ?\n") is None
     assert config.compile().try_parse("a = 1\n") == [("a", 1)]
+
+
+# First-character tests
+
+
+@pytest.mark.parametrize(
+    ("grammar", "text", "value"),
+    [
+        pytest.param(plain.token("a+") | plain.token("[ab]+"), "ab", "a", id="overlap, first"),
+        pytest.param(plain.token("b+") | plain.token("[ab]+"), "ab", "ab", id="overlap, second"),
+        pytest.param(longest(plain.token("a+"), plain.token("[ab]+")), "ab", "ab", id="longest"),
+        pytest.param(plain.token("(?i:a)") | pure("x"), "A", "A", id="scoped flag"),
+        pytest.param(plain.token("a", re.IGNORECASE) | pure("x"), "A", "A", id="flag"),
+        pytest.param(plain.token("[^a]+") | pure("x"), "", "x", id="negated class, end of text"),
+        pytest.param(plain.token("[^a]+") | pure("x"), "a", "x", id="negated class, excluded"),
+        pytest.param(plain.token("[^a]+") | pure("x"), "b", "b", id="negated class, included"),
+        pytest.param(maybe(plain.token("a")) + plain.token("b"), "b", (None, "b"), id="nullable"),
+    ],
+)
+def test_a_first_character_test_keeps_what_the_alternatives_match(
+    grammar: P, text: str, value: Any
+) -> None:
+    assert grammar.parse_text(text) == value
+    assert grammar.compile().parse_text(text) == value
+
+
+@pytest.mark.parametrize("call", ["parse_text", "try_parse"])
+def test_bytes_given_to_a_grammar_of_text_raise_as_in_its_parser(call: str) -> None:
+    code = (plain.token("a") | pure("x")).compile()
+    with pytest.raises(TypeError, match="string pattern"):
+        getattr(code, call)(loose(b"a"))
+
+
+def test_alternatives_read_the_first_character_once(tmp_path: Path) -> None:
+    source = tmp_path / "generated.py"
+    (plain.token("a") | plain.token("b") | plain.token("c")).compile(source_file=source)
+    assert source.read_text().count("T[p0:p0 + 1]") == 1

@@ -1,9 +1,10 @@
-"""Whole grammars over generated documents: the JSON and DOT test grammars and the calculator."""
+"""Whole grammars over generated documents: the JSON, DOT and KDL grammars and the calculator."""
 
 import json
 import random
 from typing import Any
 
+from examples import kdl_text
 from examples.calculator import calculate
 from tests import dot
 from tests import json as json_grammar
@@ -42,6 +43,11 @@ DOT_TEXT = (
     + " }"
 )
 DOT_TOKENS = dot.tokenize(DOT_TEXT)
+KDL_TEXT = "\n".join(
+    f'node{i} "arg{i}" key={i} other="x y" (ann)"typed" #true /-dropped {{\n'
+    f'  child{i} 1 2 3 a=1.5\n  /-gone 1\n  "quoted name" nul=#null {{ deep {i}; deeper "s" }}\n}}'
+    for i in range(300)
+)
 EXPRESSION = " + ".join(f"({i} * {i + 1} - {i} / 2)" for i in range(1, 200))
 
 
@@ -68,6 +74,10 @@ def bench_dot_parse_compiled(benchmark: Any) -> None:
     compiled = dot._grammar().compile()
     graph = benchmark(compiled.parse, DOT_TOKENS)
     assert len(graph.stmts) == 400
+
+
+def bench_kdl_text_compiled(benchmark: Any) -> None:
+    assert len(benchmark(kdl_text.compiled.parse_text, KDL_TEXT)) == 300
 
 
 def bench_calculator(benchmark: Any) -> None:
