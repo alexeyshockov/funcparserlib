@@ -2,6 +2,8 @@
 
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, cast
 
 import pytest
@@ -150,6 +152,10 @@ def test_a_compiled_parser_parses_as_its_parser(grammar: P, documents: list[list
         (((tok("a") + tok("b")) >> list) + tok("c"), "abc", (["x", "x"], "x")),
         (maybe(tok("a") + tok("b")) + tok("c"), "c", (None, "x")),
         (maybe(tok("a") + tok("b")) + tok("c"), "abc", ("x", "x", "x")),
+        ((tok("a") + tok("b")) + (many(tok("c")) >> same), "abc", ("x", "x", ["x"])),
+        ((tok("a") + tok("b")) + (-tok("c") | tok("a")), "abc", ("x", "x")),
+        ((tok("a") + tok("b")) + (-tok("c") | tok("a")), "aba", ("x", "x", "x")),
+        ((tok("a") >> same) + (tok("b") + tok("c")), "abc", ("x", ("x", "x"))),
         (many(-tok("a")), "aa", [parser_module._IGNORED] * 2),
         (oneplus(tok("a") + tok("b")), "abab", [("x", "x"), ("x", "x")]),
         ((tok("a") + tok("b")).starmap(lambda x, y: x + y), "ab", "xx"),
@@ -226,8 +232,11 @@ def test_a_failed_check_is_reported_as_the_parser_reports_it() -> None:
 
 
 def test_a_check_on_a_branch_backtracked_from_is_forgotten() -> None:
-    grammar = (tok("a").check(lambda _: False, "bad") + tok("b")) | tok("a") + tok("c")
+    seen: list[str] = []
+    bad = (tok("a") >> seen.append).check(lambda _: False, "bad") + tok("b")
+    grammar = bad | tok("a") + tok("c")
     assert grammar.compile().parse(tokens("ac")) == ("x", "x")
+    assert seen == ["x", "x"]
 
 
 def test_a_commit_is_final() -> None:
@@ -277,13 +286,136 @@ def test_forward_decls_defined_as_each_other_raise_recursion_error() -> None:
         first.compile().parse(tokens("a"))
 
 
-def test_a_grammar_deeper_than_python_compiles_stays_interpreted() -> None:
+def sequence(items: Sequence[P]) -> P:
+    grammar = items[0]
+    for item in items[1:]:
+        grammar += item
+    return grammar
+
+
+@pytest.mark.parametrize("size", [33, 100, 150, 400])
+def test_a_long_sequence_compiles(size: int) -> None:
+    grammar = sequence([tok("a")] * size)
+    compiled = grammar.compile()
+    assert compiled._fast is not None
+    assert compiled._fast(tokens("a" * size)) is not None
+    assert compiled.parse(tokens("a" * size)) == grammar.parse(tokens("a" * size))
+    assert outcome(compiled.parse, tokens("a" * (size - 1))) == outcome(
+        grammar.parse, tokens("a" * (size - 1))
+    )
+
+
+@pytest.mark.parametrize(
+    "item",
+    [-tok("a"), tok("a") >> same, tok("a") >> wrap, -tok("a") | tok("c"), tok("a") + tok("a")],
+)
+def test_a_long_sequence_joins_its_values_as_the_parser_does(item: P) -> None:
+    grammar = sequence([tok("a"), -tok("a"), item] * 20)
+    toks = tokens("a" * 60)
+    compiled = grammar.compile()
+    assert outcome(compiled.parse, toks * 2) == outcome(grammar.parse, toks * 2)
+
+
+def test_a_long_sequence_of_ignored_values_compiles() -> None:
+    grammar = sequence([-tok("a")] * 70)
+    compiled = grammar.compile()
+    assert compiled._fast is not None
+    assert outcome(compiled.parse, tokens("a" * 70)) == outcome(grammar.parse, tokens("a" * 70))
+
+
+def test_deeply_nested_loops_compile() -> None:
     grammar: P = tok("a")
-    for _ in range(300):
-        grammar += tok("a")
+    for _ in range(25):
+        grammar = many(grammar + tok("b")) + tok("a")
+    compiled = grammar.compile()
+    assert compiled._fast is not None
+    assert outcome(compiled.parse, tokens("a")) == outcome(grammar.parse, tokens("a"))
+
+
+def test_deeply_nested_options_compile() -> None:
+    grammar: P = tok("a")
+    for _ in range(200):
+        grammar = tok("a") + maybe(grammar)
+    compiled = grammar.compile()
+    assert compiled._fast is not None
+    assert outcome(compiled.parse, tokens("a" * 201)) == outcome(grammar.parse, tokens("a" * 201))
+
+
+def test_a_grammar_too_deep_to_compile_stays_interpreted() -> None:
+    grammar = sequence([a("x")] * 2000)
     compiled = grammar.compile()
     assert compiled._fast is None
-    assert compiled.parse(tokens("a" * 301)) == grammar.parse(tokens("a" * 301))
+    with pytest.raises(RecursionError):
+        compiled.parse("x" * 2000)
+
+
+class Kind(StrEnum):
+    A = "a"
+    B = "b"
+
+
+@pytest.mark.parametrize(
+    "grammar",
+    [
+        tok(Kind.A),
+        tok(Kind.A, "x"),
+        tok("a", Kind.A),
+        many(tok(Kind.A) + tok(Kind.B)),
+        maybe(tok(Kind.A) + tok(Kind.B)) | tok(Kind.B) + tok(Kind.A),
+    ],
+)
+def test_a_str_subclass_compiles_as_a_token_type_or_value(grammar: P) -> None:
+    compiled = grammar.compile()
+    assert compiled._fast is not None
+    for text in ("ab", "a"):
+        toks = [Token(t, "a" if t == "x" else "x") for t in text]
+        assert outcome(compiled.parse, toks) == outcome(grammar.parse, toks)
+
+
+@pytest.mark.parametrize(
+    ("build", "text"),
+    [
+        (lambda f: many(commit(a("x") + a("y")) >> f) + -finished, "xyxy"),
+        (lambda f: many(commit(some(str.isalpha) + a("1")) >> f) + -finished, "x1y1"),
+        (lambda f: many(commit(maybe(a("x")) + a("y")) >> f) + -finished, "xyy"),
+        (lambda f: many(commit(a("x") | a("y")) >> f) + -finished, "xy"),
+        (lambda f: (commit(a("x") + a("y")) >> f) | (a("z") >> f), "z"),
+        (lambda f: (commit(many(a("x")) + a("y")) >> f) + -finished, "xxy"),
+    ],
+)
+def test_a_commit_that_read_no_token_ends_a_loop_or_a_choice_in_the_compiled_pass(
+    build: Callable[[Callable[[object], object]], P], text: str
+) -> None:
+    seen: list[object] = []
+
+    def record(value: object) -> object:
+        seen.append(value)
+        return value
+
+    grammar = build(record)
+    expected = grammar.parse(text)
+    calls = len(seen)
+    seen.clear()
+    assert grammar.compile().parse(text) == expected
+    assert len(seen) == calls
+
+
+def test_a_commit_of_a_parsing_function_that_read_a_token_is_final() -> None:
+    inner = Parser((a("x") + a("y")).run)
+    grammar = commit(inner) | a("x") + a("z")
+    with pytest.raises(NoParseError, match="expected: 'y'"):
+        grammar.compile().parse("xz")
+
+
+def test_a_commit_is_final_after_a_token_read_past_an_optional_start() -> None:
+    grammar = commit(maybe(a("x")) + a("y") + a("w")) | a("y") + a("v")
+    with pytest.raises(NoParseError, match="expected: 'w'"):
+        grammar.compile().parse("yv")
+
+
+def test_a_commit_of_a_parsing_function_leaves_every_failure_to_the_parser() -> None:
+    inner = Parser(a("x").run)
+    assert (many(commit(inner)) + a("y")).compile().parse("xy") == (["x"], "y")
 
 
 def test_a_parsing_function_runs_inside_a_compiled_grammar() -> None:
@@ -321,6 +453,20 @@ def test_a_grammar_of_any_tokens_compiles() -> None:
 
 def test_tokens_of_another_type_are_left_to_the_parser() -> None:
     assert outcome(tok("a").compile().parse, "a") == outcome(tok("a").parse, "a")
+
+
+def test_an_object_like_a_token_is_no_token() -> None:
+    @dataclass
+    class Lookalike:
+        type: str
+        value: str
+
+    grammar = tok("a", "x")
+    toks: list[Any] = [Lookalike("a", "x")]
+    with pytest.raises(NoParseError):
+        grammar.parse(toks)
+    with pytest.raises(NoParseError):
+        grammar.compile().parse(toks)
 
 
 def test_an_undefined_forward_decl_raises_as_in_the_parser() -> None:

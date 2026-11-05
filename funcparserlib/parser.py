@@ -472,8 +472,6 @@ class Parser[A, B]:
     # The keys, `_key(token)`, of every token the parser can start with, when known; a parser with
     # them consumes at least that token.
     _first: frozenset[object] | None = None
-    # A `|` parser: the two parsers it was built from.
-    _parts: tuple[Parser[Any, Any], Parser[Any, Any]] | None = None
     # What the parser is built from, for `compile()`: a tag and its operands.
     _form: tuple[Any, ...] | None = None
 
@@ -691,9 +689,11 @@ class Parser[A, B]:
         parser on the same tokens, so the result and the errors are this parser's.
 
         That has a cost: a failed parse takes longer, and calls the functions given to `>>` a second
-        time. The compiled parser is a snapshot of the grammar, and does not follow a
-        `forward_decl()` defined again afterwards. A grammar nested beyond what Python can compile
-        stays interpreted, as does a `many()` of a parser that matches no tokens.
+        time. So does a parse that succeeds after a `Parser.check()` failed on a branch `|`
+        backtracked from, or after a `commit()` around a parsing function failed. The compiled
+        parser is a snapshot of the grammar, and does not follow a `forward_decl()` defined again
+        afterwards. A grammar nested too deeply to compile stays interpreted, as does a `many()` of
+        a parser that matches no tokens.
 
         Examples:
             ```pycon
@@ -1005,7 +1005,6 @@ class Parser[A, B]:
                 return tried(tokens, s)
 
             p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(dispatched)
-        p._parts = (self, other)
         p._form = ("alt", self, other)
         return p
 
@@ -1558,10 +1557,10 @@ def _alternatives(p: Parser[Any, Any]) -> tuple[Parser[Any, Any], ...]:
     stack = [p]
     while stack:
         q = stack.pop()
-        if q._parts is None or q._label:
+        if q._form is None or q._form[0] != "alt" or q._label:
             alts.append(q)
         else:
-            stack += reversed(q._parts)
+            stack += reversed(q._form[1:])
     return tuple(alts)
 
 
