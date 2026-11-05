@@ -70,7 +70,15 @@ class Binary:
         return p
 
     def literal(self, value: bytes) -> Parser[int, bytes]:
-        """A parser of the bytes `value`. Raises `ValueError` for an empty `value`."""
+        """A parser of the bytes `value`.
+
+        Raises `ValueError` for an empty `value`, and `TypeError` for anything but `bytes`.
+        """
+        if not isinstance(value, bytes):
+            raise with_hint(
+                TypeError(f"literal value must be bytes, not {type(value).__name__}"),
+                "Pass the bytes to read, as `binary.literal(b'ab')`.",
+            )
         if not value:
             raise with_hint(
                 ValueError("literal value is empty"), "A token consumes at least one byte."

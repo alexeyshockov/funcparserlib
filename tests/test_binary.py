@@ -1535,6 +1535,12 @@ def test_literal_of_nothing_raises() -> None:
     )
 
 
+def test_a_literal_is_bytes() -> None:
+    with pytest.raises(TypeError, match="literal value must be bytes, not str") as caught:
+        b.literal(loose("ab"))
+    assert caught.value.__notes__
+
+
 def test_previous_gives_the_byte_just_read(run: Runner) -> None:
     assert shape(run(b.byte + b.previous(), b"\x7f")) == shape((0x7F, 0x7F))
     assert shape(run(b.byte + b.previous(0x0F), b"\x7f")) == shape((0x7F, 0x0F))

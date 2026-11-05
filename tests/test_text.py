@@ -169,6 +169,11 @@ plain_grammars = st.recursive(leaves, plain_combined, max_leaves=10)
 texts = st.text(alphabet="ab \n", max_size=8)
 
 
+def loose(value: Any) -> Any:
+    """`value` as a checker sees it where a test passes what the signatures do not take."""
+    return value
+
+
 def raised(parse: Callable[[str], Any], text: str) -> type[BaseException] | None:
     try:
         parse(text)
@@ -434,6 +439,12 @@ def test_a_token_that_matches_the_empty_string_raises(pattern: str) -> None:
 def test_an_empty_literal_raises() -> None:
     with pytest.raises(ValueError, match="literal value is empty"):
         skipping.literal("")
+
+
+def test_a_literal_is_text() -> None:
+    with pytest.raises(TypeError, match="literal value must be a str, not int") as caught:
+        skipping.literal(loose(5))
+    assert caught.value.__notes__
 
 
 def test_flags_apply_to_the_skip_and_to_a_token() -> None:

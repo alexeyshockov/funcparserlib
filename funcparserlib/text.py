@@ -108,8 +108,13 @@ class Text:
         """A parser of the text `value`, which it reads where a longer word starts with it too.
 
         To read a keyword, end a `Text.token()` with a word boundary: `text.token(r"if\\b")`. Raises
-        `ValueError` for an empty `value`.
+        `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
         """
+        if not isinstance(value, str):
+            raise with_hint(
+                TypeError(f"literal value must be a str, not {type(value).__name__}"),
+                "Pass the text to read, as `text.literal('if')`.",
+            )
         if not value:
             raise with_hint(
                 ValueError("literal value is empty"), "A token consumes at least one character."
