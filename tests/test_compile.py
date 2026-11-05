@@ -381,6 +381,29 @@ def test_deeply_nested_options_compile() -> None:
     assert outcome(compiled.parse, tokens("a" * 201)) == outcome(grammar.parse, tokens("a" * 201))
 
 
+def generated_statements(grammar: P) -> int:
+    internals = compile_module.Internals(
+        parser_module._Tuple,
+        parser_module._IGNORED,
+        parser_module._ignore,
+        parser_module._token_value,
+        parser_module._Undecided,
+    )
+    module, _ = compile_module._Compiler(grammar, internals).module()
+    return sum(isinstance(node, ast.stmt) for node in ast.walk(module))
+
+
+def nested_oneplus(levels: int) -> P:
+    grammar: P = tok("a")
+    for _ in range(levels):
+        grammar = oneplus(grammar + tok("b"))
+    return grammar
+
+
+def test_generated_code_grows_with_the_nesting_of_oneplus() -> None:
+    assert generated_statements(nested_oneplus(12)) < 3 * generated_statements(nested_oneplus(6))
+
+
 def test_a_grammar_too_deep_to_compile_stays_interpreted() -> None:
     grammar = sequence([a("x")] * 2000)
     compiled = grammar.compile()

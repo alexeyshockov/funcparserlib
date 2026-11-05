@@ -209,8 +209,11 @@ def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
             found = [left, right]
         case ("map" | "starmap" | "check" | "when", inner, _):
             found = [inner]
-        case ("ignore" | "many" | "oneplus" | "commit" | "context", inner):
+        case ("ignore" | "many" | "commit" | "context", inner):
             found = [inner]
+        case ("oneplus", inner):
+            # Generated code runs `inner` from two places: once, then in the loop.
+            found = [inner, inner]
         case ("longest", parsers):
             found = list(parsers)
         case ("prefixed", length, body):
