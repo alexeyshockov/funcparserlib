@@ -36,7 +36,7 @@ def generated_code_is_watched() -> Iterator[None]:
 
     def watched(*args: Any, **kwargs: Any) -> Any:
         found = functions(*args, **kwargs)
-        return None if found is None else (_watched(found[0]), found[1])
+        return None if found is None else (_watched(found[0]), *found[1:])
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(_compile, "_functions", watched)

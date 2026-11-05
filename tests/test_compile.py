@@ -2,6 +2,8 @@
 
 import ast
 import logging
+import re
+import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -381,7 +383,7 @@ def test_deeply_nested_options_compile() -> None:
     assert outcome(compiled.parse, tokens("a" * 201)) == outcome(grammar.parse, tokens("a" * 201))
 
 
-def generated_statements(grammar: P) -> int:
+def generated_module(grammar: P) -> ast.Module:
     internals = compile_module.Internals(
         parser_module._Tuple,
         parser_module._IGNORED,
@@ -390,7 +392,11 @@ def generated_statements(grammar: P) -> int:
         parser_module._Undecided,
     )
     module, _ = compile_module._Compiler(grammar, internals).module()
-    return sum(isinstance(node, ast.stmt) for node in ast.walk(module))
+    return module
+
+
+def generated_statements(grammar: P) -> int:
+    return sum(isinstance(node, ast.stmt) for node in ast.walk(generated_module(grammar)))
 
 
 def nested_oneplus(levels: int) -> P:
@@ -402,6 +408,77 @@ def nested_oneplus(levels: int) -> P:
 
 def test_generated_code_grows_with_the_nesting_of_oneplus() -> None:
     assert generated_statements(nested_oneplus(12)) < 3 * generated_statements(nested_oneplus(6))
+
+
+def statement_lines(module: ast.Module) -> list[tuple[str, int]]:
+    statements = (node for node in ast.walk(module) if isinstance(node, ast.stmt))
+    return [(type(statement).__name__, statement.lineno) for statement in statements]
+
+
+@settings(max_examples=200, deadline=None)
+@given(grammars)
+def test_generated_statements_have_the_lines_of_the_source(grammar: P) -> None:
+    try:
+        module = compile_module._with_lines(generated_module(grammar))
+    except compile_module._Declined:
+        assume(False)
+        raise
+    assert statement_lines(module) == statement_lines(ast.parse(ast.unparse(module)))
+
+
+def test_the_lines_of_a_whole_grammar_are_those_of_its_source() -> None:
+    module = compile_module._with_lines(generated_module(kdl.document))
+    assert statement_lines(module) == statement_lines(ast.parse(ast.unparse(module)))
+
+
+def test_a_frame_of_generated_code_reports_its_line_in_the_source() -> None:
+    lines: list[int] = []
+
+    def seen(value: object) -> object:
+        frame = sys._getframe(1)
+        assert frame.f_code.co_filename == "<funcparserlib grammar>"
+        lines.append(frame.f_lineno)
+        return value
+
+    declared: P = forward_decl()
+    declared.define((tok("a") >> seen) + maybe(declared))
+    compiled = (Parser(tok("b").run) + declared).compile()
+    assert compiled._fast is not None
+    assert compiled._fast(tokens("baa")) is not None
+    source = compiled.source
+    assert source is not None
+    assert lines
+    for line in lines:
+        assert re.fullmatch(r"\s*v\d+ = F\d+\(.*\)", source.splitlines()[line - 1])
+
+
+def test_the_source_of_a_grammar_that_stays_interpreted_is_none() -> None:
+    assert many(maybe(tok("a"))).compile().source is None
+
+
+def test_the_source_is_what_parse_text_runs_when_it_has_functions_of_its_own() -> None:
+    grammar = many(tok("a"))
+    tokens_source, text_source = grammar.compile().source, grammar.compile(tokenizer).source
+    assert tokens_source is not None
+    assert text_source is not None
+    assert ".value" in tokens_source
+    assert ".value" not in text_source
+
+
+def test_the_source_falls_back_to_what_parse_runs() -> None:
+    grammar = some(lambda token: token.type == "a")
+    compiled = grammar.compile(tokenizer)
+    assert compiled._fast_text is None
+    assert compiled.source == grammar.compile().source
+
+
+def test_the_source_is_a_snapshot() -> None:
+    declared: P = forward_decl()
+    declared.define(tok("a"))
+    compiled = declared.compile()
+    before = compiled.source
+    declared.define(tok("b"))
+    assert compiled.source == before
 
 
 def test_a_grammar_too_deep_to_compile_stays_interpreted() -> None:

@@ -54,6 +54,9 @@ Rejected:
   6.6 ms on 3.15, once per `Parser.compile()`. Parsing is unchanged.
 - An emitter reads longer than the f-string it replaced, through the helpers at the top of
   `_compile.py`.
-- `ast.unparse()` gives the source of the module, for reading it or for mypyc.
+- `CompiledParser.source` is `ast.unparse()` of the module, for reading it or for mypyc. Text goes through
+  the tokenizer's indentation limit, so generated code is compiled from the nodes, with statements numbered
+  as `ast.unparse()` lays them out; `tests/test_compile.py` compares that against parsing the text. The
+  compiled parser keeps the module, as a redefined `forward_decl()` would give a regenerated one other code.
 - A value the user gives enters through a name unless it is exactly a `str`: `ast.Constant` rejects a
   subclass of `int` or `str`.

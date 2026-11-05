@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Sequence
+from functools import partial
 from operator import attrgetter, index
 from re import Pattern
 from typing import Any, Literal
@@ -575,10 +576,9 @@ class _Compiler:
             return
         m = self.fresh("m")
         self.assign(m, _call(self.constant(match, "R"), "T", pos))
-        end = _call(_attr(m, "end"))
         self.block(
-            _all(_is_found(m), _compare(end, ast.Gt(), pos)),
-            lambda: finish(self.named_position(end), _call(_attr(m, "group"))),
+            _all(_is_found(m), _compare(_call(_attr(m, "end")), ast.Gt(), pos)),
+            lambda: finish(self.named_position(_call(_attr(m, "end"))), _call(_attr(m, "group"))),
         )
 
     def named_position(self, expr: _Expr) -> str:
@@ -1115,35 +1115,65 @@ class _Compiler:
         return ast.Module(functions, []), entry
 
 
+def _number_lines(statements: list[ast.stmt], line: int) -> int:
+    """Give `statements` the lines `ast.unparse()` writes them on; the line after them."""
+    for statement in statements:
+        statement.lineno = statement.end_lineno = line
+        line += 1
+        match statement:
+            case ast.If(body=body, orelse=orelse):
+                line = _number_lines(body, line)
+                # An `else` around a lone `if` is an `elif`, which has no line of its own.
+                if orelse and not (len(orelse) == 1 and isinstance(orelse[0], ast.If)):
+                    line += 1
+                line = _number_lines(orelse, line)
+            case ast.While(body=body) | ast.FunctionDef(body=body):
+                line = _number_lines(body, line)
+            case _:
+                pass
+    return line
+
+
+def _with_lines(module: ast.Module) -> ast.Module:
+    """`module` with the lines of its source, a blank one between its functions."""
+    line = 1
+    for function in module.body:
+        line = _number_lines([function], line) + 1
+    return ast.fix_missing_locations(module)
+
+
 def _functions(
     root: Parser[Any, Any], internals: Internals, *, values: bool
-) -> tuple[Callable[[Any, list[str | None], int], Any], bool] | None:
-    """The function running `root`, and whether it reads token types; `None` when it cannot be."""
+) -> tuple[Callable[[Any, list[str | None], int], Any], bool, ast.Module] | None:
+    """The function running `root`, whether it reads token types, and the module it comes from.
+
+    `None` when it cannot be.
+    """
     try:
         compiler = _Compiler(root, internals, values=values)
         module, entry = compiler.module()
-        code = compile(ast.fix_missing_locations(module), _FILENAME, "exec")
+        code = compile(_with_lines(module), _FILENAME, "exec")
     except (_Declined, RecursionError):
         return None
     names = compiler.names
     exec(code, names)  # noqa: S102 — the code is built from the grammar, see ADR 0002
     for table, functions in compiler.tables.items():
         names[table] = {key: names[function] for key, function in functions.items()}
-    return names[entry], compiler.tests_token_types
+    return names[entry], compiler.tests_token_types, module
 
 
 def compile_grammar[A, B](
     root: Parser[A, B], internals: Internals
-) -> Callable[[Sequence[A]], tuple[B, int] | None] | None:
-    """A function giving the value and the end position of a parse the generated code decides.
+) -> tuple[Callable[[Sequence[A]], tuple[B, int] | None] | None, Callable[[], str] | None]:
+    """A function giving the value and the end position of a parse, and one giving its source.
 
-    The function returns `None` when the interpreted parser has to decide. `compile_grammar` returns
-    `None` for a grammar that stays interpreted.
+    The first returns `None` when the interpreted parser has to decide. Both are `None` for a
+    grammar that stays interpreted.
     """
     functions = _functions(root, internals, values=False)
     if functions is None:
-        return None
-    run, tests_token_types = functions
+        return None, None
+    run, tests_token_types, module = functions
 
     def fast(tokens: Sequence[A]) -> tuple[B, int] | None:
         if tests_token_types:
@@ -1159,7 +1189,7 @@ def compile_grammar[A, B](
             return None
         return result
 
-    return fast
+    return fast, partial(ast.unparse, module)
 
 
 def reads_text(root: Parser[Any, Any]) -> bool:
@@ -1222,18 +1252,20 @@ def compile_text[B](
     root: Parser[Any, B],
     internals: Internals,
     scan: Callable[[str], tuple[list[str], list[str | None]] | None] | None,
-) -> Callable[[str], tuple[B, int] | None] | None:
-    """A function giving the value and the end position of a text, `None` when it does not parse.
+) -> tuple[Callable[[str], tuple[B, int] | None] | None, Callable[[], str] | None]:
+    """A function giving the value and the end position of a text, and one giving its source.
 
-    `scan` splits the text into the values and the types of its tokens, without `Token` objects:
-    this returns `None` for a grammar that reads a token any other way than through `tok()`. Without
-    `scan` the grammar reads the text itself. The function raises `internals.undecided` when the
-    interpreted parser has to decide.
+    The first returns `None` when the text does not parse, and raises `internals.undecided` when the
+    interpreted parser has to decide. Both are `None` for a grammar that stays interpreted.
+
+    `scan` splits the text into the values and the types of its tokens, without `Token` objects: a
+    grammar that reads a token any other way than through `tok()` then stays interpreted. Without
+    `scan` the grammar reads the text itself.
     """
     functions = _functions(root, internals, values=scan is not None)
     if functions is None:
-        return None
-    run, _ = functions
+        return None, None
+    run, _, module = functions
     skip = leading_skip(root)
 
     def fast(text: str) -> tuple[B, int] | None:
@@ -1248,4 +1280,4 @@ def compile_text[B](
             raise internals.undecided from e
         return result
 
-    return fast
+    return fast, partial(ast.unparse, module)
