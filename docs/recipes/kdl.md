@@ -175,3 +175,61 @@ funcparserlib.lexer.LexerError: cannot tokenize data: 2,9: "    tls #yes"
 The parsers recurse with the nesting of the document, so a deep enough one raises `RecursionError`. With Python's default
 limit that takes several dozen levels of `{`. A parser of untrusted input should catch it and report it as a parsing
 error.
+
+## Without a tokenizer
+
+`examples/kdl_text.py` parses the same language with no tokenizer: the grammar reads the text through
+[`Text`](../api/text.md) parsers, and the tree, the string functions and the number functions are the ones above. The
+sections of [Reading Text Directly](../getting-started/reading-text.md) explain each tool; here is what changes.
+
+Whitespace and comments become rules. KDL keeps its whitespace significant, so this `Text` has no `skip`. A `/* */`
+comment is a recursive rule, so the limit of 8 levels is gone:
+
+```python
+--8<-- "examples/kdl_text.py:whitespace"
+```
+
+```pycon
+>>> from examples.kdl_text import parse
+>>> parse("a " + "/*" * 40 + "*/" * 40)
+[Node(name='a', args=[], props={}, children=[], type=None)]
+
+```
+
+A quoted string is a rule too, so an error inside it names what the string expected. Of the other forms of a string, the
+tokenizer had to put `multiline` before `string`, since `string` reads the `""` that opens a `"""` string. Here `quoted`
+and `multiline` are alternatives of `longest()`, which keeps the longer match, so the order of the list does not matter:
+
+```python
+--8<-- "examples/kdl_text.py:strings"
+```
+
+The rest of the grammar is the grammar above with `Text` parsers for the `ws`, `nl` and `op` tokens. A parser that takes
+text takes a `str`, so `dropped()` and `separated()` are typed for that:
+
+```python
+--8<-- "examples/kdl_text.py:grammar"
+```
+
+`compile()` makes the grammar run faster, and the text goes to the compiled parser:
+
+```python
+--8<-- "examples/kdl_text.py:parse"
+```
+
+The errors say where in the text and what was expected, also where the tokenizer would have given up. A string that
+runs into the end of its line:
+
+```pycon
+>>> text = 'server "web\nroute "/api"\n'
+>>> try:
+...     parse(text)
+... except NoParseError as e:
+...     print(e.render(text))
+1,12-1,12: got unexpected token: '\n', expected: text or escape or '"' in string
+1 | server "web
+               ^
+
+```
+
+With the tokenizer, the same text is `cannot tokenize data` at the opening quote.

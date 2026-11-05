@@ -20,8 +20,9 @@ from .parser import Parser, ParsingError, ParsingResult, ParsingSuccess, State
 class Text:
     """Makes parsers of text, each skipping what `skip` matches after what it reads.
 
-    `skip` is a regexp for what may sit between tokens, such as whitespace and comments. Inside a
-    token, such as a string written as a grammar, use a `Text` without `skip`.
+    `skip` is a regexp for what may sit between tokens, such as whitespace and comments, and it
+    matches as many times as it can. Inside a token, such as a string written as a grammar, use a
+    `Text` without `skip`.
 
     Raises `ValueError` for a `skip` that matches the empty string.
 
@@ -52,7 +53,8 @@ class Text:
                     ValueError(f"skip pattern {skip!r} matches the empty string"),
                     "A skip pattern consumes at least one character: repeat with `+`.",
                 )
-            self._skip = regexp.match
+            end = "\n" if regexp.flags & re.VERBOSE else ""
+            self._skip = re.compile(f"(?:{skip}{end})+", flags).match
 
     def _after_skip(self, text: str, pos: int) -> int:
         if self._skip is not None and (m := self._skip(text, pos)):
@@ -118,7 +120,7 @@ class Text:
         """A parser that succeeds at the end of the text, past what `skip` matches."""
 
         def run(text: Any, s: State) -> ParsingResult[None]:
-            start = self._start(text, s.pos)
+            start = self._after_skip(text, s.pos)
             if start >= len(text):
                 return ParsingSuccess(None, s.reset_pos(start))
             return ParsingError(s.reset_pos(start).expect(p))

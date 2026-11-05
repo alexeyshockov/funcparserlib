@@ -21,11 +21,13 @@ nav = [
         { "Tokenizing Input" = "getting-started/tokenizing.md" },
         { "Parsing Tokens" = "getting-started/parsing.md" },
         { "Preparing the Parse Tree" = "getting-started/parse-tree.md" },
+        { "Reading Text Directly" = "getting-started/reading-text.md" },
         { "Tips and Tricks" = "getting-started/tips-and-tricks.md" },
     ] },
     { "API Reference" = [
         { "API Overview" = "api/index.md" },
         { "Lexer" = "api/lexer.md" },
+        { "Text" = "api/text.md" },
         { "Parser" = "api/parser.md" },
         { "Utilities" = "api/util.md" },
     ] },

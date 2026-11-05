@@ -35,3 +35,16 @@ parser fails at its first token.
 
 **`TokenDescription`**: how an error shows a token, its text and position; `Parser.parse(tokens, describe=...)` makes
 one from each token.
+
+**token grammar**: a grammar defined by a tokenizer: the tokens it makes, in the order of its specs, are what the
+parsers of `tok()` read. `Parser.parse()` runs it over the tokens, and `Parser.compile()` with a tokenizer over the
+text.
+
+**text grammar**: a grammar defined by the text its parsers read at the position the parsing has reached, with no
+tokenizer and no order of token specs. `Text` makes its parsers, and `Parser.parse_text()` runs it.
+
+**`Text`**: makes the parsers of a text grammar: `Text.token()` for a regexp, `Text.literal()` for a fixed string and
+`Text.end` for the end of the text. Its `skip` is what each of them skips after what it reads.
+
+**`longest()`**: a choice that runs every alternative and keeps the longest match, the first when several tie. It has no
+order to get right, unlike `p1 | p2`, which keeps the first alternative that succeeds.

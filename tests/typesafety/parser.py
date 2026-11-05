@@ -19,12 +19,14 @@ from funcparserlib.parser import (
     a,
     finished,
     forward_decl,
+    longest,
     many,
     maybe,
     oneplus,
     skip,
     tok,
 )
+from funcparserlib.text import Text
 from funcparserlib.util import expand_tuple_args
 
 x = a("x")
@@ -56,6 +58,7 @@ _ = assert_type((x + x) >> join, Parser[str, str])
 
 _ = assert_type(n.compile(), CompiledParser[Token, int])
 _ = assert_type(n.compile().parse([]), int)
+_ = assert_type(longest(x, x + x), Parser[str, str | tuple[str, str]])  # ty: ignore[type-assertion-failure] -- ty infers the fallback overload; basedpyright gates this file
 _ = assert_type(n.compile(make_tokenizer([])).parse_text(""), int)
 _ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
@@ -88,3 +91,24 @@ _ = assert_type(x + x + x + x + x + -finished, Tuple5Parser[str, str, str, str, 
 _ = assert_type(-x + -finished, IgnoredParser[str])
 _ = assert_type(-finished + x, Parser[str, str])
 _ = assert_type(x + finished, Tuple2Parser[str, str, None])
+
+# Text parsers read `str` and give the text they matched; `end` gives nothing.
+text = Text(skip=r"\s+")
+_ = assert_type(text.token("a"), Parser[str, str])
+_ = assert_type(text.literal("a"), Parser[str, str])
+_ = assert_type(text.end, Parser[str, None])
+_ = assert_type(text.token("a") + -text.end, Parser[str, str])
+_ = assert_type(text.token("a") + text.literal("b"), Tuple2Parser[str, str, str])
+_ = assert_type(text.token("a") >> len, Parser[str, int])
+
+# `longest()` keeps the type of its parsers.
+_ = assert_type(longest(x, x), Parser[str, str])
+_ = assert_type(longest(n, n, n), Parser[Token, int])
+
+# Parsing text.
+_ = assert_type(x.parse_text("x"), str)
+_ = assert_type(text.token("a").parse_text("a"), str)
+_ = assert_type((text.token("a") + text.token("b")).parse_text("ab"), tuple[str, str])
+_ = assert_type(text.token("a").compile().parse_text("a"), str)
+_ = assert_type(text.token("a").compile().try_parse("a"), str | None)
+_ = assert_type(n.compile(make_tokenizer([])).try_parse(""), int | None)

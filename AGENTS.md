@@ -18,6 +18,7 @@ local file.
 ```text
 funcparserlib/parser.py   Parser, the primitives (tok, a, some, forward_decl, finished), the combinators, the results
 funcparserlib/lexer.py    make_tokenizer, TokenSpec, Token, LexerError
+funcparserlib/text.py     Text, parsers that read text at the position, without tokens
 funcparserlib/_compile.py Parser.compile(): a grammar as generated Python functions
 funcparserlib/util.py     pretty_tree, expand_tuple_args
 funcparserlib/_commons.py the generated helpers: valueclass, refclass, with_hint

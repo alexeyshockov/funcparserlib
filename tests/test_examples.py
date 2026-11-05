@@ -5,7 +5,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from ruamel.yaml.error import YAMLError
 
-from examples import kdl, markdown, yaml
+from examples import kdl, kdl_text, markdown, yaml
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
@@ -458,6 +458,46 @@ def test_kdl_reports_every_bad_string_of_a_document() -> None:
 def test_kdl_too_deep_a_document_raises_recursion_error() -> None:
     with pytest.raises(RecursionError):
         kdl.parse("a {" * 5000 + "}" * 5000)
+
+
+KDL_DOCUMENTS = [
+    'a 1 "x" k=#true {\n  b; c (t)0x1F\n}\n',
+    "/- kdl-version 2\na; /- b; c\n",
+    'a """\n    one\n      two\n    """\nb #"raw"# \\\n  1.5e3 /* c */ k=#null\n',
+    'a "\\u{1F600}\\n" ""',
+]
+
+
+@pytest.mark.parametrize("text", KDL_DOCUMENTS)
+def test_kdl_text_gives_the_tree_of_the_tokenizer(text: str) -> None:
+    assert kdl_text.parse(text) == kdl.parse(text)
+
+
+def test_kdl_text_comments_nest_to_any_depth() -> None:
+    assert kdl_text.parse("a " + "/*" * 40 + "*/" * 40) == [Node("a")]
+
+
+def test_kdl_text_reads_a_multiline_string_the_quoted_alternative_starts() -> None:
+    assert kdl_text.parse('a """\n  x\n  """')[0].args == [Value("x")]
+
+
+def test_kdl_text_error_of_an_unterminated_string_says_where() -> None:
+    text = 'a "abc\nb'
+    with pytest.raises(NoParseError) as e:
+        kdl_text.parse(text)
+    assert str(e.value) == (
+        "1,7-1,7: got unexpected token: '\\n', expected: text or escape or '\"' in string"
+    )
+    assert e.value.render(text) == f'{e.value}\n1 | a "abc\n          ^'
+
+
+def test_kdl_text_reports_every_bad_string_of_a_document() -> None:
+    with pytest.raises(ParseErrors) as e:
+        kdl_text.parse('a "\\q" "\\u{D800}"')
+    assert [str(error) for error in e.value.exceptions] == [
+        f"1,3-1,6: {kdl.BAD_ESCAPE}",
+        f"1,8-1,17: {kdl.BAD_ESCAPE}",
+    ]
 
 
 KDL_FRAGMENTS = ["a", "1", '"q"', "/-", "k=", "(t)", "{", "}", ";", "\\", "#true", '#"r"#', '"""']

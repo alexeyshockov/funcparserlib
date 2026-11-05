@@ -164,6 +164,21 @@ class _Located(Sequence[Any]):
         word = _WORD.match(text, offset)
         return _Character(word.group() if word else text[offset], (line, column))
 
+    def _place(self, offset: int) -> Place:
+        text = self._text
+        return text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset)
+
+    def end(self) -> TokenDescription:
+        """The end of the text."""
+        place = self._place(len(self._text))
+        return TokenDescription("end of input", place, place)
+
+    def span(self, start: int, end: int) -> TokenDescription:
+        """The text from `start` to `end`, exclusive, without the whitespace that ends it."""
+        text = self._text[start:end].rstrip()
+        last = start + max(len(text) - 1, 0)
+        return TokenDescription(repr(text), self._place(start), self._place(last))
+
 
 def _is_place(x: object) -> TypeGuard[Place]:
     return isinstance(x, tuple) and len(x) == 2 and all(isinstance(n, int) for n in x)
@@ -766,16 +781,17 @@ class Parser[A, B]:
             ```
         """
         # Imported here: the module reads the classes of this one.
-        from ._compile import Internals, compile_grammar, compile_text, reads_text  # noqa: PLC0415
+        from ._compile import Internals, compile_grammar, compile_text, reads_text, reads_tokens  # noqa: PLC0415
 
         internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
         if reads_text(self):
             fast_text = compile_text(self, internals, None)
-            return CompiledParser(self, None, None, fast_text, reads_text=True)
+            return CompiledParser(self, None, None, fast_text, reads_tokens=False)
         fast_text = None
         if tokenizer is not None and tokenizer._pattern is not None:
             fast_text = compile_text(self, internals, tokenizer._scan)
-        return CompiledParser(self, compile_grammar(self, internals), tokenizer, fast_text)
+        fast = compile_grammar(self, internals)
+        return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))
 
     def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
@@ -1267,14 +1283,14 @@ class CompiledParser[A, B]:
         tokenizer: Tokenizer | None = None,
         fast_text: Callable[[str], tuple[B, int] | None] | None = None,
         *,
-        reads_text: bool = False,
+        reads_tokens: bool = True,
     ) -> None:
         """`parser`, with its generated functions, `None` for a grammar that stays interpreted."""
         self._parser = parser
         self._fast = fast
         self._tokenizer = tokenizer
         self._fast_text = fast_text
-        self._reads_text = reads_text
+        self._reads_tokens = reads_tokens
 
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
@@ -1305,7 +1321,7 @@ class CompiledParser[A, B]:
         Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, and
         `ValueError` when a grammar of tokens has no tokenizer.
         """
-        if not self._reads_text and self._tokenizer is None:
+        if self._reads_tokens and self._tokenizer is None:
             raise with_hint(
                 ValueError("a compiled parser of tokens without a tokenizer cannot parse text"),
                 "Pass the tokenizer of the grammar to `Parser.compile()`:"
@@ -1319,11 +1335,11 @@ class CompiledParser[A, B]:
                 res = None
         if res is not None:
             return res[0]
-        if self._reads_text:
+        if self._tokenizer is None:
             return self._parser.parse_text(text)
         tokens: list[Any] = []
         try:
-            tokens.extend(cast("Tokenizer", self._tokenizer)(text))
+            tokens.extend(self._tokenizer(text))
         except LexerError as e:
             return self._explained(tokens, e, describe)
         if self._fast_text is None and not debug:
@@ -1379,10 +1395,30 @@ class CompiledParser[A, B]:
             return None
 
 
-def longest[A, B](*parsers: Parser[A, B]) -> Parser[A, B]:
+@overload
+def longest[A, B, C](p1: Parser[A, B], p2: Parser[A, C], /) -> Parser[A, B | C]: ...
+
+
+@overload
+def longest[A, B, C, D](
+    p1: Parser[A, B], p2: Parser[A, C], p3: Parser[A, D], /
+) -> Parser[A, B | C | D]: ...
+
+
+@overload
+def longest[A, B, C, D, E](
+    p1: Parser[A, B], p2: Parser[A, C], p3: Parser[A, D], p4: Parser[A, E], /
+) -> Parser[A, B | C | D | E]: ...
+
+
+@overload
+def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]: ...
+
+
+def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]:
     """Return a parser of the longest match of `parsers`, the first of them when several tie.
 
-    Type: `(*Parser[A, B]) -> Parser[A, B]`
+    Type: `(Parser[A, B], Parser[A, C]) -> Parser[A, B | C]`, and so on
 
     `p1 | p2` keeps the first parser that succeeds, so a shorter match can hide a longer one, and
     the order of the alternatives matters. `longest(p1, p2)` runs them all, so it has no order to
@@ -1408,9 +1444,9 @@ def longest[A, B](*parsers: Parser[A, B]) -> Parser[A, B]:
     first = None if None in firsts else frozenset().union(*cast("list[frozenset[Any]]", firsts))
 
     @_parser(" or ".join(str(p.name) for p in parsers), shape=True, first=first)
-    def _longest(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-        best: ParsingResult[B] | None = None
-        last: ParsingResult[B] | None = None
+    def _longest(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
+        best: ParsingResult[Any] | None = None
+        last: ParsingResult[Any] | None = None
         st = s
         for p in parsers:
             res = p.run(tokens, st)
@@ -1422,7 +1458,7 @@ def longest[A, B](*parsers: Parser[A, B]) -> Parser[A, B]:
                 best = res
             st = res.state.reset_pos_to(s)
         if best is None:
-            return cast("ParsingResult[B]", last)
+            return cast("ParsingResult[Any]", last)
         return ParsingSuccess(best.value, best.state.replace_rest_from(st))
 
     _longest._form = ("longest", parsers)
@@ -1534,13 +1570,17 @@ def _parse_error[A](
     while any(c[: len(common)] != common for c in contexts):
         common = common[:-1]
     context = tuple(reversed(common))
-    if st.max < len(tokens):
-        token: A | None = tokens[st.max]
+    token: A | None = None
+    description: TokenDescription | None
+    if st.max >= len(tokens) and isinstance(tokens, _Located):
+        description = tokens.end()
+        found = f"{_where(description)}got unexpected end of input"
+    elif st.max < len(tokens):
+        token = tokens[st.max]
         shown = describe(tokens[st.max])
-        description: TokenDescription | None = shown
+        description = shown
         found = f"{_where(shown)}{res.message}: {shown.text}"
     else:
-        token = None
         description = _after(tokens, describe)
         found = "got unexpected end of input"
     msg = found + (f", expected: {' or '.join(names)}" if names else "")
@@ -1554,13 +1594,17 @@ def _problem_error[A](
     problem: CheckFailure, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
 ) -> NoParseError:
     """The `NoParseError` of a failed `Parser.check()`, spanning the tokens it checked."""
-    if problem.start < len(tokens):
-        token: A | None = tokens[problem.start]
+    token: A | None = None
+    description: TokenDescription | None
+    if isinstance(tokens, _Located) and problem.start < len(tokens):
+        description = tokens.span(problem.start, problem.end)
+    elif problem.start < len(tokens):
+        token = tokens[problem.start]
         first = describe(tokens[problem.start])
         last = describe(tokens[max(problem.start, problem.end - 1)])
-        description: TokenDescription | None = TokenDescription(first.text, first.start, last.end)
+        description = TokenDescription(first.text, first.start, last.end)
     else:
-        token, description = None, _after(tokens, describe)
+        description = _after(tokens, describe)
     context = tuple(reversed(problem.context))
     msg = f"{_where(description)}{problem.message}" + "".join(f" in {c}" for c in context)
     state = State(problem.start, problem.start)

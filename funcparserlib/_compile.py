@@ -356,8 +356,16 @@ class _Compiler:
         match _form(p):
             case ("test",):
                 return [self.test_condition(p, pos)]
-            case ("opaque",) | ("text", _, _, _):
+            case ("opaque",):
                 return None
+            case ("text", match, literal, _):
+                # At the start of the text, a skip comes first: leave that to the parser.
+                read = (
+                    f"T.startswith({self.literal(literal)}, {pos})"
+                    if literal is not None
+                    else f"{self.constant(match, 'R')}(T, {pos}) is not None"
+                )
+                return [f"{pos} == 0 or {read}"]
             case ("longest", found):
                 parts = list(found)
             case ("seq", left, right):
@@ -433,13 +441,7 @@ class _Compiler:
         return at
 
     def emit_text_end(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        skip = _form(p)[1]
-        start = self.fresh("p")
-        self.line(f"{start} = {pos}")
-        if skip is not None:
-            self.block(
-                f"if {pos} == 0:", lambda: self.line(f"{start} = {self.after_skip(skip, pos)}")
-            )
+        start = self.after_skip(_form(p)[1], pos)
         self.block(f"if {start} >= len(T):", lambda: then(start, _Value("plain", "None")))
 
     def emit_longest(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
@@ -892,6 +894,23 @@ def reads_text(root: Parser[Any, Any]) -> bool:
                 stack += _parts(p)
     except _Declined:
         return False
+    return False
+
+
+def reads_tokens(root: Parser[Any, Any]) -> bool:
+    """Whether the grammar reads tokens through `tok()`, which text does not have."""
+    seen: set[int] = set()
+    stack = [root]
+    try:
+        while stack:
+            p = _target(stack.pop())
+            if id(p) not in seen:
+                seen.add(id(p))
+                if p._test is not None and p._test.token is not None:
+                    return True
+                stack += _parts(p)
+    except _Declined:
+        return True
     return False
 
 

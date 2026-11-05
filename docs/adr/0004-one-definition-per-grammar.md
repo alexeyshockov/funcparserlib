@@ -1,6 +1,6 @@
 # 0004 — One definition per grammar
 
-- **Status:** Accepted, not built yet
+- **Status:** Accepted
 - **Date:** 2026-11-05
 
 ## Context
@@ -32,44 +32,45 @@ A grammar has one definition of its language, and there are two kinds.
 
 - A **token grammar** is what the library has today: global tokens define it, and a 1.0 grammar stays
   one. Its fast path reads the same tokens, so the two cannot disagree.
-- A **text grammar** reads text at the position the parser has reached, and that defines it. Only the
-  tokens that make sense at a position are tried, so specs have no global order, and context is
-  recursion and `bind()`. Its generated code reads the text directly.
+- A **text grammar** is made of the parsers of `funcparserlib.text.Text`, which read text at the
+  position the parser has reached, and that defines it. Only the tokens that make sense at a position
+  are tried, so specs have no global order, and context is recursion and `bind()`. Each token reads
+  what `skip` matches after it, so a failed attempt skips nothing. Its generated code reads the text
+  directly.
 
-The other way of reading never decides what is accepted. A token grammar may use reading at the
-position to explain a failure, and when that explanation disagrees with the tokens, for instance by
-accepting the text, the error is the one the tokens give.
+The two ways of reading never share a grammar, so they cannot disagree on what is accepted. When
+`CompiledParser.parse_text()` of a token grammar stops at text no spec matches, the tokens before it
+parse on their own, and the error is theirs: a mistake among them, or what the grammar expected in
+place of that text.
 
-Runners sit on top of one grammar, and a program picks one by what it wants from a failure: the default
-is fast and gives the full error, one only rejects, and one diagnoses at length. Runners are added when
-they earn it.
+Runners sit on top of one grammar, and a program picks one by what it wants from a failure.
+`CompiledParser.parse_text()` is fast and gives the full error, and `CompiledParser.try_parse()` gives
+`None` without making one. Others are added when they earn it.
 
-Text grammars come with two tools that earn their concepts. A choice that keeps the longest match
-removes the order of alternatives: KDL passed 338 of 338 with `string`'s alternatives in the order that
-fails 16 cases under `|`. A token written as grammar gives errors inside it:
+Text grammars come with two tools that earn their concepts. `longest()` removes the order of
+alternatives: KDL passes 338 of 338 with `string`'s alternatives in the order that fails 16 cases under
+`|`. A token written as grammar gives errors inside it:
 `"abc` fails at `1,5` with `expected: text or escape or unicode escape or '"' in string`, where today it
 fails at `1,3` with `cannot tokenize data`.
 
 Positions in a text grammar are worked out from the offset when an error happens, so a parse that
 succeeds pays nothing for them.
 
-Measured on Python 3.12 on an arm64 laptop, CPU time, with a prototype of the generated code that has
-no first-token tests yet:
+Measured on Python 3.12 on an arm64 laptop, CPU time, on 2 MB of the KDL benchmark, with
+`examples/kdl.py` and `examples/kdl_text.py`, which has strings as grammar and `longest()` over five
+alternatives:
 
-| Input | Tokens, interpreted | `parse_text()` | Text grammar, compiled |
-| --- | ---: | ---: | ---: |
-| KDL, 2 MB | 2.86 s | 0.35 s | 0.45 s |
-| JSON, 823 KB | 0.56 s | 0.15 s | 0.23 s |
+| Run | Token grammar | Text grammar |
+| --- | ---: | ---: |
+| Interpreted | 2.95 s | 8.10 s |
+| `parse_text()`, compiled | 0.35 s | 0.55 s |
+| `try_parse()`, failing at the last token | 0.35 s | 0.56 s |
+| `try_parse()`, failing at the first token | 0.13 s | under 0.01 s |
+| `parse_text()`, failing at the last token | 3.29 s | 8.64 s |
 
-The 21 MB KDL benchmark took 5.72 s as a compiled text grammar, against 4.82 s for `parse_text()`, wall
-clock. Compiled reading at the position agreed with global tokens on 60,000 mutated KDL documents.
-
-Rejecting without an error, on the 2 MB KDL document:
-
-| Failure | Fast pass alone | `parse_text()` with the error | Text grammar, compiled |
-| --- | ---: | ---: | ---: |
-| At the last token | 0.37 s | 3.44 s | 0.48 s |
-| At the first token | 0.14 s | 0.55 s | under 0.01 s |
+The 21 MB benchmark takes 6.89 s as a compiled text grammar, against 4.82 s, wall clock. 823 KB of JSON
+written as a text grammar takes 0.127 s compiled and 2.08 s interpreted, against 0.15 s for
+`parse_text()` of the token grammar in the tests.
 
 Where both ways of reading rejected a document, they named the same place for nearly all grammar errors
 in KDL and JSON and for 93% in DOT, where the differences read were at the end of input. For errors
@@ -91,11 +92,11 @@ Rejected:
 ## Consequences
 
 - Nothing changes for existing grammars unless they opt in.
-- The library has two kinds of grammar to explain and test. `compile()` needs a backend for text
-  grammars, and its speed depends on first-token tests the prototype leaves out.
-- A grammar that ignores whitespace needs what `skip=` gives a tokenizer, applied before each token. The
-  prototype's version took 205 KB of JSON from 0.12 s to 0.38 s, both interpreted.
-- Still to settle when this is built: the public names of the primitive, the longest choice and the
-  runners; what a position means at the end of input, where the two ways of reading differ; positions
-  in `Parser.check()` errors; whether `bytes` come for free, as `re` reads them; and reporting every
-  error of a document, which needs recovery and has no prototype.
+- The library has two kinds of grammar to explain and test, and generated code for both.
+- An interpreted text grammar is slow, as `Text` parsers cannot be fused as token tests are, and a failed
+  parse pays for it: a text grammar that often fails on large input wants `try_parse()`.
+- `longest()` runs every alternative, in generated code too.
+- A `Text` skips after what it reads, so the parser after a `Text` without `skip` does not skip what
+  comes before it, but for `Text.end`.
+- `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`. Reporting every
+  error of a document needs recovery.
