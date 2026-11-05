@@ -32,6 +32,7 @@ nav = [
     { "Recipes" = [
         { "Parsing Markdown with markdown-it" = "recipes/markdown.md" },
         { "Parsing YAML with ruamel.yaml" = "recipes/yaml.md" },
+        { "Parsing KDL" = "recipes/kdl.md" },
     ] },
     { "Glossary" = "explanation/glossary.md" },
     { "Decisions (ADR)" = "adr/index.md" },

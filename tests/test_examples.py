@@ -1,12 +1,16 @@
+from decimal import Decimal, InvalidOperation
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from ruamel.yaml.error import YAMLError
 
-from examples import markdown, yaml
+from examples import kdl, markdown, yaml
 from examples import markdown as md
 from examples.calculator import calculate
-from funcparserlib.parser import NoParseError
+from examples.kdl import Node, Value
+from funcparserlib.lexer import LexerError
+from funcparserlib.parser import NoParseError, ParseErrors
 
 
 def test_calculator_respects_precedence_and_parentheses() -> None:
@@ -278,4 +282,186 @@ def test_yaml_either_gives_a_value_or_raises_a_documented_error(text: str) -> No
     try:
         yaml.parse(text)
     except (NoParseError, yaml.ResolveError, YAMLError):
+        pass
+
+
+def test_kdl_builds_the_tree_of_every_node_field() -> None:
+    text = """
+    // a comment
+    (app)server "web" 8080 host=localhost {
+        route (path)"/api" methods=#null; log
+    }
+    """
+    assert kdl.parse(text) == [
+        Node(
+            "server",
+            [Value("web"), Value(8080)],
+            {"host": Value("localhost")},
+            [Node("route", [Value("/api", "path")], {"methods": Value(None)}), Node("log")],
+            "app",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        ("", []),
+        ("a", ["a"]),
+        ("a\n\n\n  b\n", ["a", "b"]),
+        ("a;b;\nc", ["a", "b", "c"]),
+        ("a // comment\nb", ["a", "b"]),
+        ("a /* comment */\nb", ["a", "b"]),
+        ("a\n\\\n/-\nb\nc", ["a", "c"]),
+        ("\ufeffa", ["a"]),
+        ("a\r\nb\x0bc\u2028d", ["a", "b", "c", "d"]),
+        ("/- kdl-version 2\na", ["a"]),
+    ],
+)
+def test_kdl_finds_the_nodes_between_the_terminators(text: str, names: list[str]) -> None:
+    assert [n.name for n in kdl.parse(text)] == names
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("/-a 1", []),
+        ("/- a {b}\nc", [Node("c")]),
+        ("a /-1 2", [Node("a", [Value(2)])]),
+        ("a/-1", [Node("a")]),
+        ("a /-k=1 l=2", [Node("a", props={"l": Value(2)})]),
+        ("a /-{b}", [Node("a")]),
+        ("a /-{b} {c} /-{d}", [Node("a", children=[Node("c")])]),
+        ("a /-\n  // comment\n  1", [Node("a")]),
+    ],
+)
+def test_kdl_slashdash_drops_what_follows_it(text: str, expected: list[Node]) -> None:
+    assert kdl.parse(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("bare-word", "bare-word"),
+        ("--flag", "--flag"),
+        (".md", ".md"),
+        ('"tab\\tu\\u{e9}\\s\\""', 'tab\tu\u00e9 "'),
+        ('"joined\\   \n   line"', "joinedline"),
+        ('#"C:\\dir\\"#', "C:\\dir\\"),
+        ('##"a"#b"##', 'a"#b'),
+        ('"""\n    one\n      two\n\n    """', "one\n  two\n"),
+        ('"""\n"""', ""),
+        ('"""\r\n  a\r\n  b\r\n  """', "a\nb"),
+        ('"""\n  a\\\n b\n  """', "ab"),
+        ('#"""\n  \\n\n  """#', "\\n"),
+        ("0xFF", 255),
+        ("-0o17", -15),
+        ("0b1_01", 5),
+        ("1_000", 1000),
+        ("+7", 7),
+        ("1.5e2", Decimal("150")),
+        ("1.23E+1000", Decimal("1.23E+1000")),
+        ("#true", True),
+        ("#false", False),
+        ("#null", None),
+        ("#-inf", Decimal("-Infinity")),
+    ],
+)
+def test_kdl_gives_each_literal_its_value(text: str, value: kdl.Scalar) -> None:
+    [node] = kdl.parse(f"a {text}")
+    assert node.args == [Value(value)]
+
+
+def test_kdl_reads_an_integer_past_the_digit_limit_of_int() -> None:
+    [node] = kdl.parse("a " + "1" * 5000)
+    assert node.args == [Value((10**5000 - 1) // 9)]
+
+
+def test_kdl_keeps_the_rightmost_of_a_repeated_property() -> None:
+    assert kdl.parse("a k=1 k=2")[0].props == {"k": Value(2)}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'a "b"c',
+        'a 1"b"',
+        "a{}b",
+        "a {} 1",
+        "a /-{} 1",
+        "a{}{}",
+        "a;;b",
+        "a {",
+        "a }",
+        "a=1",
+        "a 1=2",
+        "true",
+        "a null",
+        "(t)(u)a",
+        '"""one line"""',
+        "a /- /- 1",
+    ],
+)
+def test_kdl_grammar_rejects_tokens_out_of_place(text: str) -> None:
+    with pytest.raises(NoParseError):
+        kdl.parse(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a 1.0v2",
+        "a 0x",
+        "a .5",
+        "a #truthy",
+        'a #"unbalanced""',
+        'a #"""one line"""#',
+        'a "line\nbreak"',
+        "a /* unterminated",
+        'a "\x01"',
+    ],
+)
+def test_kdl_tokenizer_rejects_what_is_no_token(text: str) -> None:
+    with pytest.raises(LexerError):
+        kdl.parse(text)
+
+
+def test_kdl_comments_nest_up_to_the_level_of_the_regexp() -> None:
+    def nested(levels: int) -> str:
+        return "a " + "/*" * levels + "*/" * levels
+
+    assert kdl.parse(nested(9)) == [Node("a")]
+    with pytest.raises(LexerError):
+        kdl.parse(nested(10))
+
+
+def test_kdl_reports_every_bad_string_of_a_document() -> None:
+    text = 'a "\\q" "\\u{D800}"\nb """\n    x\n  y\n    """\n'
+    with pytest.raises(ParseErrors) as e:
+        kdl.parse(text)
+    assert [str(error) for error in e.value.exceptions] == [
+        f"1,3-1,6: {kdl.BAD_ESCAPE}",
+        f"1,8-1,17: {kdl.BAD_ESCAPE}",
+        f"2,3-5,7: {kdl.BAD_INDENT}",
+    ]
+
+
+def test_kdl_too_deep_a_document_raises_recursion_error() -> None:
+    with pytest.raises(RecursionError):
+        kdl.parse("a {" * 5000 + "}" * 5000)
+
+
+KDL_FRAGMENTS = ["a", "1", '"q"', "/-", "k=", "(t)", "{", "}", ";", "\\", "#true", '#"r"#', '"""']
+KDL_SEPARATORS = ["", " ", "\n", "\n  "]
+
+
+@given(
+    st.lists(
+        st.tuples(st.sampled_from(KDL_FRAGMENTS), st.sampled_from(KDL_SEPARATORS)), max_size=12
+    ).map(lambda ps: "".join(f + sep for f, sep in ps))
+)
+def test_kdl_either_gives_nodes_or_raises_a_documented_error(text: str) -> None:
+    try:
+        kdl.parse(text)
+    except (LexerError, NoParseError, ParseErrors, InvalidOperation):
         pass
