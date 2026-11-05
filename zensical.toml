@@ -21,8 +21,23 @@ nav = [
         { "Tokenizing Input" = "getting-started/tokenizing.md" },
         { "Parsing Tokens" = "getting-started/parsing.md" },
         { "Preparing the Parse Tree" = "getting-started/parse-tree.md" },
-        { "Reading Text Directly" = "getting-started/reading-text.md" },
         { "Tips and Tricks" = "getting-started/tips-and-tricks.md" },
+    ] },
+    { "Guides" = [
+        { "Error Handling" = "guide/errors.md" },
+        { "Performance" = "guide/performance.md" },
+        { "Parsing Without Tokens" = "guide/without-tokens.md" },
+    ] },
+    { "Recipes" = [
+        { "Overview" = "recipes/index.md" },
+        { "External Tokenizers" = [
+            { "Parsing Markdown with markdown-it" = "recipes/markdown.md" },
+            { "Parsing YAML with ruamel.yaml" = "recipes/yaml.md" },
+        ] },
+        { "Binary Data" = [
+            { "Parsing MessagePack" = "recipes/msgpack.md" },
+        ] },
+        { "Parsing KDL" = "recipes/kdl.md" },
     ] },
     { "API Reference" = [
         { "API Overview" = "api/index.md" },
@@ -32,13 +47,6 @@ nav = [
         { "Parser" = "api/parser.md" },
         { "Utilities" = "api/util.md" },
     ] },
-    { "Recipes" = [
-        { "Parsing Markdown with markdown-it" = "recipes/markdown.md" },
-        { "Parsing YAML with ruamel.yaml" = "recipes/yaml.md" },
-        { "Parsing KDL" = "recipes/kdl.md" },
-        { "Parsing MessagePack" = "recipes/msgpack.md" },
-    ] },
-    { "Glossary" = "explanation/glossary.md" },
     { "Changelog" = "changes.md" },
 ]
 
@@ -82,6 +90,7 @@ full_output = "llms-full.txt"
 "funcparserlib" = [
     "index.md",
     "getting-started/*.md",
+    "guide/*.md",
     "recipes/*.md",
     "explanation/*.md",
 ]

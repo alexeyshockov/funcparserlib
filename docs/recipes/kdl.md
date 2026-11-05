@@ -111,7 +111,7 @@ so writing that as two rules would parse the last node twice, at each level of n
 
 `string_entry` does the same for an entry. The spec says an entry is a property or a value, and both can start with a
 string, so `prop | value` would read a string, find no `=` and read it again as a value. Reading the string first and
-making the rest optional is [a shared prefix parsed once](../getting-started/tips-and-tricks.md#parse-a-shared-prefix-once).
+making the rest optional is [a shared prefix parsed once](../guide/performance.md#parse-a-shared-prefix-once).
 
 The version marker `/- kdl-version 2` needs no rule, as it is a slashdashed node.
 
@@ -180,7 +180,7 @@ error.
 
 `examples/kdl_text.py` parses the same language with no tokenizer: the grammar reads the text through
 [`Text`](../api/text.md) parsers, and the tree, the string functions and the number functions are the ones above. The
-sections of [Reading Text Directly](../getting-started/reading-text.md) explain each tool; here is what changes.
+sections of [Parsing Without Tokens](../guide/without-tokens.md) explain each tool; here is what changes.
 
 Whitespace and comments become rules. KDL keeps its whitespace significant, so this `Text` has no `skip`. A `/* */`
 comment is a recursive rule, so the limit of 8 levels is gone:

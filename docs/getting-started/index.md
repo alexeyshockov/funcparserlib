@@ -130,3 +130,5 @@ Now let's start learning how to write a numeric expression parser using `funcpar
 
 In [the next chapter](tokenizing.md) you will learn about the first step in parsing: tokenizing the input. It means
 splitting your input string into a sequence of tokens that are easier to parse.
+
+The [glossary](../explanation/glossary.md) explains the terms these chapters use.

@@ -127,93 +127,6 @@ Parse the longest alternative first:
 
 ```
 
-## Parse a Shared Prefix Once
-
-When an alternative fails, `|` goes back to where it started and tries the next one. Alternatives that start the same
-way parse their shared start once for each alternative tried:
-
-```pycon
->>> from funcparserlib.parser import maybe
-
->>> p = (number + -op("*") + number) | number
-
->>> p.parse(tokenize("1"))
-1
-
-```
-
-Here `number` runs twice on the `1`. It is cheap, but a shared start can be a large part of a grammar, and if it is
-recursive the repeated work multiplies with each level of nesting.
-
-Parse the shared start once and make the rest optional:
-
-```pycon
->>> p = number + maybe(-op("*") + number)
-
->>> p.parse(tokenize("2 * 3"))
-(2, 3)
-
->>> p.parse(tokenize("1"))
-(1, None)
-
-```
-
-The result changes shape, so a function after `>>` has to tell the two cases apart.
-[Parsing KDL](../recipes/kdl.md#the-grammar) does this for an entry of a node.
-
-## Compile a Grammar That Parses a Lot
-
-[`Parser.compile()`](../api/parser.md#funcparserlib.parser.Parser.compile) generates Python functions from a finished
-grammar. They run several times faster than the parsers do, and `parse()` works the same way:
-
-```pycon
->>> expr = (number + many(-op("*") + number) + -finished).compile()
-
->>> expr.parse(tokenize("2 * 3 * 4"))
-(2, [3, 4])
-
-```
-
-The functions keep no record of what was expected, so a parse that fails runs again in the parser it was compiled from.
-Errors are the same as without compiling:
-
-```pycon
->>> expr.parse(tokenize("2 * *"))
-Traceback (most recent call last):
-    ...
-funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: '*', expected: number
-
-```
-
-This makes a failed parse slower, and calls the functions you gave to `>>` twice, so compile a grammar when most of what
-it reads is valid and its `>>` functions only compute a value.
-
-Given a tokenizer, a compiled grammar parses text itself. As long as the grammar reads tokens through `tok()`, this
-makes no `Token` objects, which takes less time and much less memory. An error says what was expected, also at text the
-tokenizer cannot read:
-
-```pycon
->>> tokenizer = make_tokenizer(
-...     [
-...         TokenSpec("whitespace", r"\s+"),
-...         TokenSpec("int", r"\d+"),
-...         TokenSpec("op", r"[*]"),
-...     ],
-...     skip={"whitespace"},
-... )
->>> digit = tok("int") >> int
->>> product = (digit + many(-op("*") + digit) + -finished).compile(tokenizer)
-
->>> product.parse_text("2 * 3 * 4")
-(2, [3, 4])
-
->>> product.parse_text("2 * x")
-Traceback (most recent call last):
-    ...
-funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: 'x', expected: int
-
-```
-
 ## Watch Out for Left Recursion
 
 There are certain kinds grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion in
@@ -266,3 +179,12 @@ Test it:
 ```
 
 Remember that your parsers have to consume at least one token from the input before going into recursive definitions.
+
+## Next
+
+That's it for the tutorial. Depending on what you are building, you may want to read about:
+
+* [Error Handling](../guide/errors.md): the errors your users see, and how to make them better
+* [Performance](../guide/performance.md): compiling a grammar that parses a lot
+* [Parsing Without Tokens](../guide/without-tokens.md): grammars that read text directly
+* [Recipes](../recipes/index.md): complete parsers of real formats

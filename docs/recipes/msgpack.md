@@ -197,7 +197,8 @@ both and this grammar, interpreted and compiled, over a document of nested recor
 `msgpack.unpackb()` does: `just bench::micro -k bench_comparison`. The C extension is far ahead of anything written in
 Python. The compiled grammar and the pure Python parser of the package, which is written by hand for this format, are
 of the same order, and an interpreted grammar costs several times what a compiled one does. The figures
-are in [ADR 0005](../adr/0005-byte-grammars.md).
+are in [Performance](../guide/performance.md#how-fast-is-it), and the decision in
+[ADR 0005](../adr/0005-byte-grammars.md).
 
 The grammar earns its place where the format is the question. It is the specification, row for row, and a new
 extension type or a stricter rule is a row.
