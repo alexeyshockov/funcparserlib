@@ -291,10 +291,6 @@ class State:
             return State(pos, pos, (), self.context, self.problems)
         return State(pos, self.max, self.expected, self.context, self.problems)
 
-    def _replace_rest_from(self, s: State) -> State:
-        """This state, with the furthest position and what failed there from `s`."""
-        return State(self.pos, s.max, s.expected, self.context, self.problems)
-
     def __str__(self) -> str:
         """The position and the furthest position, as a tuple."""
         return str((self.pos, self.max))
@@ -1770,7 +1766,7 @@ def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]:
             st = res.state._reset_pos_to(s)
         if best is None:
             return cast("ParsingResult[Any]", last)
-        return ParsingSuccess(best.value, best.state._replace_rest_from(st))
+        return ParsingSuccess(best.value, st._reset_pos_to(best.state))
 
     _longest._form = ("longest", parsers)
     return _longest
@@ -2253,7 +2249,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
             elif res.committed:
                 return res
             else:
-                s = s._replace_rest_from(res.state)
+                s = res.state._reset_pos_to(s)
                 break
 
         if debug:
