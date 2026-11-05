@@ -127,6 +127,40 @@ Parse the longest alternative first:
 
 ```
 
+## Parse a Shared Prefix Once
+
+When an alternative fails, `|` goes back to where it started and tries the next one. Alternatives that start the same
+way parse their shared start once for each alternative tried:
+
+```pycon
+>>> from funcparserlib.parser import maybe
+
+>>> p = (number + -op("*") + number) | number
+
+>>> p.parse(tokenize("1"))
+1
+
+```
+
+Here `number` runs twice on the `1`. It is cheap, but a shared start can be a large part of a grammar, and if it is
+recursive the repeated work multiplies with each level of nesting.
+
+Parse the shared start once and make the rest optional:
+
+```pycon
+>>> p = number + maybe(-op("*") + number)
+
+>>> p.parse(tokenize("2 * 3"))
+(2, 3)
+
+>>> p.parse(tokenize("1"))
+(1, None)
+
+```
+
+The result changes shape, so a function after `>>` has to tell the two cases apart.
+[Parsing KDL](../recipes/kdl.md#the-grammar) does this for an entry of a node.
+
 ## Watch Out for Left Recursion
 
 There are certain kinds grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion in

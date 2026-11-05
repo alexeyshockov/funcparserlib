@@ -109,6 +109,10 @@ away, whether that is a node, an entry or a block of children, so a slashdashed 
 `separated()` parses a node once. The spec says a node ends in a terminator, and the last one in a block may omit it,
 so writing that as two rules would parse the last node twice, at each level of nesting.
 
+`string_entry` does the same for an entry. The spec says an entry is a property or a value, and both can start with a
+string, so `prop | value` would read a string, find no `=` and read it again as a value. Reading the string first and
+making the rest optional is [a shared prefix parsed once](../getting-started/tips-and-tricks.md#parse-a-shared-prefix-once).
+
 The version marker `/- kdl-version 2` needs no rule, as it is a slashdashed node.
 
 ```pycon

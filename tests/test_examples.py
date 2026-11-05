@@ -377,6 +377,15 @@ def test_kdl_reads_an_integer_past_the_digit_limit_of_int() -> None:
     assert node.args == [Value((10**5000 - 1) // 9)]
 
 
+@pytest.mark.parametrize("text", ["a k=1", "a k =1", "a k= 1", "a k = 1"])
+def test_kdl_allows_whitespace_around_the_equals_sign(text: str) -> None:
+    assert kdl.parse(text)[0].props == {"k": Value(1)}
+
+
+def test_kdl_allows_whitespace_before_an_annotated_property_value() -> None:
+    assert kdl.parse("a k= (t)1")[0].props == {"k": Value(1, "t")}
+
+
 def test_kdl_keeps_the_rightmost_of_a_repeated_property() -> None:
     assert kdl.parse("a k=1 k=2")[0].props == {"k": Value(2)}
 

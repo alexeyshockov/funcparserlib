@@ -236,8 +236,11 @@ string = (bare | quoted | multiline | raw | raw_multiline).named("string")
 annotation = -op("(") + space + string + space + -op(")")
 literal = string | tok("number") >> number | tok("keyword") >> KEYWORDS.__getitem__
 value = maybe(annotation) + space + literal >> (lambda r: Value(r[1], r[0]))
-prop = string + space + -op("=") + space + value >> (lambda r: Prop(*r))
-entry = prop | value
+prop_value = space + -op("=") + space + value
+string_entry = string + maybe(prop_value) >> (
+    lambda r: Value(r[0]) if r[1] is None else Prop(r[0], r[1])
+)
+entry = string_entry | value
 
 nodes: ForwardDeclParser[Token, list[Node]] = forward_decl().named("nodes")
 children = -op("{") + nodes + -op("}")
