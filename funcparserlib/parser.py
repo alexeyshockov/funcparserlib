@@ -521,8 +521,9 @@ class Parser[A, B]:
 
     Type: `Parser[A, B]`
 
-    Extensible by design: `forward_decl()` returns a subclass, and the sequence parsers are typed
-    through subclasses.
+    Extensible by design: `Parser(f)` makes a parser of the parsing function `f`, as the `parser()`
+    decorator does with a name, and that function is what a grammar adds to the library. A subclass
+    may add to a parser, as `forward_decl()` does; overriding `run` is not supported.
 
     The generic variables in the type are: `A` — the type of the tokens in the sequence to parse,`B`
     — the type of the parsed value.
@@ -535,12 +536,6 @@ class Parser[A, B]:
        parsers into a more complex parser
     3. You can assign complex parsers to variables to define names that correspond to the rules of
        your grammar
-
-    !!! Note
-
-        The constructor `Parser.__init__()` is considered **internal** and may be
-        changed in future versions. Use primitive parsers and parsing combinators to
-        construct new parsers.
     """
 
     run: ParserFn[A, B]
@@ -554,11 +549,9 @@ class Parser[A, B]:
     It returns a `ParsingSuccess` with the parsed value and the state after it, or a
     `ParsingFailure` if the parser fails; it does not raise `NoParseError`.
 
-    !!! Warning
-
-        This method is **internal** and may be changed in future versions. Use
-        `Parser.parse(tokens)` instead and let the parser object take care of
-        updating the parsing state.
+    A parsing function calls it to run other parsers; see `parser()`. `Parser.named()` and
+    `ForwardDeclParser.define()` replace it, so read `p.run` at each call instead of keeping it. To
+    parse a whole input, use `Parser.parse(tokens)`, which raises an error for a failure.
     """
 
     name: str | None = None
@@ -1782,6 +1775,11 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     carries the state moved past what it parsed, `s.reset_pos(pos)`; a failure carries
     `s.expect(p)`, where `p` is the parser that failed, so that the error names it.
 
+    A function that tries another parser after a failure, whose state is `st`, goes on from
+    `State(s.pos, st.max, st.expected, s.context, s.problems)`, as `|` does: the error still names
+    what failed furthest, and what the failed parser recorded is gone. `st.reset_pos(s.pos)` keeps
+    the `Parser.check()` errors of the failed parser, which reject input `|` accepts.
+
     Examples:
         ```pycon
         >>> @parser("digit")
@@ -1795,6 +1793,26 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
         Traceback (most recent call last):
             ...
         funcparserlib.parser.NoParseError: got unexpected token: 'x', expected: digit
+
+        ```
+
+        ```pycon
+        >>> def either(p, q):
+        ...     @parser(None)
+        ...     def tried(tokens, s):
+        ...         res = p.run(tokens, s)
+        ...         if not isinstance(res, ParsingFailure) or res.committed:
+        ...             return res
+        ...         st = res.state
+        ...         return q.run(tokens, State(s.pos, st.max, st.expected, s.context, s.problems))
+        ...     return tried
+        >>> pair = either(a("x") + a("y"), a("z"))
+        >>> pair.parse("z")
+        'z'
+        >>> pair.parse("xw")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected token: 'w', expected: 'y'
 
         ```
     """

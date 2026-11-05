@@ -259,3 +259,34 @@ def test_a_skipped_parser_still_converts_its_value() -> None:
     expr = -(a("x") >> seen.append) + a("y")
     assert expr.parse("xy") == "y"
     assert seen == ["x"]
+
+
+def either(p: Parser[str, Any], q: Parser[str, Any]) -> Parser[str, Any]:
+    """The choice the `parser()` docs show."""
+
+    @parser(None)
+    def tried(tokens: Sequence[str], s: State) -> ParsingResult[Any]:
+        res = p.run(tokens, s)
+        if not isinstance(res, ParsingFailure) or res.committed:
+            return res
+        st = res.state
+        return q.run(tokens, State(s.pos, st.max, st.expected, s.context, s.problems))
+
+    return tried
+
+
+@pytest.mark.parametrize("text", ["xy", "xz", "xw", "x", "w", ""])
+def test_a_parsing_function_that_backtracks_reads_as_the_choice_does(text: str) -> None:
+    def outcome(p: Parser[str, Any]) -> object:
+        try:
+            return p.parse(text)
+        except NoParseError as e:
+            return e.msg
+
+    x, y, z = a("x"), a("y"), a("z")
+    assert outcome(either(x + y, x + z)) == outcome((x + y) | (x + z))
+
+
+def test_a_parsing_function_that_backtracks_drops_the_failed_branch_checks() -> None:
+    x = a("x").check(lambda _: False, "bad x")
+    assert either(x + a("y"), a("x") + a("z")).parse("xz") == ("x", "z")

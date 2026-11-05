@@ -71,6 +71,8 @@ messages name what was expected more precisely; see Changed.
 - `finished.named(name)` returns a new end-of-input parser; `finished` keeps its name in every other grammar
 - `Token`, `TokenSpec`, `State` and the parsing results are immutable to type checkers. Every exported
   class except `Parser` is `@final` to type checkers.
+- `Parser(f)` and `Parser.run` are public: a parsing function is what a grammar adds to the library. A subclass may
+  add to a parser, and overriding `run` is not supported
 - The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
   mypy, pyright and ty
 - Built with uv and `uv_build`

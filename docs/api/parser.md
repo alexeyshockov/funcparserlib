@@ -42,6 +42,8 @@
 
 ::: funcparserlib.parser.parser
 
+::: funcparserlib.parser.Parser.run
+
 ### `finished`
 
 A parser that throws an exception if there are any unparsed tokens left in the sequence.
