@@ -102,14 +102,12 @@ Rejected:
 - The package uses `exec()`. What it runs is built from the grammar: a token type or value that is
   exactly a `str` enters it as `ast.Constant`, and every other object through a name bound to that
   object, as `ast.Constant` rejects a subclass of `int` or `str`. Parsed text never reaches it.
-- `CompiledParser.source` is `ast.unparse()` of the module. Text goes through the tokenizer's indentation
-  limit, so generated code is compiled from the nodes, with statements numbered as `ast.unparse()` lays
-  them out, which `tests/test_compile.py` compares against parsing the text. The compiled parser keeps the
-  module, 1.2 MB for the KDL grammar, as a `forward_decl()` defined again would regenerate other code.
-- `Parser.compile(source_file=...)` writes that text and gives its path to `compile()`, so a debugger
-  shows generated code. The path is a label: what runs is still compiled from the nodes, as the names in
-  the text stand for live objects such as the functions given to `>>`. Writing is opt-in, as a library
-  that wrote on every compile would fail on a read-only filesystem and leave files to clean up.
+- `Parser.compile(source_file=...)` writes `ast.unparse()` of the module and gives its path to `compile()`,
+  so a debugger shows generated code. Text goes through the tokenizer's indentation limit, and its names
+  stand for live objects such as the functions given to `>>`, so what runs is still compiled from the
+  nodes: the path is a label, and statements are numbered as `ast.unparse()` lays them out, which
+  `tests/test_compile.py` compares against parsing the text. Writing is opt-in, as a library that wrote on
+  every compile would fail on a read-only filesystem and leave files to clean up.
 - A new combinator works without a form, through `run`, and is only slower. A form that describes
   it wrongly makes the compiled pass accept what the parser rejects, which `tests/test_compile.py`
   looks for by running random grammars through both.

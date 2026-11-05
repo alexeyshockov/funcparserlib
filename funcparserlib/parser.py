@@ -831,24 +831,14 @@ class Parser[A, B]:
         # What reads text reads bytes too: generated code takes either.
         if reads_text(self):
             fast_text, source = compile_text(self, internals, None, path)
-            if path is not None:
-                write_source(path, source)
-            return CompiledParser(self, None, None, fast_text, reads_tokens=False, source=source)
+            write_source(path, source)
+            return CompiledParser(self, None, None, fast_text, reads_tokens=False)
         fast_text, text_source = None, None
         if tokenizer is not None and tokenizer._pattern is not None:
             fast_text, text_source = compile_text(self, internals, tokenizer._scan, path)
-        line = 1 if path is None else line_after(text_source)
-        fast, source = compile_grammar(self, internals, path, line)
-        if path is not None:
-            write_source(path, text_source, source)
-        return CompiledParser(
-            self,
-            fast,
-            tokenizer,
-            fast_text,
-            reads_tokens=reads_tokens(self),
-            source=text_source or source,
-        )
+        fast, source = compile_grammar(self, internals, path, line_after(text_source))
+        write_source(path, text_source, source)
+        return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))
 
     def recover(self, until: Parser[A, Any], default: B | None = None) -> Parser[A, B | None]:
         """Record the error of a failure and go on from where `until` matches.
@@ -1366,7 +1356,7 @@ class CompiledParser[A, B]:
     Users get it from `Parser.compile()`; its constructor is internal.
     """
 
-    __slots__ = ("_fast", "_fast_text", "_parser", "_reads_tokens", "_source", "_tokenizer")
+    __slots__ = ("_fast", "_fast_text", "_parser", "_reads_tokens", "_tokenizer")
 
     def __init__(
         self,
@@ -1376,7 +1366,6 @@ class CompiledParser[A, B]:
         fast_text: Callable[[str], tuple[B, int] | None] | None = None,
         *,
         reads_tokens: bool = True,
-        source: Callable[[], str] | None = None,
     ) -> None:
         """`parser`, with its generated functions, `None` for a grammar that stays interpreted."""
         self._parser = parser
@@ -1384,28 +1373,6 @@ class CompiledParser[A, B]:
         self._tokenizer = tokenizer
         self._fast_text = fast_text
         self._reads_tokens = reads_tokens
-        self._source = source
-
-    @property
-    def source(self) -> str | None:
-        """The Python source of the generated functions, for reading them or saving them to a file.
-
-        It is `None` for a grammar that stays interpreted. Given a tokenizer, it is the source of
-        what `CompiledParser.parse_text()` runs, when that has generated functions of its own. A
-        frame of generated code reports its line in this text, under the file name
-        `<funcparserlib grammar>`.
-
-        Examples:
-            ```pycon
-            >>> compiled = (a("x") + a("y")).compile()
-            >>> compiled.source.splitlines()[0]
-            'def f1(T, Y, p0):'
-            >>> many(maybe(tok("x"))).compile().source is None
-            True
-
-            ```
-        """
-        return None if self._source is None else self._source()
 
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ast
 from collections.abc import Callable, Sequence
-from functools import partial
 from operator import attrgetter, index
 from pathlib import Path
 from re import Pattern
@@ -1144,8 +1143,8 @@ def _with_lines(module: ast.Module, line: int = 1) -> ast.Module:
 
 def _functions(
     root: Parser[Any, Any], internals: Internals, *, values: bool, filename: str | None, line: int
-) -> tuple[Callable[[Any, list[str | None], int], Any], bool, ast.Module] | None:
-    """The function running `root`, whether it reads token types, and the module it comes from.
+) -> tuple[Callable[[Any, list[str | None], int], Any], bool, str | None] | None:
+    """The function running `root`, whether it reads token types, and its source for a `filename`.
 
     `None` when it cannot be.
     """
@@ -1153,27 +1152,28 @@ def _functions(
         compiler = _Compiler(root, internals, values=values)
         module, entry = compiler.module()
         code = compile(_with_lines(module, line), filename or _FILENAME, "exec")
+        source = None if filename is None else ast.unparse(module)
     except (_Declined, RecursionError):
         return None
     names = compiler.names
     exec(code, names)  # noqa: S102 — the code is built from the grammar, see ADR 0002
     for table, functions in compiler.tables.items():
         names[table] = {key: names[function] for key, function in functions.items()}
-    return names[entry], compiler.tests_token_types, module
+    return names[entry], compiler.tests_token_types, source
 
 
 def compile_grammar[A, B](
     root: Parser[A, B], internals: Internals, filename: str | None, line: int
-) -> tuple[Callable[[Sequence[A]], tuple[B, int] | None] | None, Callable[[], str] | None]:
-    """A function giving the value and the end position of a parse, and one giving its source.
+) -> tuple[Callable[[Sequence[A]], tuple[B, int] | None] | None, str | None]:
+    """A function giving the value and the end position of a parse, and its source for a `filename`.
 
-    The first returns `None` when the interpreted parser has to decide. Both are `None` for a
+    The function returns `None` when the interpreted parser has to decide. Both are `None` for a
     grammar that stays interpreted. Its frames report `filename`, and lines from `line`.
     """
     functions = _functions(root, internals, values=False, filename=filename, line=line)
     if functions is None:
         return None, None
-    run, tests_token_types, module = functions
+    run, tests_token_types, source = functions
 
     def fast(tokens: Sequence[A]) -> tuple[B, int] | None:
         if tests_token_types:
@@ -1189,18 +1189,18 @@ def compile_grammar[A, B](
             return None
         return result
 
-    return fast, partial(ast.unparse, module)
+    return fast, source
 
 
-def line_after(source: Callable[[], str] | None) -> int:
+def line_after(source: str | None) -> int:
     """The line a program starts on in a file that holds `source` before it."""
-    return 1 if source is None else source().count("\n") + 3
+    return 1 if source is None else source.count("\n") + 3
 
 
-def write_source(filename: str, *sources: Callable[[], str] | None) -> None:
+def write_source(filename: str | None, *sources: str | None) -> None:
     """Write `sources` to `filename`, a blank line between them; nothing when there are none."""
-    texts = [source() for source in sources if source is not None]
-    if texts:
+    texts = [source for source in sources if source is not None]
+    if filename is not None and texts:
         Path(filename).write_text("\n\n".join(texts) + "\n", encoding="utf-8")
 
 
@@ -1265,11 +1265,11 @@ def compile_text[B](
     internals: Internals,
     scan: Callable[[str], tuple[list[str], list[str | None]] | None] | None,
     filename: str | None,
-) -> tuple[Callable[[str], tuple[B, int] | None] | None, Callable[[], str] | None]:
-    """A function giving the value and the end position of a text, and one giving its source.
+) -> tuple[Callable[[str], tuple[B, int] | None] | None, str | None]:
+    """A function giving the value and the end position of a text, and its source for a `filename`.
 
-    The first returns `None` when the text does not parse, and raises `internals.undecided` when the
-    interpreted parser has to decide. Both are `None` for a grammar that stays interpreted.
+    The function returns `None` when the text does not parse, and raises `internals.undecided` when
+    the interpreted parser has to decide. Both are `None` for a grammar that stays interpreted.
 
     `scan` splits the text into the values and the types of its tokens, without `Token` objects: a
     grammar that reads a token any other way than through `tok()` then stays interpreted. Without
@@ -1278,7 +1278,7 @@ def compile_text[B](
     functions = _functions(root, internals, values=scan is not None, filename=filename, line=1)
     if functions is None:
         return None, None
-    run, _, module = functions
+    run, _, source = functions
     skip = leading_skip(root)
 
     def fast(text: str) -> tuple[B, int] | None:
@@ -1293,4 +1293,4 @@ def compile_text[B](
             raise internals.undecided from e
         return result
 
-    return fast, partial(ast.unparse, module)
+    return fast, source

@@ -433,56 +433,6 @@ def test_the_lines_of_a_whole_grammar_are_those_of_its_source() -> None:
     assert statement_lines(module) == statement_lines(ast.parse(ast.unparse(module)))
 
 
-def test_a_frame_of_generated_code_reports_its_line_in_the_source() -> None:
-    lines: list[int] = []
-
-    def seen(value: object) -> object:
-        frame = sys._getframe(1)
-        assert frame.f_code.co_filename == "<funcparserlib grammar>"
-        lines.append(frame.f_lineno)
-        return value
-
-    declared: P = forward_decl()
-    declared.define((tok("a") >> seen) + maybe(declared))
-    compiled = (Parser(tok("b").run) + declared).compile()
-    assert compiled._fast is not None
-    assert compiled._fast(tokens("baa")) is not None
-    source = compiled.source
-    assert source is not None
-    assert lines
-    for line in lines:
-        assert re.fullmatch(r"\s*v\d+ = F\d+\(.*\)", source.splitlines()[line - 1])
-
-
-def test_the_source_of_a_grammar_that_stays_interpreted_is_none() -> None:
-    assert many(maybe(tok("a"))).compile().source is None
-
-
-def test_the_source_is_what_parse_text_runs_when_it_has_functions_of_its_own() -> None:
-    grammar = many(tok("a"))
-    tokens_source, text_source = grammar.compile().source, grammar.compile(tokenizer).source
-    assert tokens_source is not None
-    assert text_source is not None
-    assert ".value" in tokens_source
-    assert ".value" not in text_source
-
-
-def test_the_source_falls_back_to_what_parse_runs() -> None:
-    grammar = some(lambda token: token.type == "a")
-    compiled = grammar.compile(tokenizer)
-    assert compiled._fast_text is None
-    assert compiled.source == grammar.compile().source
-
-
-def test_the_source_is_a_snapshot() -> None:
-    declared: P = forward_decl()
-    declared.define(tok("a"))
-    compiled = declared.compile()
-    before = compiled.source
-    declared.define(tok("b"))
-    assert compiled.source == before
-
-
 def frame_lines(path: Path, lines: list[tuple[str, int]]) -> None:
     """Assert each frame of `lines` reports `path`, on a line of it that calls a function."""
     text = path.read_text(encoding="utf-8").splitlines()
@@ -501,13 +451,19 @@ def recording(lines: list[tuple[str, int]]) -> Callable[[object], object]:
     return seen
 
 
+def source_of(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
 def test_a_source_file_holds_the_source_and_frames_report_it(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
     lines: list[tuple[str, int]] = []
-    compiled = (tok("a") + (tok("b") >> recording(lines))).compile(source_file=path)
+    declared: P = forward_decl()
+    declared.define((tok("a") >> recording(lines)) + maybe(declared))
+    compiled = (Parser(tok("b").run) + declared).compile(source_file=path)
     assert compiled._fast is not None
-    assert compiled._fast(tokens("ab")) is not None
-    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+    assert compiled._fast(tokens("baa")) is not None
+    assert source_of(path).startswith("def f1(T, Y, p0):\n")
     frame_lines(path, lines)
 
 
@@ -517,28 +473,35 @@ def test_a_source_file_holds_both_programs_of_a_tokenizer(tmp_path: Path) -> Non
     compiled = many(tok("a") >> recording(lines)).compile(tokenizer, source_file=path)
     assert compiled._fast_text is not None
     assert compiled._fast is not None
-    assert compiled.source is not None
     assert compiled._fast_text("aa") is not None
     from_text = list(lines)
     lines.clear()
     assert compiled._fast(list(tokenizer("aa"))) is not None
-    assert path.read_text(encoding="utf-8").startswith(f"{compiled.source}\n\n")
     frame_lines(path, from_text)
     frame_lines(path, lines)
-    assert from_text[0][1] < len(compiled.source.splitlines()) < lines[0][1]
+    text = source_of(path).splitlines()
+    assert ".value" not in text[from_text[0][1] - 1]
+    assert ".value" in text[lines[0][1] - 1]
+
+
+def test_a_source_file_holds_what_parse_runs_without_functions_for_text(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    compiled = some(lambda token: token.type == "a").compile(tokenizer, source_file=path)
+    assert compiled._fast_text is None
+    assert source_of(path).count("def f") == 1
 
 
 def test_a_source_file_holds_a_grammar_of_text(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
-    compiled = many(Text().literal("a")).compile(source_file=path)
-    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+    many(Text().literal("a")).compile(source_file=path)
+    assert "T.startswith('a'" in source_of(path)
 
 
 def test_a_source_file_is_rewritten(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
     path.write_text("old", encoding="utf-8")
-    compiled = tok("a").compile(source_file=path)
-    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+    tok("a").compile(source_file=path)
+    assert source_of(path).startswith("def f1(")
 
 
 def test_a_grammar_that_stays_interpreted_writes_no_source_file(tmp_path: Path) -> None:
@@ -556,6 +519,18 @@ def test_a_relative_source_file_is_absolute_in_a_frame(
     assert compiled._fast is not None
     assert compiled._fast(tokens("a")) is not None
     frame_lines(tmp_path.resolve() / "grammar.py", lines)
+
+
+def test_a_module_too_deep_to_unparse_stays_interpreted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def too_deep(module: ast.AST) -> str:
+        raise RecursionError
+
+    monkeypatch.setattr(ast, "unparse", too_deep)
+    path = tmp_path / "grammar.py"
+    assert tok("a").compile(source_file=path)._fast is None
+    assert not path.exists()
 
 
 def test_a_source_file_that_cannot_be_written_raises(tmp_path: Path) -> None:

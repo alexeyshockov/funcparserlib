@@ -26,8 +26,6 @@
 
 ::: funcparserlib.parser.CompiledParser.try_parse
 
-::: funcparserlib.parser.CompiledParser.source
-
 ::: funcparserlib.parser.ForwardDeclParser.define
 
 ::: funcparserlib.parser.Parser.named
