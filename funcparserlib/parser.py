@@ -72,7 +72,7 @@ __all__ = [
     "NoParseError",
     "ParsingResult",
     "ParsingSuccess",
-    "ParsingError",
+    "ParsingFailure",
     "IgnoredValue",
     "IgnoredParser",
     "EndOfInput",
@@ -280,7 +280,7 @@ class State:
             )
         return self
 
-    def reset_pos_to(self, s: State) -> State:
+    def _reset_pos_to(self, s: State) -> State:
         """`s`, with the furthest position and what failed there from this state."""
         # dataclasses.replace() hits performance, as it performs additional validation
         return State(s.pos, self.max, self.expected, s.context, s.problems)
@@ -291,7 +291,7 @@ class State:
             return State(pos, pos, (), self.context, self.problems)
         return State(pos, self.max, self.expected, self.context, self.problems)
 
-    def replace_rest_from(self, s: State) -> State:
+    def _replace_rest_from(self, s: State) -> State:
         """This state, with the furthest position and what failed there from `s`."""
         return State(self.pos, s.max, s.expected, self.context, self.problems)
 
@@ -317,7 +317,7 @@ class NoParseError(Exception):
     has a position.
     """
 
-    _result: ParsingError | None = None
+    _result: ParsingFailure | None = None
 
     def __init__(
         self,
@@ -389,7 +389,7 @@ class ParsingResult[R](Iterable[Any], Protocol):
     """Result monad for parsing combinators.
 
     Immutable (object's data should not be changed after creation). `ParsingSuccess` and
-    `ParsingError` implement it structurally.
+    `ParsingFailure` implement it structurally.
     """
 
     @property
@@ -453,7 +453,7 @@ class ParsingSuccess[R]:
         """
         # Assume that the other state is further away from the current one
         # (matches Parser.__add__() behavior)
-        if isinstance(other, ParsingError):
+        if isinstance(other, ParsingFailure):
             return other
         v1, v2, s2 = self.value, other.value, other.state
         if isinstance(v1, IgnoredValue):
@@ -465,7 +465,7 @@ class ParsingSuccess[R]:
 
 @final
 @valueclass
-class ParsingError:
+class ParsingFailure:
     """A failed parsing result: where parsing stopped, and why.
 
     It carries no value, so it is a `ParsingResult` of any value type; its `value` raises
@@ -476,9 +476,9 @@ class ParsingError:
     message: str = "got unexpected token"
     committed: bool = False
 
-    def replace_state(self, s: State) -> ParsingError:
+    def _replace_state(self, s: State) -> ParsingFailure:
         """The same failure at the state `s`."""
-        return ParsingError(s, self.message, self.committed)
+        return ParsingFailure(s, self.message, self.committed)
 
     @property
     def _error(self) -> NoParseError:
@@ -495,19 +495,19 @@ class ParsingError:
         """Never iterates: raises the `NoParseError` for this failure."""
         raise self._error
 
-    def map(self, f: Callable[[Any], object]) -> ParsingError:
+    def map(self, f: Callable[[Any], object]) -> ParsingFailure:
         """This failure; `f` is not called."""
         return self
 
-    def starmap(self, f: Callable[..., object]) -> ParsingError:
+    def starmap(self, f: Callable[..., object]) -> ParsingFailure:
         """This failure; `f` is not called."""
         return self
 
-    def bind(self, f: Callable[[Any, State], object]) -> ParsingError:
+    def bind(self, f: Callable[[Any, State], object]) -> ParsingFailure:
         """This failure; `f` is not called."""
         return self
 
-    def __add__(self, other: object) -> ParsingError:
+    def __add__(self, other: object) -> ParsingFailure:
         """This failure; `other` is not considered."""
         return self
 
@@ -555,8 +555,8 @@ class Parser[A, B]:
     The parsing state includes the current position in the sequence being parsed, and the position
     of the rightmost token that has been consumed while parsing for better error messages.
 
-    It returns a `ParsingSuccess` with the parsed value and the state after it, or a `ParsingError`
-    if the parser fails; it does not raise `NoParseError`.
+    It returns a `ParsingSuccess` with the parsed value and the state after it, or a
+    `ParsingFailure` if the parser fails; it does not raise `NoParseError`.
 
     !!! Warning
 
@@ -653,12 +653,12 @@ class Parser[A, B]:
     def _labelled(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
         def run_labelled(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = f(tokens, s)
-            if isinstance(res, ParsingError) and res.state.max == s.pos:
+            if isinstance(res, ParsingFailure) and res.state.max == s.pos:
                 # Nothing got past this parser's start: it, not its parts, is what was expected.
                 st = res.state
                 expected = (*s.expected, (self, s.context))
                 failed = State(st.pos, st.max, expected, st.context, st.problems)
-                return ParsingError(failed, res.message, res.committed)
+                return ParsingFailure(failed, res.message, res.committed)
             return res
 
         return run_labelled
@@ -699,7 +699,7 @@ class Parser[A, B]:
             except NoParseError as e:
                 # A failure unpacked inside `f` is taken as one at these tokens. A `NoParseError`
                 # from a nested `parse()` carries none, and fails at this parser.
-                res = e._result or ParsingError(s.expect(self), e.msg)
+                res = e._result or ParsingFailure(s.expect(self), e.msg)
                 legacy = True
             else:
                 legacy = isinstance(res, tuple)
@@ -804,7 +804,7 @@ class Parser[A, B]:
     ) -> B:
         """The value of `res`, or the errors of a failed parse and of failed checks."""
         errors = [_problem_error(problem, tokens, show) for problem in res.state.problems]
-        if isinstance(res, ParsingError):
+        if isinstance(res, ParsingFailure):
             fatal = _parse_error(res, tokens, show)
             if not errors:
                 raise fatal
@@ -892,10 +892,10 @@ class Parser[A, B]:
             # A fresh furthest position tells whether this parser read a token.
             res = self.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
             st = res.state
-            if res.__class__ is not ParsingError:
+            if res.__class__ is not ParsingFailure:
                 return ParsingSuccess(res.value, _merged(st, s))
             if st.max == s.pos:
-                return res.replace_state(_merged(st, s))
+                return res._replace_state(_merged(st, s))
             names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
             found = "got unexpected end of input"
             if st.max < len(tokens):
@@ -904,7 +904,7 @@ class Parser[A, B]:
             problem = CheckFailure(message, st.max, st.max + 1, st.context)
             pos = st.max
             while (
-                pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingError
+                pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingFailure
             ):
                 pos += 1
             return ParsingSuccess(default, State(pos, pos, (), s.context, (*st.problems, problem)))
@@ -938,12 +938,12 @@ class Parser[A, B]:
         @_parser(shown, leaf=True, first=self._first)
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError):
+            if isinstance(res, ParsingFailure):
                 return res
-            res_not = other.run(tokens, res.state.reset_pos_to(s))
-            if isinstance(res_not, ParsingError):
+            res_not = other.run(tokens, res.state._reset_pos_to(s))
+            if isinstance(res_not, ParsingFailure):
                 return res_not if res_not.committed else res
-            return ParsingError(s.expect(_but_not))
+            return ParsingFailure(s.expect(_but_not))
 
         _but_not._form = ("but_not", self, other)
         return _but_not
@@ -970,9 +970,9 @@ class Parser[A, B]:
         @_parser(_label_of(self) or "when(...)", leaf=True, first=self._first)
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError) or pred(res.value):
+            if isinstance(res, ParsingFailure) or pred(res.value):
                 return res
-            return ParsingError(s.expect(_when))
+            return ParsingFailure(s.expect(_when))
 
         _when._form = ("when", self, pred)
         return _when
@@ -1006,8 +1006,8 @@ class Parser[A, B]:
             res = self.run(tokens, inner)
             st = res.state
             out = State(st.pos, st.max, st.expected, s.context, st.problems)
-            if isinstance(res, ParsingError):
-                return ParsingError(out, res.message, res.committed)
+            if isinstance(res, ParsingFailure):
+                return ParsingFailure(out, res.message, res.committed)
             return ParsingSuccess(res.value, out)
 
         _context._form = ("context", self)
@@ -1039,7 +1039,7 @@ class Parser[A, B]:
         @_parser(self.name, shape=self._shape, first=self._first)
         def _check(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError) or pred(res.value):
+            if isinstance(res, ParsingFailure) or pred(res.value):
                 return res
             st = res.state
             problem = CheckFailure(message, s.pos, st.pos, s.context)
@@ -1112,10 +1112,10 @@ class Parser[A, B]:
         @_parser(f"({self.name}, {other.name})", shape=True, first=self._first)
         def _add(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             res_l = self.run(tokens, s)
-            if res_l.__class__ is ParsingError:
+            if res_l.__class__ is ParsingFailure:
                 return res_l
             res_r = other.run(tokens, res_l.state)
-            if res_r.__class__ is ParsingError:
+            if res_r.__class__ is ParsingFailure:
                 return res_r
             # ParsingSuccess.__add__(), inlined
             v1: Any = res_l.value
@@ -1153,9 +1153,9 @@ class Parser[A, B]:
 
         def tried(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
             res = self.run(tokens, s)
-            if not isinstance(res, ParsingError) or res.committed:
+            if not isinstance(res, ParsingFailure) or res.committed:
                 return res
-            return other.run(tokens, res.state.reset_pos_to(s))
+            return other.run(tokens, res.state._reset_pos_to(s))
 
         first = None if self._first is None or other._first is None else self._first | other._first
         if debug or not _narrows((*_alternatives(self), *_alternatives(other))):
@@ -1183,14 +1183,14 @@ class Parser[A, B]:
                     failures: list[ParsingResult[Any]] = []
                     for alt in candidates:
                         res = alt.run(tokens, st)
-                        if res.__class__ is not ParsingError or res.committed:
+                        if res.__class__ is not ParsingFailure or res.committed:
                             # What the alternatives skipped expected at `pos` is forgotten once
                             # parsing got past it.
                             if res.state.max > pos:
                                 return res
                             break
                         failures.append(res)
-                        st = res.state.reset_pos_to(s)
+                        st = res.state._reset_pos_to(s)
                     else:
                         if candidates:
                             # A candidate is never run again: that would double the work at each
@@ -1200,7 +1200,7 @@ class Parser[A, B]:
                             last = failures[-1]
                             for alt in rest:
                                 last = alt.run(tokens, st)
-                                st = last.state.reset_pos_to(s)
+                                st = last.state._reset_pos_to(s)
                             return last
                 return tried(tokens, s)
 
@@ -1343,7 +1343,7 @@ class Parser[A, B]:
         @_parser(self.name, shape=self._shape, first=self._first)
         def _ignored(tokens: Sequence[A], s: State) -> ParsingResult[IgnoredValue]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError):
+            if isinstance(res, ParsingFailure):
                 return res
             return ParsingSuccess(_IGNORED, res.state)
 
@@ -1378,13 +1378,13 @@ class Parser[A, B]:
         def _invert(tokens: Sequence[A], s: State) -> ParsingResult[A]:
             if s.pos >= len(tokens):
                 s2 = s.expect(_invert)
-                return ParsingError(s2, "got unexpected end of input")
+                return ParsingFailure(s2, "got unexpected end of input")
             res = self.run(tokens, s)
-            if isinstance(res, ParsingError):
+            if isinstance(res, ParsingFailure):
                 if res.committed:
                     return res
                 return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
-            return ParsingError(s.expect(_invert))
+            return ParsingFailure(s.expect(_invert))
 
         return _invert
 
@@ -1549,14 +1549,14 @@ def _read_region(
     """
     inner = body.run(region, State(0, 0, (), at.context, ()))
     st = _moved(inner.state, start)
-    if inner.__class__ is not ParsingError and inner.state.max >= len(region):
+    if inner.__class__ is not ParsingFailure and inner.state.max >= len(region):
         st = State(st.pos, st.max, (), st.context, st.problems)
     merged = _merged(st, at)
     moved = State(merged.pos, merged.max, merged.expected, at.context, (*at.problems, *st.problems))
-    if inner.__class__ is ParsingError:
-        return inner.replace_state(moved)
+    if inner.__class__ is ParsingFailure:
+        return inner._replace_state(moved)
     if inner.state.pos != len(region):
-        return ParsingError(moved, "bytes left in the region")
+        return ParsingFailure(moved, "bytes left in the region")
     return ParsingSuccess(inner.value, moved)
 
 
@@ -1606,12 +1606,12 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
     @_parser(f"tokens counted by {length.name}", shape=True)
     def _prefixed(tokens: Sequence[Any], s: State) -> ParsingResult[Any]:
         res = length.run(tokens, s)
-        if res.__class__ is ParsingError:
+        if res.__class__ is ParsingFailure:
             return res
         start = res.state.pos
         end = start + res.value
         if res.value < 0 or end > len(tokens):
-            return ParsingError(res.state, f"length {res.value} runs past the end")
+            return ParsingFailure(res.state, f"length {res.value} runs past the end")
         region = tokens[start:end]
         if body is None:
             return ParsingSuccess(region, res.state.reset_pos(end))
@@ -1621,8 +1621,8 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
     return _prefixed
 
 
-def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B]]:
-    """Return a parser of as many of `item` as `length` parses, in a list.
+def counted[A, B](count: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B]]:
+    """Return a parser of as many of `item` as `count` parses, in a list.
 
     Type: `(Parser[A, int], Parser[A, B]) -> Parser[A, list[B]]`
 
@@ -1638,18 +1638,18 @@ def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[
         ```
     """
 
-    @_parser(f"items counted by {length.name}", shape=True)
+    @_parser(f"items counted by {count.name}", shape=True)
     def _counted(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
-        res = length.run(tokens, s)
-        if res.__class__ is ParsingError:
+        res = count.run(tokens, s)
+        if res.__class__ is ParsingFailure:
             return cast("ParsingResult[list[B]]", res)
         if res.value < 0:
-            return ParsingError(res.state, f"count {res.value} is negative")
+            return ParsingFailure(res.state, f"count {res.value} is negative")
         items: list[B] = []
         st = res.state
         for _ in range(res.value):
             read = item.run(tokens, st)
-            if read.__class__ is ParsingError:
+            if read.__class__ is ParsingFailure:
                 return cast("ParsingResult[list[B]]", read)
             if read.state.pos == st.pos:
                 raise with_hint(
@@ -1661,7 +1661,7 @@ def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[
             st = read.state
         return ParsingSuccess(items, st)
 
-    _counted._form = ("counted", length, item)
+    _counted._form = ("counted", count, item)
     return _counted
 
 
@@ -1694,12 +1694,12 @@ def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parse
     @_parser(f"one of the cases of {key.name}", shape=True)
     def _switch(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
         res = key.run(tokens, s)
-        if res.__class__ is ParsingError:
+        if res.__class__ is ParsingFailure:
             return res
         p = table.get(res.value)
         if p is None:
             at = State(s.pos, s.max, s.expected, s.context, res.state.problems)
-            return ParsingError(at.expect(_switch))
+            return ParsingFailure(at.expect(_switch))
         return p.run(tokens, res.state)
 
     _switch._form = ("switch", key, table)
@@ -1761,16 +1761,16 @@ def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]:
         st = s
         for p in parsers:
             res = p.run(tokens, st)
-            if res.__class__ is ParsingError:
+            if res.__class__ is ParsingFailure:
                 if res.committed:
                     return res
                 last = res
             elif best is None or res.state.pos > best.state.pos:
                 best = res
-            st = res.state.reset_pos_to(s)
+            st = res.state._reset_pos_to(s)
         if best is None:
             return cast("ParsingResult[Any]", last)
-        return ParsingSuccess(best.value, best.state.replace_rest_from(st))
+        return ParsingSuccess(best.value, best.state._replace_rest_from(st))
 
     _longest._form = ("longest", parsers)
     return _longest
@@ -1782,7 +1782,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     Type: `(str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]`
 
     The decorated function takes the tokens and the current `State` and returns a `ParsingSuccess`
-    or a `ParsingError`; unlike `Parser(f)`, it does not adapt a 1.0 parsing function. A success
+    or a `ParsingFailure`; unlike `Parser(f)`, it does not adapt a 1.0 parsing function. A success
     carries the state moved past what it parsed, `s.reset_pos(pos)`; a failure carries
     `s.expect(p)`, where `p` is the parser that failed, so that the error names it.
 
@@ -1792,7 +1792,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
         ... def digit(tokens, s):
         ...     if s.pos < len(tokens) and tokens[s.pos].isdigit():
         ...         return ParsingSuccess(int(tokens[s.pos]), s.reset_pos(s.pos + 1))
-        ...     return ParsingError(s.expect(digit))
+        ...     return ParsingFailure(s.expect(digit))
         >>> many(digit).parse("12")
         [1, 2]
         >>> (digit + digit).parse("1x")
@@ -1850,7 +1850,7 @@ def _warn_legacy(f: Callable[..., object]) -> None:
     name = getattr(f, "__qualname__", repr(f))
     msg = (
         f"parsing function {name} follows the 1.0 protocol, deprecated in 2.0:"
-        " return a ParsingSuccess or a ParsingError"
+        " return a ParsingSuccess or a ParsingFailure"
     )
     code = getattr(f, "__code__", None)
     if code is None:
@@ -1871,7 +1871,7 @@ def _warn_legacy(f: Callable[..., object]) -> None:
 
 
 def _parse_error[A](
-    res: ParsingError, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
+    res: ParsingFailure, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
 ) -> NoParseError:
     """The `NoParseError` of a failed parse: what was found at the furthest position, and why."""
     st = res.state
@@ -2186,8 +2186,8 @@ def _failed_in_order(
             st = State(st.pos, st.max, (*st.expected, *added), s.context, s.problems)
         else:
             res = alt.run(tokens, st)
-            st = res.state.reset_pos_to(s)
-    return ParsingError(st, cast("ParsingError", res).message)
+            st = res.state._reset_pos_to(s)
+    return ParsingFailure(st, cast("ParsingFailure", res).message)
 
 
 def _token_test(test: _TokenTest) -> Parser[Any, Any]:
@@ -2203,11 +2203,11 @@ def _token_test(test: _TokenTest) -> Parser[Any, Any]:
     def run(tokens: Sequence[Any], s: State) -> ParsingResult[Any]:
         pos = s.pos
         if pos >= len(tokens):
-            return ParsingError(s.expect(expected()), "got unexpected end of input")
+            return ParsingFailure(s.expect(expected()), "got unexpected end of input")
         t = tokens[pos]
         if pred(t):
             return ParsingSuccess(t if conv is None else conv(t), s.reset_pos(pos + 1))
-        return ParsingError(s.expect(expected()))
+        return ParsingFailure(s.expect(expected()))
 
     p = _built(Parser, run)
     p._test = test
@@ -2241,7 +2241,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         acc = []
         while True:
             res = p.run(tokens, s)
-            if not isinstance(res, ParsingError):
+            if not isinstance(res, ParsingFailure):
                 if res.state.pos == s.pos:
                     raise with_hint(
                         ValueError(f"{p.name} matched no tokens inside many()"),
@@ -2253,7 +2253,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
             elif res.committed:
                 return res
             else:
-                s = s.replace_rest_from(res.state)
+                s = s._replace_rest_from(res.state)
                 break
 
         if debug:
@@ -2295,7 +2295,7 @@ def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
     def _some(tokens: Sequence[A], s: State) -> ParsingResult[A]:
         if s.pos >= len(tokens):
             s2 = s.expect(_some)
-            return ParsingError(s2, "got unexpected end of input")
+            return ParsingFailure(s2, "got unexpected end of input")
 
         t = tokens[s.pos]
         pos = s.pos + 1
@@ -2308,7 +2308,7 @@ def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
         s2 = s.expect(_some)
         if debug:
             _log.debug("failed %r, state = %s, expected: %s", t, s, _some.name)
-        return ParsingError(s2)
+        return ParsingFailure(s2)
 
     _some._test = _TokenTest(_some, (), pred, None)
     return _some
@@ -2462,8 +2462,8 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
         res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
         st = res.state
         merged = _merged(st, s)
-        if isinstance(res, ParsingError):
-            return ParsingError(merged, res.message, res.committed or st.max > s.pos)
+        if isinstance(res, ParsingFailure):
+            return ParsingFailure(merged, res.message, res.committed or st.max > s.pos)
         return ParsingSuccess(res.value, merged)
 
     _commit._form = ("commit", p)
@@ -2551,10 +2551,10 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     @_parser(f"({p.name}, {{ {p.name} }})", shape=True)
     def _oneplus(tokens: Sequence[A], s: State) -> ParsingResult[list[B]]:
         first = p.run(tokens, s)
-        if isinstance(first, ParsingError):
+        if isinstance(first, ParsingFailure):
             return first
         rest = many_p.run(tokens, first.state)
-        if isinstance(rest, ParsingError):
+        if isinstance(rest, ParsingFailure):
             return rest
         return ParsingSuccess([first.value, *rest.value], rest.state)
 
@@ -2606,7 +2606,7 @@ def _end_of_input() -> EndOfInput:
     def run(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
         if s.pos >= len(tokens):
             return ParsingSuccess(None, s)
-        return ParsingError(s.expect(p))
+        return ParsingFailure(s.expect(p))
 
     p = _built(EndOfInput, run)._rename("end of input")
     p._leaf = True

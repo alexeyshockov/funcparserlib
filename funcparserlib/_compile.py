@@ -19,7 +19,7 @@ from typing import Any, Literal
 
 from ._commons import valueclass
 from .lexer import Token
-from .parser import IgnoredValue, Parser, ParsingError, State
+from .parser import IgnoredValue, Parser, ParsingFailure, State
 
 type _Kind = Literal["ignored", "plain", "tuple", "unknown"]
 """What `+` needs to know of a value: an `IgnoredValue`, a `_Tuple`, neither, or any of them."""
@@ -137,7 +137,7 @@ class _Compiler:
             "IGNORED": internals.ignored,
             "IGV": IgnoredValue,
             "INDEX": index,
-            "ParsingError": ParsingError,
+            "ParsingFailure": ParsingFailure,
             "State": State,
             "Undecided": internals.undecided,
             "_T": internals.tuple_class,
@@ -780,7 +780,7 @@ class _Compiler:
             self.line(f"{value} = {res}.value")
             then(at, _Value("unknown", value))
 
-        self.block(f"if {res}.__class__ is ParsingError:", failed)
+        self.block(f"if {res}.__class__ is ParsingFailure:", failed)
         self.block("else:", succeeded)
 
     def emit_seq(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:

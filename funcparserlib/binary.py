@@ -13,7 +13,7 @@ import struct
 from typing import Any, final
 
 from ._commons import with_hint
-from .parser import Parser, ParsingError, ParsingResult, ParsingSuccess, State
+from .parser import Parser, ParsingFailure, ParsingResult, ParsingSuccess, State
 
 
 @final
@@ -63,7 +63,7 @@ class Binary:
         def run(data: Any, s: State) -> ParsingResult[bytes]:
             m = regexp.match(data, s.pos)
             if m is None or m.end() == s.pos:
-                return ParsingError(s.expect(p))
+                return ParsingFailure(s.expect(p))
             return ParsingSuccess(m.group(), s.reset_pos(m.end()))
 
         p = self._leaf(repr(pattern), run, ("text", regexp.match, None, None))
@@ -79,7 +79,7 @@ class Binary:
         def run(data: Any, s: State) -> ParsingResult[bytes]:
             if data.startswith(value, s.pos):
                 return ParsingSuccess(value, s.reset_pos(s.pos + len(value)))
-            return ParsingError(s.expect(p))
+            return ParsingFailure(s.expect(p))
 
         p = self._leaf(repr(value), run, ("text", None, value, None))
         return p
@@ -103,7 +103,7 @@ class Binary:
 
         def run(data: Any, s: State) -> ParsingResult[Any]:
             if s.pos + size > len(data):
-                return ParsingError(s.expect(p), "not enough bytes")
+                return ParsingFailure(s.expect(p), "not enough bytes")
             return ParsingSuccess(unpack(data, s.pos)[0], s.reset_pos(s.pos + size))
 
         p = self._leaf(f"{size} byte{'s' if size > 1 else ''}", run, ("fixed", unpack, size))
@@ -115,7 +115,7 @@ class Binary:
 
         def run(data: Any, s: State) -> ParsingResult[int]:
             if s.pos >= len(data):
-                return ParsingError(s.expect(p), "not enough bytes")
+                return ParsingFailure(s.expect(p), "not enough bytes")
             return ParsingSuccess(data[s.pos], s.reset_pos(s.pos + 1))
 
         p = self._leaf("a byte", run, ("byte",))
@@ -130,7 +130,7 @@ class Binary:
 
         def run(data: Any, s: State) -> ParsingResult[int]:
             if s.pos == 0:
-                return ParsingError(s.expect(p))
+                return ParsingFailure(s.expect(p))
             return ParsingSuccess(data[s.pos - 1] & mask, s)
 
         p = self._leaf("the byte before", run, ("previous", mask))
@@ -143,7 +143,7 @@ class Binary:
         def run(data: Any, s: State) -> ParsingResult[None]:
             if s.pos >= len(data):
                 return ParsingSuccess(None, s)
-            return ParsingError(s.expect(p))
+            return ParsingFailure(s.expect(p))
 
         p = self._leaf("end of input", run, ("text_end", None))
         return p

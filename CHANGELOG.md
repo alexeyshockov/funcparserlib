@@ -31,7 +31,7 @@ messages name what was expected more precisely; see Changed.
   as the grammar reads tokens through `tok()`
 - `funcparserlib.binary.Binary`: parsers that read bytes at the position, and `Parser.parse_bytes(data)`, whose errors give
   the byte and its offset in hexadecimal
-- `prefixed(length, body)`, `counted(length, item)` and `switch(key, cases)`: what depends on a number just read, in forms
+- `prefixed(length, body)`, `counted(count, item)` and `switch(key, cases)`: what depends on a number just read, in forms
   generated code runs, where `bind()` leaves it to the interpreted parser
 - `funcparserlib.text.Text`: parsers that read text at the position parsing has reached, with no list of tokens, and
   `Parser.parse_text(text)`, whose errors give the line and column
@@ -45,7 +45,7 @@ messages name what was expected more precisely; see Changed.
 - `funcparserlib.util.expand_tuple_args()`, which adapts a function of N arguments to the tuple that
   `p1 + ... + pN` produces
 - The `parser(name)` decorator, which makes a named `Parser` from a parsing function
-- `ParsingResult`, `ParsingSuccess` and `ParsingError`: the result a parsing function returns
+- `ParsingResult`, `ParsingSuccess` and `ParsingFailure`: the result a parsing function returns
 - `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
 - Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
   `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`,
@@ -57,7 +57,7 @@ messages name what was expected more precisely; see Changed.
 
 - Error messages that named a sequence by its shape (`expected: ('x', 'y') or 'z'`) name what failed at the position
   instead (`expected: 'x' or 'z'`); `State` holds what failed there (`expected`), the active contexts and the recorded
-  check failures, and a `ParsingError` can be `committed`
+  check failures, and a `ParsingFailure` can be `committed`
 - Dropped support for Python 2.7 and 3.7 to 3.11
 - A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
   `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one

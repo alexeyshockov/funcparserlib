@@ -10,7 +10,7 @@ from funcparserlib.lexer import Token
 from funcparserlib.parser import (
     NoParseError,
     Parser,
-    ParsingError,
+    ParsingFailure,
     ParsingResult,
     ParsingSuccess,
     State,
@@ -232,7 +232,7 @@ def test_a_parsing_function_returning_a_result_does_not_warn() -> None:
     def digit(tokens: Sequence[str], s: State) -> ParsingResult[str]:
         if s.pos < len(tokens) and tokens[s.pos].isdigit():
             return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
-        return ParsingError(s.expect(digit))
+        return ParsingFailure(s.expect(digit))
 
     assert many(digit).parse("12") == ["1", "2"]
 

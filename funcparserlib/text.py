@@ -13,7 +13,7 @@ from re import Pattern
 from typing import Any, final
 
 from ._commons import with_hint
-from .parser import Parser, ParsingError, ParsingResult, ParsingSuccess, State
+from .parser import Parser, ParsingFailure, ParsingResult, ParsingSuccess, State
 
 
 @final
@@ -77,7 +77,7 @@ class Text:
         def run(text: Any, s: State) -> ParsingResult[str]:
             end = read(text, s.pos)
             if end is None:
-                return ParsingError(s.expect(p))
+                return ParsingFailure(s.expect(p))
             return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
 
         p: Parser[Any, str] = Parser(run).named(name)
@@ -128,7 +128,7 @@ class Text:
             start = self._after_skip(text, s.pos)
             if start >= len(text):
                 return ParsingSuccess(None, s.reset_pos(start))
-            return ParsingError(s.expect(p))
+            return ParsingFailure(s.expect(p))
 
         p: Parser[Any, None] = Parser(run).named("end of input")
         p._leaf = True

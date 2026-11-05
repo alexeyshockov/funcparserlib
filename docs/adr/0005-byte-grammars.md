@@ -30,7 +30,7 @@ Three combinators replace `bind()` for what binary formats do, and they work ove
 
 - `prefixed(length)` reads as many bytes as `length` says, and `prefixed(length, body)` parses them with
   `body`, which has to read to their end.
-- `counted(length, item)` reads as many items as `length` says.
+- `counted(count, item)` reads as many items as `count` says.
 - `switch(key, cases)` chooses a parser by a value, a key being a value or a `range`.
 
 `bind()` stays for what they do not cover. It costs what it always did.

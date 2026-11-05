@@ -13,7 +13,7 @@ from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
-    ParsingError,
+    ParsingFailure,
     State,
     TokenDescription,
     a,
@@ -422,7 +422,7 @@ def test_a_failure_before_any_token_in_nested_choices_takes_time_linear_in_the_n
 def test_the_message_of_dispatched_alternatives_is_the_last_alternatives() -> None:
     @parser("number")
     def number(tokens: Any, s: State) -> Any:
-        return ParsingError(s.expect(number), "got no number")
+        return ParsingFailure(s.expect(number), "got no number")
 
     assert error(y | z | x + number, "xw").msg == "got no number: 'w', expected: number"
     assert error(x + number | y | z, "xw").msg == "got unexpected token: 'w', expected: number"

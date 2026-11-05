@@ -17,7 +17,7 @@ from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
-    ParsingError,
+    ParsingFailure,
     ParsingSuccess,
     State,
     a,
@@ -421,10 +421,10 @@ def test_a_commit_of_a_parsing_function_leaves_every_failure_to_the_parser() -> 
 
 
 def test_a_parsing_function_runs_inside_a_compiled_grammar() -> None:
-    def two(toks: Sequence[str], s: State) -> ParsingSuccess[str] | ParsingError:
+    def two(toks: Sequence[str], s: State) -> ParsingSuccess[str] | ParsingFailure:
         if toks[s.pos : s.pos + 2] == "ab":
             return ParsingSuccess("two", s.reset_pos(s.pos + 2))
-        return ParsingError(s)
+        return ParsingFailure(s)
 
     grammar = Parser(two) + a("c")
     compiled = grammar.compile()

@@ -26,7 +26,7 @@ type. A [`Binary`](../api/binary.md) makes the parsers of a **byte grammar**, wh
 parsing has reached, and three combinators take such a number:
 
 * `prefixed(length)` reads as many bytes as `length` parses;
-* `counted(length, item)` reads as many `item`s;
+* `counted(count, item)` reads as many `item`s;
 * `switch(key, cases)` reads `key` and runs the parser that `cases` holds for its value.
 
 Each is a form the compiler reads, so the grammar compiles, as a text grammar does.

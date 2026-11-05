@@ -21,7 +21,7 @@ implements it; `Parser.parse()` runs it over a whole sequence.
 `forward_decl()` makes one, `ForwardDeclParser.define()` defines it.
 
 **parsing result**: what one step of parsing returns: `ParsingSuccess` with the value and the next
-`State`, or `ParsingError` with where it stopped. `ParsingResult` is either.
+`State`, or `ParsingFailure` with where it stopped. `ParsingResult` is either.
 
 **`NoParseError`**: raised by `Parser.parse()` when the tokens do not match the grammar. It names what every parser
 that failed at the furthest position expected; `ParseErrors` groups it with the errors `Parser.check()` recorded.
