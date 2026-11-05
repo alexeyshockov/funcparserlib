@@ -39,8 +39,9 @@ dev = [
     { include-group = "tests" },
     { include-group = "examples" },
 ]
-# What examples/ imports besides the package: markdown.py reads markdown-it-py's token stream.
-examples = ["markdown-it-py ~=4.0"]
+# What examples/ imports besides the package: markdown.py and yaml.py read another library's token
+# stream, markdown-it-py's and ruamel.yaml's.
+examples = ["markdown-it-py ~=4.0", "ruamel.yaml ~=0.19"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = [
     # The other parsing libraries bench_comparison.py measures against.

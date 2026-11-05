@@ -59,9 +59,11 @@ dev = [
     { name = "markdown-it-py" },
     { name = "pytest" },
     { name = "pytest-timeout" },
+    { name = "ruamel-yaml" },
 ]
 examples = [
     { name = "markdown-it-py" },
+    { name = "ruamel-yaml" },
 ]
 lint = [
     { name = "deptry" },
@@ -86,8 +88,12 @@ dev = [
     { name = "markdown-it-py", specifier = "~=4.0" },
     { name = "pytest", specifier = "~=9.0" },
     { name = "pytest-timeout", specifier = "~=2.3" },
+    { name = "ruamel-yaml", specifier = "~=0.19" },
 ]
-examples = [{ name = "markdown-it-py", specifier = "~=4.0" }]
+examples = [
+    { name = "markdown-it-py", specifier = "~=4.0" },
+    { name = "ruamel-yaml", specifier = "~=0.19" },
+]
 lint = [
     { name = "deptry", specifier = ">=0.25.1" },
     { name = "slotscheck", specifier = ">=0.19" },
@@ -309,6 +315,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/89/1a/5f3c22d38bf1d87d1f4a961489d9eba35c4370a21395562d94410cdd0e73/requirements_parser-0.13.1.tar.gz", hash = "sha256:78811383b2089b6c5197a1431bc2c12ff950245edca39a23eea3460782038dd3", size = 22783, upload-time = "2026-06-18T07:52:25.291Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/f9/15b44d5e4401b0013bbcefe3c09d7bfddcce28cc3d41b1d3077bcedf5b1f/requirements_parser-0.13.1-py3-none-any.whl", hash = "sha256:6e385663eb32589d16e5b22bb6e5251a57908e73803ffff438b53cd6ea2056e0", size = 14926, upload-time = "2026-06-18T07:52:24.171Z" },
+]
+
+[[package]]
+name = "ruamel-yaml"
+version = "0.19.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/3b/ebda527b56beb90cb7652cb1c7e4f91f48649fbcd8d2eb2fb6e77cd3329b/ruamel_yaml-0.19.1.tar.gz", hash = "sha256:53eb66cd27849eff968ebf8f0bf61f46cdac2da1d1f3576dd4ccee9b25c31993", size = 142709, upload-time = "2026-01-02T16:50:31.84Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b8/0c/51f6841f1d84f404f92463fc2b1ba0da357ca1e3db6b7fbda26956c3b82a/ruamel_yaml-0.19.1-py3-none-any.whl", hash = "sha256:27592957fedf6e0b62f281e96effd28043345e0e66001f97683aa9a40c667c93", size = 118102, upload-time = "2026-01-02T16:50:29.201Z" },
 ]
 
 [[package]]
