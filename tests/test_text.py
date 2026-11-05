@@ -871,3 +871,79 @@ def test_a_skip_with_a_global_flag_raises_with_a_hint() -> None:
 def test_a_commit_past_a_skipping_end_is_final(run: Runner) -> None:
     grammar = many(commit(skipping.end + plain.literal("aa")) | plain.literal("a"))
     assert message(run, grammar, "a\n") == "1,2-1,2: got unexpected end of input, expected: 'aa'"
+
+
+# `Parser.recover()`: every error of a document in one run.
+
+blank = Text(skip=r"[ \t]+")
+line_end = blank.token(r"\n+").named("newline")
+setting = (
+    blank.token("[a-z]+").named("key")
+    + -blank.literal("=")
+    + (blank.token(r"\d+") >> int).named("number")
+).recover(until=line_end)
+config = many(setting + -maybe(line_end)) + -blank.end
+
+
+def test_recover_reports_every_failure(run: Runner) -> None:
+    assert message(run, config, "a = 1\nb = ?\nc 2\nd = 4\n") == (
+        "2,5-2,5: got unexpected token: '?', expected: number\n"
+        "3,3-3,3: got unexpected token: '2', expected: '='"
+    )
+
+
+def test_recover_changes_nothing_in_a_valid_document(run: Runner) -> None:
+    assert run(config, "a = 1\nb = 2\n") == [("a", 1), ("b", 2)]
+
+
+def test_recover_reports_a_failure_at_the_end_of_the_text(run: Runner) -> None:
+    assert message(run, config, "a =") == ("1,4-1,4: got unexpected end of input, expected: number")
+
+
+def test_recover_gives_its_default_for_what_it_skipped() -> None:
+    grammar = many(
+        (skipping.literal("a") + skipping.literal("b")).recover(skipping.literal(";"), ("?", "?"))
+        + -skipping.literal(";")
+    )
+    with pytest.raises(ParseErrors) as caught:
+        grammar.parse_text("a b; a c;")
+    assert len(caught.value.exceptions) == 1
+
+
+def test_recover_fails_as_usual_at_its_first_token(run: Runner) -> None:
+    assert run(many(setting), "") == []
+    assert message(run, setting + -blank.end, "=") == (
+        "1,1-1,1: got unexpected token: '=', expected: key"
+    )
+
+
+def test_recover_keeps_a_check_error_before_the_failure(run: Runner) -> None:
+    number = blank.token(r"\d+").check(lambda _: False, "bad")
+    line = (number + blank.literal("x")).recover(until=line_end)
+    assert message(run, many(line + -maybe(line_end)) + -blank.end, "1 y\n") == (
+        "1,1-1,1: bad\n1,3-1,3: got unexpected token: 'y', expected: 'x'"
+    )
+
+
+def test_recover_catches_a_commit_failure(run: Runner) -> None:
+    line = (blank.literal("a") + commit(blank.literal("b"))).recover(until=line_end)
+    assert message(run, many(line + -maybe(line_end)) + -blank.end, "a c\n") == (
+        "1,3-1,3: got unexpected token: 'c', expected: 'b'"
+    )
+
+
+def test_recover_with_tokens() -> None:
+    spec = make_tokenizer(
+        [TokenSpec("sp", " +"), TokenSpec("a", "a"), TokenSpec("b", "b"), TokenSpec("end", ";")],
+        skip={"sp"},
+    )
+    grammar = many((tok("a") + tok("b")).recover(until=tok("end")) + -tok("end")) + -finished
+    assert grammar.parse(list(spec("a b;"))) == [("a", "b")]
+    with pytest.raises(ParseErrors) as caught:
+        grammar.compile(spec).parse_text("a a; a b; b;")
+    assert len(caught.value.exceptions) == 2
+
+
+def test_recover_in_try_parse_rejects() -> None:
+    assert config.compile().try_parse("a = ?\n") is None
+    assert config.compile().try_parse("a = 1\n") == [("a", 1)]

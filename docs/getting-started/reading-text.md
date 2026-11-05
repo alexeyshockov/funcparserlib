@@ -190,3 +190,33 @@ funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: 'x', expected:
 A function that must not run twice belongs after the parse, on the value it returned.
 
 For a grammar of a real language, see [KDL without a tokenizer](../recipes/kdl.md#without-a-tokenizer).
+
+## Every Error in One Run
+
+A parse stops at its first error. For a configuration read at startup, it is better to report all of them, so that one
+restart fixes them. [`Parser.recover()`](../api/parser.md#funcparserlib.parser.Parser.recover) records a failure and
+goes on from a point you choose, here the next line. The errors come together in a `ParseErrors`:
+
+```pycon
+>>> from funcparserlib.parser import ParseErrors, many, maybe
+>>> from funcparserlib.text import Text
+
+>>> text = Text(skip=r"[ \t]+")
+>>> newline = text.token(r"\n+").named("newline")
+>>> key = text.token(r"[a-z_]+").named("key")
+>>> value = text.token(r"\d+").named("number")
+>>> setting = (key + -text.literal("=") + value).recover(until=newline)
+>>> config = many(setting + -maybe(newline)) + -text.end
+
+>>> source = "port = 8080\nhost = ?\nname 1\nretries = 3\n"
+>>> try:
+...     config.parse_text(source)
+... except ParseErrors as group:
+...     for e in group.exceptions:
+...         print(e)
+2,8-2,8: got unexpected token: '?', expected: number
+3,6-3,6: got unexpected token: '1', expected: '='
+
+```
+
+A parser recovers from a failure past its first token, so `many()` still ends where it would.

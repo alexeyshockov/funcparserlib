@@ -807,6 +807,57 @@ class Parser[A, B]:
         fast = compile_grammar(self, internals)
         return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))
 
+    def recover(self, until: Parser[A, Any], default: B | None = None) -> Parser[A, B | None]:
+        """Record the error of a failure and go on from where `until` matches.
+
+        Type: `(Parser[A, B], Parser[A, Any], B | None) -> Parser[A, B | None]`
+
+        It gives one parse every error of a document, for a grammar of parts that a line or a
+        delimiter separates: `Parser.parse()` raises the recorded errors together as `ParseErrors`,
+        as it does for `Parser.check()`. When this parser fails past its first token, the parser
+        records what it expected, skips to the first position where `until` matches, without reading
+        it, and gives `default`. It fails as usual at its first token, so `many(p.recover(...))`
+        ends as `many(p)` does. The text runs out when `until` never matches.
+
+        Examples:
+            ```pycon
+            >>> line = (a("x") + a("=") + a("1") + a(";")).recover(until=a("x"))
+            >>> many(line).parse("x=1;x=1;")
+            [('x', '=', '1', ';'), ('x', '=', '1', ';')]
+            >>> many(line).parse("x=?;x?1;x=1;")
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.ParseErrors: 2 parsing errors (2 sub-exceptions)
+
+            ```
+        """
+
+        @_parser(self.name, shape=self._shape, first=self._first)
+        def _recover(tokens: Sequence[A], s: State) -> ParsingResult[B | None]:
+            res = self.run(tokens, s)
+            if res.__class__ is not ParsingError or res.state.max == s.pos:
+                return cast("ParsingResult[B | None]", res)
+            st = res.state
+            names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
+            found = "got unexpected end of input"
+            if st.max < len(tokens):
+                word = _WORD.match(tokens, st.max) if isinstance(tokens, str) else None
+                found = (
+                    f"got unexpected token: {_describe(word[0] if word else tokens[st.max]).text}"
+                )
+            message = found + (f", expected: {' or '.join(names)}" if names else "")
+            problem = CheckFailure(message, st.max, st.max + 1, st.context)
+            pos = st.max
+            while (
+                pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingError
+            ):
+                pos += 1
+            return ParsingSuccess(default, State(pos, pos, (), s.context, (*st.problems, problem)))
+
+        # What fails past its first token leaves the generated code, as a `commit()` failure does.
+        _recover._form = ("commit", self)
+        return _recover
+
     def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
 

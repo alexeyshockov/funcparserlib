@@ -98,5 +98,7 @@ Rejected:
 - `longest()` runs every alternative, in generated code too.
 - A `Text` skips after what it reads, so the parser after a `Text` without `skip` does not skip what
   comes before it, but for `Text.end`.
-- `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`. Reporting every
-  error of a document needs recovery.
+- `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`.
+- `Parser.recover()` gives one parse every error of a document, through what `Parser.check()` collects.
+  A failure it catches leaves the generated code, so such a document takes the time of the interpreted
+  parser.

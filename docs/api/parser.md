@@ -117,6 +117,8 @@ parser has read a token, `Parser.context()` names the part of the grammar an err
 
 ::: funcparserlib.parser.Parser.check
 
+::: funcparserlib.parser.Parser.recover
+
 ## Extra: Parser Monad
 
 As a functional programmer, you might be pleased to know, that parsers in funcparserlib

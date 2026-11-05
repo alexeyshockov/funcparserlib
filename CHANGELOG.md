@@ -32,6 +32,7 @@ messages name what was expected more precisely; see Changed.
 - `funcparserlib.text.Text`: parsers that read text at the position parsing has reached, with no list of tokens, and
   `Parser.parse_text(text)`, whose errors give the line and column
 - `longest(p1, p2, ...)`: the longest match of the parsers, whatever their order
+- `Parser.recover(until)`: record a failure and go on from where `until` matches, so one parse reports every error
 - `CompiledParser.try_parse(text)`: the value, or `None` without making an error
 - `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
   `NoParseError.render()` does
