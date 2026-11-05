@@ -74,38 +74,51 @@ def _is_octal(digits: str) -> bool:
     return digits[0] == "0" or (len(digits) >= 3 and set(digits[:3]) <= set("01234567"))
 
 
+def _joined_part(regexp: Pattern[str], group: int) -> str | None:
+    """The part of a joined pattern for `regexp`, wrapped in the group numbered `group`.
+
+    A spec's named groups become non-capturing, as a token is the whole match. `None` when the spec
+    cannot be joined: it refers to a group by name or in a condition, it refers to one by number
+    where a name or a comment gets in the way of moving the number, or it has a flag a group cannot
+    scope.
+    """
+    pattern = regexp.pattern
+    flags = regexp.flags & ~re.UNICODE
+    # A comment can hold what reads as a bracket, which `_renumbered()` would follow.
+    has_comment = bool(flags & re.VERBOSE) or "(?#" in pattern
+    if (
+        re.search(r"\(\?P=|\(\?\(", pattern)
+        # Each `(?P<` is a group only if they number as many as the groups the pattern names.
+        or len(_NAMED_GROUP.findall(pattern)) != len(regexp.groupindex)
+        or (has_comment and re.search(r"\\[1-9]", pattern))
+        or flags & ~sum(_SCOPED_FLAGS)
+    ):
+        return None
+    renumbered = _renumbered(pattern, group, movable=not regexp.groupindex)
+    if renumbered is None:
+        return None
+    letters = "".join(letter for flag, letter in _SCOPED_FLAGS.items() if flags & flag)
+    # A verbose pattern may end in a comment, which a newline closes.
+    end = "\n" if flags & re.VERBOSE else ""
+    return f"((?{letters}:{_NAMED_GROUP.sub('(?:', renumbered)}{end}))"
+
+
 def _combined(specs: Sequence[_CompiledSpec]) -> tuple[Pattern[str], list[str]] | None:
     """One pattern for `specs`, and the token type of each of its groups a spec is wrapped in.
 
-    The group of the first spec to match is the `lastindex` of the match. A spec's named groups
-    become non-capturing, as a token is the whole match. `None` when a spec cannot be joined: it
-    refers to a group by name or in a condition, it refers to one by number where a name or a
-    comment gets in the way of moving the number, or it has a flag a group cannot scope.
+    The group of the first spec to match is the `lastindex` of the match. `None` when there are no
+    specs, or one cannot be joined.
     """
     parts = []
     types = [""]
     for token_type, regexp in specs:
-        pattern = regexp.pattern
-        if re.search(r"\(\?P=|\(\?\(", pattern):
+        part = _joined_part(regexp, len(types))
+        if part is None:
             return None
-        # Each `(?P<` is a group only if they number as many as the groups the pattern names.
-        if len(_NAMED_GROUP.findall(pattern)) != len(regexp.groupindex):
-            return None
-        flags = regexp.flags & ~re.UNICODE
-        movable = not regexp.groupindex and not flags & re.VERBOSE
-        renumbered = _renumbered(pattern, len(types), movable=movable)
-        if renumbered is None:
-            return None
-        pattern = _NAMED_GROUP.sub("(?:", renumbered)
-        letters = "".join(letter for flag, letter in _SCOPED_FLAGS.items() if flags & flag)
-        if flags & ~sum(_SCOPED_FLAGS):
-            return None
-        # A verbose pattern may end in a comment, which a newline closes.
-        end = "\n" if flags & re.VERBOSE else ""
-        parts.append(f"((?{letters}:{pattern}{end}))")
+        parts.append(part)
         types += [token_type, *[""] * (regexp.groups - len(regexp.groupindex))]
     try:
-        return re.compile("|".join(parts)), types
+        return (re.compile("|".join(parts)), types) if parts else None
     except re.error:
         # Such as a global flag, `(?i)`, inside a spec's pattern.
         return None

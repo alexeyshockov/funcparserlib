@@ -603,7 +603,7 @@ def test_parse_text_says_what_was_expected_at_text_no_spec_matches() -> None:
     compiled = (many(tok("a")) + tok("b")).compile(tokenizer)
     with pytest.raises(NoParseError) as e:
         compiled.parse_text("aa\na ?x")
-    assert str(e.value) == "2,3-2,3: got unexpected text: '?x', expected: a or b"
+    assert str(e.value) == "2,3-2,3: got unexpected token: '?x', expected: a or b"
     assert e.value.expected == ("a", "b")
     assert isinstance(e.value.__cause__, LexerError)
     assert e.value.render("aa\na ?x").endswith("2 | a ?x\n      ^")
@@ -613,6 +613,22 @@ def test_parse_text_reports_a_mistake_before_text_no_spec_matches() -> None:
     compiled = (tok("a") + tok("b")).compile(tokenizer)
     with pytest.raises(NoParseError, match="1,3-1,3: got unexpected token: 'a', expected: b"):
         compiled.parse_text("a a ?")
+
+
+def test_parse_text_says_what_was_expected_after_a_complete_document() -> None:
+    compiled = (tok("a") + -finished).compile(tokenizer)
+    with pytest.raises(NoParseError, match=r"1,3-1,3: .*'\?', expected: end of input"):
+        compiled.parse_text("a ?")
+
+
+def test_parse_text_keeps_a_check_error_with_the_error_at_text_no_spec_matches() -> None:
+    compiled = (tok("a").check(lambda _: False, "bad") + tok("b")).compile(tokenizer)
+    with pytest.raises(ParseErrors) as e:
+        compiled.parse_text("a ?")
+    assert [str(x) for x in e.value.exceptions] == [
+        "1,1-1,1: bad",
+        "1,3-1,3: got unexpected token: '?', expected: b",
+    ]
 
 
 def test_parse_text_raises_the_lexer_error_when_the_parser_stops_before_it() -> None:

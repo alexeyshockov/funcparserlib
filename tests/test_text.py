@@ -321,7 +321,7 @@ def test_text_of_only_skip_is_the_end_of_input(run: Runner) -> None:
     assert run(skipping.end, " \n\t ") is None
     assert run(skipping.end, "") is None
     assert message(run, skipping.token("a"), " \n ") == (
-        "2,2-2,2: got unexpected end of input, expected: /a/"
+        "1,1-1,1: got unexpected end of input, expected: /a/"
     )
 
 
@@ -491,7 +491,7 @@ def test_a_tab_is_one_column(run: Runner) -> None:
 def test_the_end_of_the_input_has_a_position(run: Runner) -> None:
     assert message(run, pair(), "1 +") == "1,4-1,4: got unexpected end of input, expected: number"
     assert message(run, pair(), "1 +  \n ") == (
-        "2,2-2,2: got unexpected end of input, expected: number"
+        "1,4-1,4: got unexpected end of input, expected: number"
     )
     assert message(run, pair(), "") == "1,1-1,1: got unexpected end of input, expected: number"
 
@@ -631,13 +631,13 @@ def test_text_no_token_spec_matches_is_explained_by_what_the_grammar_expected(
     code = sum_of_two().compile(tokenize)
     with pytest.raises(NoParseError) as caught:
         code.parse_text("1 + $")
-    assert str(caught.value) == "1,5-1,5: got unexpected text: '$', expected: num"
+    assert str(caught.value) == "1,5-1,5: got unexpected token: '$', expected: num"
     assert isinstance(caught.value.__cause__, LexerError)
     assert caught.value.expected == ("num",)
 
 
 def test_the_explanation_of_text_on_a_later_line(tokenize: Any) -> None:
-    with pytest.raises(NoParseError, match=r"^3,3-3,3: got unexpected text: '\$', expected: num$"):
+    with pytest.raises(NoParseError, match=r"^3,3-3,3: got unexpected token: '\$', expected: num$"):
         sum_of_two().compile(tokenize).parse_text("1 +\n\n  $")
 
 
@@ -657,7 +657,7 @@ def test_the_tokenizer_error_is_raised_when_the_grammar_accepts_the_tokens_befor
 
 
 def test_bad_text_at_the_start_is_explained(tokenize: Any) -> None:
-    with pytest.raises(NoParseError, match=r"^1,1-1,1: got unexpected text: '\$', expected: num$"):
+    with pytest.raises(NoParseError, match=r"^1,1-1,1: got unexpected token: '\$', expected: num$"):
         sum_of_two().compile(tokenize).parse_text("$")
 
 
@@ -677,7 +677,7 @@ def test_the_text_of_a_token_grammar_is_explained_when_the_grammar_is_not_genera
     opaque = Parser(lambda toks, s: sum_of_two().run(toks, s))
     code = opaque.compile(tokenize)
     assert code._fast_text is None
-    with pytest.raises(NoParseError, match="got unexpected text: '\\$', expected: num"):
+    with pytest.raises(NoParseError, match="got unexpected token: '\\$', expected: num"):
         code.parse_text("1 + $")
 
 
@@ -776,8 +776,8 @@ def test_characters_and_a_text_in_one_grammar_agree_when_compiled(run: Runner) -
 
 
 def test_a_character_is_not_skipped_over_by_a_text(run: Runner) -> None:
-    grammar = a(" ") + skipping.literal("b")
-    assert run(grammar, " b") == (" ", "b")
+    grammar = a("x") + a(" ") + skipping.literal("b")
+    assert run(grammar, "x b") == ("x", " ", "b")
     assert run(skipping.literal("b") + a("c"), "b c") == ("b", "c")
 
 
@@ -785,3 +785,89 @@ def test_a_text_and_tok_in_one_grammar_cannot_read_the_text(run: Runner) -> None
     read_text: P = skipping.token("a")
     with pytest.raises(AttributeError, match="has no attribute 'type'"):
         run(read_text + tok("b"), "ab")
+
+
+# A broken fast path falls back to the interpreted parser with the same result, so these look at it.
+
+
+@pytest.mark.parametrize(
+    ("grammar", "text", "value"),
+    [
+        (plain.token("a+"), "aa", "aa"),
+        (plain.literal("ab"), "ab", "ab"),
+        (skipping.token("a") + skipping.literal("b") + -skipping.end, " a b ", ("a", "b")),
+        (longest(plain.literal("a"), plain.token("a+")), "aa", "aa"),
+        (commit(plain.literal("a")) | plain.literal("b"), "b", "b"),
+        (a("x") + plain.literal("y"), "xy", ("x", "y")),
+    ],
+)
+def test_the_generated_code_decides_what_it_can(grammar: P, text: str, value: object) -> None:
+    fast = grammar.compile()._fast_text
+    assert fast is not None
+    res = fast(text)
+    assert res is not None
+    assert res[0] == value
+
+
+def test_the_generated_code_rejects_without_the_parser() -> None:
+    fast = (plain.literal("a") + plain.token("b")).compile()._fast_text
+    assert fast is not None
+    assert fast("ac") is None
+
+
+def test_text_may_start_with_skip_before_a_first_parser_without_it(run: Runner) -> None:
+    grammar = plain.literal("a") + skipping.literal("b")
+    assert run(grammar, "  ab") == ("a", "b")
+
+
+def test_leading_skip_is_no_token_a_commit_read(run: Runner) -> None:
+    grammar = commit(skipping.literal("a")) | skipping.literal("b")
+    assert run(grammar, " b") == "b"
+
+
+def test_a_label_applies_past_leading_skip(run: Runner) -> None:
+    named = (skipping.literal("(") | skipping.literal("[")).named("expr")
+    assert message(run, named, " ?") == "1,2-1,2: got unexpected token: '?', expected: expr"
+
+
+def test_a_failed_when_is_at_the_token_past_leading_skip(run: Runner) -> None:
+    name = skipping.token(r"\w+").when(lambda s: s != "if").named("name")
+    assert message(run, name, "\n\n  if") == "3,3-3,3: got unexpected token: 'if', expected: name"
+
+
+def test_a_commit_of_the_end_is_no_token_read(run: Runner) -> None:
+    grammar = plain.literal("a") + (commit(skipping.end) | plain.literal(" b"))
+    assert run(grammar, "a b") == ("a", " b")
+
+
+def test_a_failed_check_spans_no_comment_after_the_token(run: Runner) -> None:
+    grammar = comments.token(r"\d+").check(lambda _: False, "bad") + -comments.end
+    assert message(run, grammar, "1 # note\n") == "1,1-1,1: bad"
+
+
+def test_a_failed_check_at_the_end_of_the_text_has_a_position(run: Runner) -> None:
+    grammar = many(skipping.literal("a")).check(bool, "at least one") + -skipping.end
+    assert message(run, grammar, "") == "1,1-1,1: at least one"
+
+
+def test_a_failed_parse_gives_the_character_as_its_token() -> None:
+    with pytest.raises(NoParseError) as caught:
+        skipping.literal("a").parse_text("?x")
+    assert caught.value.token == "?x"  # noqa: S105 — a parsed word
+
+
+def test_try_parse_runs_a_conversion_in_two_passes_at_most() -> None:
+    seen: list[str] = []
+    grammar = (plain.token(r"\d") >> seen.append).check(lambda _: False, "bad")
+    assert grammar.compile().try_parse("0") is None
+    assert len(seen) == 2
+
+
+def test_a_skip_with_a_global_flag_raises_with_a_hint() -> None:
+    with pytest.raises(ValueError, match="cannot repeat"):
+        Text(skip=r"(?i)x+")
+
+
+def test_a_commit_past_a_skipping_end_is_final(run: Runner) -> None:
+    grammar = many(commit(skipping.end + plain.literal("aa")) | plain.literal("a"))
+    assert message(run, grammar, "a\n") == "1,2-1,2: got unexpected end of input, expected: 'aa'"

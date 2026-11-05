@@ -222,3 +222,16 @@ def test_a_skipped_token_does_not_hide_text_no_spec_matches() -> None:
     assert list(tokenize("ab")) == []
     with pytest.raises(LexerError):
         list(tokenize("ab?"))
+
+
+@pytest.mark.parametrize(
+    "spec", [TokenSpec("y", "(a) # one [\n \\1", re.VERBOSE), TokenSpec("y", r"(?#[)(a)\1")]
+)
+def test_a_comment_keeps_a_reference_out_of_the_joined_pattern(spec: TokenSpec) -> None:
+    specs = [TokenSpec("q", "(q)"), spec]
+    assert [t.value for t in make_tokenizer(specs)("aa")] == ["aa"]
+
+
+def test_no_specs_tokenize_no_text() -> None:
+    with pytest.raises(LexerError):
+        list(make_tokenizer([])("a"))

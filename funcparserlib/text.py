@@ -21,10 +21,12 @@ class Text:
     """Makes parsers of text, each skipping what `skip` matches after what it reads.
 
     `skip` is a regexp for what may sit between tokens, such as whitespace and comments, and it
-    matches as many times as it can. Inside a token, such as a string written as a grammar, use a
-    `Text` without `skip`.
+    matches as many times as it can. The text may start with it, for any first parser of the
+    grammar:
+    the first `skip` found in the grammar is read before parsing starts. Inside a token, such as a
+    string written as a grammar, use a `Text` without `skip`.
 
-    Raises `ValueError` for a `skip` that matches the empty string.
+    Raises `ValueError` for a `skip` that matches the empty string or cannot repeat.
 
     Examples:
         ```pycon
@@ -45,7 +47,7 @@ class Text:
 
     def __init__(self, skip: str | None = None, flags: int = 0) -> None:
         """Make parsers that skip what the regexp `skip`, with its `flags`, matches."""
-        self._skip = None
+        self._skip: Pattern[str] | None = None
         if skip is not None:
             regexp = re.compile(skip, flags)
             if regexp.match(""):
@@ -54,26 +56,27 @@ class Text:
                     "A skip pattern consumes at least one character: repeat with `+`.",
                 )
             end = "\n" if regexp.flags & re.VERBOSE else ""
-            self._skip = re.compile(f"(?:{skip}{end})+", flags).match
+            try:
+                self._skip = re.compile(f"(?:{skip}{end})+", flags)
+            except re.error as e:
+                raise with_hint(
+                    ValueError(f"skip pattern {skip!r} cannot repeat: {e}"),
+                    "Pass a global flag such as `(?i)` as `flags` instead.",
+                ) from e
 
     def _after_skip(self, text: str, pos: int) -> int:
-        if self._skip is not None and (m := self._skip(text, pos)):
+        if self._skip is not None and (m := self._skip.match(text, pos)):
             return m.end()
         return pos
-
-    def _start(self, text: str, pos: int) -> int:
-        """Where a token at `pos` starts: nothing has skipped what comes before the first one."""
-        return self._after_skip(text, pos) if pos == 0 else pos
 
     def _reading(
         self, name: str, read: Any, regexp: Pattern[str] | None, value: str | None
     ) -> Parser[str, str]:
         def run(text: Any, s: State) -> ParsingResult[str]:
-            start = self._start(text, s.pos)
-            end = read(text, start)
+            end = read(text, s.pos)
             if end is None:
-                return ParsingError(s.reset_pos(start).expect(p))
-            return ParsingSuccess(text[start:end], s.reset_pos(self._after_skip(text, end)))
+                return ParsingError(s.expect(p))
+            return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
 
         p: Parser[Any, str] = Parser(run).named(name)
         p._leaf = True
@@ -102,8 +105,8 @@ class Text:
     def literal(self, value: str) -> Parser[str, str]:
         """A parser of the text `value`, which it reads where a longer word starts with it too.
 
-        To read a keyword, end a `Text.token()` with a word boundary: `text.token(r"if\\\\b")`.
-        Raises `ValueError` for an empty `value`.
+        To read a keyword, end a `Text.token()` with a word boundary: `text.token(r"if\\b")`. Raises
+        `ValueError` for an empty `value`.
         """
         if not value:
             raise with_hint(
@@ -123,7 +126,7 @@ class Text:
             start = self._after_skip(text, s.pos)
             if start >= len(text):
                 return ParsingSuccess(None, s.reset_pos(start))
-            return ParsingError(s.reset_pos(start).expect(p))
+            return ParsingError(s.expect(p))
 
         p: Parser[Any, None] = Parser(run).named("end of input")
         p._leaf = True

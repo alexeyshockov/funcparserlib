@@ -35,13 +35,13 @@ A grammar has one definition of its language, and there are two kinds.
 - A **text grammar** is made of the parsers of `funcparserlib.text.Text`, which read text at the
   position the parser has reached, and that defines it. Only the tokens that make sense at a position
   are tried, so specs have no global order, and context is recursion and `bind()`. Each token reads
-  what `skip` matches after it, so a failed attempt skips nothing. Its generated code reads the text
-  directly.
+  what `skip` matches after it, and the first `skip` of the grammar is read before parsing starts, so a
+  failed attempt moves nothing. Its generated code reads the text directly.
 
 The two ways of reading never share a grammar, so they cannot disagree on what is accepted. When
 `CompiledParser.parse_text()` of a token grammar stops at text no spec matches, the tokens before it
-parse on their own, and the error is theirs: a mistake among them, or what the grammar expected in
-place of that text.
+parse with one more token no grammar reads, and the error is theirs: a mistake among them, or what the
+grammar expected in place of that text.
 
 Runners sit on top of one grammar, and a program picks one by what it wants from a failure.
 `CompiledParser.parse_text()` is fast and gives the full error, and `CompiledParser.try_parse()` gives
@@ -50,8 +50,8 @@ Runners sit on top of one grammar, and a program picks one by what it wants from
 Text grammars come with two tools that earn their concepts. `longest()` removes the order of
 alternatives: KDL passes 338 of 338 with `string`'s alternatives in the order that fails 16 cases under
 `|`. A token written as grammar gives errors inside it:
-`"abc` fails at `1,5` with `expected: text or escape or unicode escape or '"' in string`, where today it
-fails at `1,3` with `cannot tokenize data`.
+`a "abc` fails at the end of the text with `expected: text or escape or '"' in string`, where the token
+grammar fails at the quote.
 
 Positions in a text grammar are worked out from the offset when an error happens, so a parse that
 succeeds pays nothing for them.
@@ -62,14 +62,14 @@ alternatives:
 
 | Run | Token grammar | Text grammar |
 | --- | ---: | ---: |
-| Interpreted | 2.95 s | 8.10 s |
-| `parse_text()`, compiled | 0.35 s | 0.55 s |
-| `try_parse()`, failing at the last token | 0.35 s | 0.56 s |
-| `try_parse()`, failing at the first token | 0.13 s | under 0.01 s |
-| `parse_text()`, failing at the last token | 3.29 s | 8.64 s |
+| Interpreted | 3.09 s | 7.46 s |
+| `parse_text()`, compiled | 0.36 s | 0.54 s |
+| `try_parse()`, failing at the last token | 0.36 s | 0.56 s |
+| `try_parse()`, failing at the first token | 0.14 s | under 0.01 s |
+| `parse_text()`, failing at the last token | 3.40 s | 8.07 s |
 
 The 21 MB benchmark takes 6.89 s as a compiled text grammar, against 4.82 s, wall clock. 823 KB of JSON
-written as a text grammar takes 0.127 s compiled and 2.08 s interpreted, against 0.15 s for
+written as a text grammar takes 0.120 s compiled and 2.06 s interpreted, against 0.15 s for
 `parse_text()` of the token grammar in the tests.
 
 Where both ways of reading rejected a document, they named the same place for nearly all grammar errors

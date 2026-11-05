@@ -7,8 +7,7 @@ tokenizer: each parser reads the text at the position the parsing has reached. U
 * a token means something different in different places, such as a `<` that opens a tag in one rule and compares two
   numbers in another;
 * a token has a structure of its own that a regexp cannot count, such as a comment inside a comment;
-* the errors matter: what the tokenizer cannot read fails as `cannot tokenize data`, and the parser never says what it
-  expected there.
+* the errors matter: a token written as a grammar fails inside itself, where a regexp only fails at its start.
 
 A **token grammar** is defined by its tokenizer and a **text grammar** by the text its parsers read, and there is no
 list of token specs to keep in order. Both are `Parser` objects and combine with the same operators.
@@ -167,7 +166,7 @@ Two things to keep in mind with `try_parse()`:
 * A grammar whose value can be `None` cannot tell that value from a failure. If the grammar has such a value, use
   `parse_text()`. Text nested too deeply gives `None` as well, as it would raise `RecursionError`.
 * A function after `>>` runs again when `parse_text()` fails on a compiled parser, since the error is made by parsing
-the text a second time. `try_parse()` runs it once, up to the failure:
+the text a second time. `try_parse()` runs it once, up to the failure, but for a failed `check()` or `commit()`:
 
 ```pycon
 >>> calls = []

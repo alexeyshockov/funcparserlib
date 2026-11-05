@@ -16,6 +16,12 @@
 
 ::: funcparserlib.parser.CompiledParser
 
+::: funcparserlib.parser.CompiledParser.parse
+
+::: funcparserlib.parser.CompiledParser.parse_text
+
+::: funcparserlib.parser.CompiledParser.try_parse
+
 ::: funcparserlib.parser.ForwardDeclParser.define
 
 ::: funcparserlib.parser.Parser.named

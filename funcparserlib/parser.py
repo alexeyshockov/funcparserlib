@@ -130,6 +130,7 @@ def _describe(token: object) -> TokenDescription:
 
 
 _WORD = re.compile(r"\S{1,20}")
+_UNREADABLE = "text no token spec matches"
 
 
 class _Undecided(Exception):
@@ -150,8 +151,9 @@ class _Character:
 class _Located(Sequence[Any]):
     """The characters of a text, for errors: each knows its line and column."""
 
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, skip: re.Pattern[str] | None = None) -> None:
         self._text = text
+        self._skip = skip
 
     def __len__(self) -> int:
         return len(self._text)
@@ -169,12 +171,17 @@ class _Located(Sequence[Any]):
         return text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset)
 
     def end(self) -> TokenDescription:
-        """The end of the text."""
-        place = self._place(len(self._text))
+        """The end of the text, past its last character that is not whitespace."""
+        place = self._place(len(self._text.rstrip()))
         return TokenDescription("end of input", place, place)
 
     def span(self, start: int, end: int) -> TokenDescription:
-        """The text from `start` to `end`, exclusive, without the whitespace that ends it."""
+        """The text from `start` to `end`, exclusive, without the skip and whitespace at its end."""
+        if self._skip is not None:
+            for stop in range(start + 1, end):
+                if self._skip.fullmatch(self._text, stop, end):
+                    end = stop
+                    break
         text = self._text[start:end].rstrip()
         last = start + max(len(text) - 1, 0)
         return TokenDescription(repr(text), self._place(start), self._place(last))
@@ -730,7 +737,14 @@ class Parser[A, B]:
 
         It raises what `Parser.parse()` raises.
         """
-        return self._result(self.run(cast("Any", text), State(0, 0)), _Located(text), _describe)
+        # Imported here: the module reads the classes of this one.
+        from ._compile import leading_skip  # noqa: PLC0415
+
+        skip = leading_skip(self)
+        m = skip.match(text) if skip is not None else None
+        start = m.end() if m is not None else 0
+        res = self.run(cast("Any", text), State(start, start))
+        return self._result(res, _Located(text, skip), _describe)
 
     def _result(
         self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
@@ -1313,29 +1327,32 @@ class CompiledParser[A, B]:
         Type: `(str) -> B`
 
         It gives what `Parser.parse()` gives for the tokens of `text`. Where the tokenizer stops at
-        text no token spec matches, the error is the one of the tokens before it: a mistake among
-        them, or what the grammar expected in place of that text. A grammar that reads tokens only
-        through `tok()`, with a tokenizer whose specs join into one regexp, runs on the text without
-        making a `Token`: for any other, this is `CompiledParser.parse()` of the tokens.
+        text no token spec matches, the error is a mistake among the tokens before it, or what the
+        grammar expected in place of that text. A grammar that reads tokens only through `tok()`,
+        with a tokenizer whose specs join into one regexp, runs on the text without making a
+        `Token`: for any other, this is `CompiledParser.parse()` of the tokens.
 
-        Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, and
-        `ValueError` when a grammar of tokens has no tokenizer.
+        Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, `LexerError`
+        for text past where a grammar without `finished` stops, and `ValueError` when a grammar of
+        tokens has no tokenizer. `describe` is for tokens, so a grammar of text does not use it.
         """
-        if self._reads_tokens and self._tokenizer is None:
-            raise with_hint(
-                ValueError("a compiled parser of tokens without a tokenizer cannot parse text"),
-                "Pass the tokenizer of the grammar to `Parser.compile()`:"
-                " `grammar.compile(tokenize)`.",
-            )
         res = None
         if self._fast_text is not None and not debug:
             try:
                 res = self._fast_text(text)
             except _Undecided:
                 res = None
-        if res is not None:
-            return res[0]
+        return res[0] if res is not None else self._interpreted(text, describe)
+
+    def _interpreted(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
+        """The result of `text` without the functions generated for text."""
         if self._tokenizer is None:
+            if self._reads_tokens:
+                raise with_hint(
+                    ValueError("a compiled parser of tokens without a tokenizer cannot parse text"),
+                    "Pass the tokenizer of the grammar to `Parser.compile()`:"
+                    " `grammar.compile(tokenize)`.",
+                )
             return self._parser.parse_text(text)
         tokens: list[Any] = []
         try:
@@ -1349,38 +1366,29 @@ class CompiledParser[A, B]:
     def _explained(
         self, tokens: list[Any], error: LexerError, describe: Callable[[A], TokenDescription] | None
     ) -> B:
-        """Raise the error of `tokens`, those before the text the tokenizer stopped at.
+        """Raise the error of `tokens`, then one more for the text the tokenizer stopped at.
 
-        `error` is what is left when the tokens have no error, or the parser does not get to it.
+        No grammar reads that token, so parsing fails there at the latest, saying what it expected.
+        `error` is what is left when the grammar stops before it.
         """
+        word = _WORD.match(error.msg, error.place[1] - 1)
+        token = Token(_UNREADABLE, word.group() if word else "\r", error.place, error.place)
         try:
-            self._parser.parse(tokens, describe=describe)
-        except NoParseError as e:
-            if e.state.max < len(tokens):
-                raise e from error
-            line, column = error.place
-            text = _WORD.match(error.msg, column - 1)
-            shown = repr(text.group() if text else error.msg[column - 1 : column])
-            names = f", expected: {' or '.join(e.expected)}" if e.expected else ""
-            where = f"{line},{column}-{line},{column}"
-            raise NoParseError(
-                f"{where}: got unexpected text: {shown}{names}",
-                e.state,
-                expected=e.expected,
-                context=e.context,
-                description=TokenDescription(shown, error.place, error.place),
-            ) from error
+            self._parser.parse(cast("Sequence[A]", [*tokens, token]), describe=describe)
+        except (NoParseError, ParseErrors) as e:
+            raise e from error
         raise error
 
     def try_parse(self, text: str) -> B | None:
-        """The value of `text`, or `None` where `CompiledParser.parse_text()` would raise.
+        """The value of `text`, or `None` where it does not parse.
 
         Type: `(str) -> B | None`
 
         It is for text that is often invalid, when the reason does not matter: a parse that fails
-        stops there, which can be several times faster than making its error. A grammar whose value
-        can be `None` cannot tell that from a failure this way. Text nested too deeply gives `None`
-        too, as a `RecursionError`.
+        stops there, which can be several times faster than making its error. A failed `check()` or
+        `commit()` leaves the generated code, so it takes the time of `parse_text()`. A grammar
+        whose value can be `None` cannot tell that from a failure this way. Text nested too deeply
+        gives `None` too, as a `RecursionError`. What a function after `>>` raises it raises.
         """
         if self._fast_text is not None and not debug:
             try:
@@ -1390,7 +1398,7 @@ class CompiledParser[A, B]:
             else:
                 return None if res is None else res[0]
         try:
-            return self.parse_text(text)
+            return self._interpreted(text, None)
         except (NoParseError, ParseErrors, LexerError, RecursionError):
             return None
 
@@ -1579,6 +1587,8 @@ def _parse_error[A](
         token = tokens[st.max]
         shown = describe(tokens[st.max])
         description = shown
+        if isinstance(token, _Character):
+            token = cast("A", token.value)
         found = f"{_where(shown)}{res.message}: {shown.text}"
     else:
         description = _after(tokens, describe)
@@ -1596,8 +1606,9 @@ def _problem_error[A](
     """The `NoParseError` of a failed `Parser.check()`, spanning the tokens it checked."""
     token: A | None = None
     description: TokenDescription | None
-    if isinstance(tokens, _Located) and problem.start < len(tokens):
-        description = tokens.span(problem.start, problem.end)
+    if isinstance(tokens, _Located):
+        in_text = problem.start < len(tokens)
+        description = tokens.span(problem.start, problem.end) if in_text else tokens.end()
     elif problem.start < len(tokens):
         token = tokens[problem.start]
         first = describe(tokens[problem.start])

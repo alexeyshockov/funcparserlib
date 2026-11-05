@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from operator import attrgetter
+from re import Pattern
 from typing import Any, Literal
 
 from ._commons import valueclass
@@ -346,6 +347,24 @@ class _Compiler:
         """The value of the token at `pos`."""
         return f"T[{pos}]" if self.values else f"T[{pos}].value"
 
+    def leaf_start_tests(self, p: Parser[Any, Any], pos: str) -> list[str] | None:
+        """What `start_tests()` gives for a parser that reads the input itself."""
+        tests: list[str] | None = None
+        match _form(p):
+            case ("test",):
+                tests = [self.test_condition(p, pos)]
+            case ("text", _, literal, _) if literal is not None:
+                tests = [f"T.startswith({self.literal(literal)}, {pos})"]
+            case ("text", match, _, _):
+                tests = [f"{self.constant(match, 'R')}(T, {pos}) is not None"]
+            case ("text_end", None):
+                tests = []
+            case _:
+                # A parser that runs as it is, or an end moving past what it skips, which counts as
+                # reading.
+                pass
+        return tests
+
     def start_tests(self, p: Parser[Any, Any], pos: str, seen: set[int]) -> list[str] | None:
         """The token tests `p` can run at `pos` before it reads a token, `None` when unknown."""
         p = _target(p)
@@ -354,18 +373,8 @@ class _Compiler:
         seen.add(id(p))
         parts: list[Parser[Any, Any]] = []
         match _form(p):
-            case ("test",):
-                return [self.test_condition(p, pos)]
-            case ("opaque",):
-                return None
-            case ("text", match, literal, _):
-                # At the start of the text, a skip comes first: leave that to the parser.
-                read = (
-                    f"T.startswith({self.literal(literal)}, {pos})"
-                    if literal is not None
-                    else f"{self.constant(match, 'R')}(T, {pos}) is not None"
-                )
-                return [f"{pos} == 0 or {read}"]
+            case ("test",) | ("opaque",) | ("text", _, _, _) | ("text_end", _):
+                return self.leaf_start_tests(p, pos)
             case ("longest", found):
                 parts = list(found)
             case ("seq", left, right):
@@ -397,41 +406,33 @@ class _Compiler:
         else:
             getattr(self, f"emit_{_form(p)[0]}")(p, pos, want, then)
 
-    def after_skip(self, skip: object, pos: str) -> str:
+    def after_skip(self, skip: Pattern[str] | None, pos: str) -> str:
         """The position after what `skip` matches at `pos`, `pos` when it is `None`."""
         if skip is None:
             return pos
         m, at = self.fresh("m"), self.fresh("p")
-        self.line(f"{m} = {self.constant(skip, 'K')}(T, {pos})")
+        self.line(f"{m} = {self.constant(skip.match, 'K')}(T, {pos})")
         self.line(f"{at} = {m}.end() if {m} is not None else {pos}")
         return at
 
     def emit_text(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, match, literal, skip = _form(p)
-        start = self.fresh("p")
-        # Nothing has skipped what comes before the first token.
-        self.line(f"{start} = {pos}")
-        if skip is not None:
-            self.block(
-                f"if {pos} == 0:", lambda: self.line(f"{start} = {self.after_skip(skip, pos)}")
-            )
 
         def finish(end: str, value: str) -> None:
-            at = self.after_skip(skip, end)
-            then(at, _Value("plain", value) if want else None)
+            then(self.after_skip(skip, end), _Value("plain", value) if want else None)
 
         if literal is not None:
             text = self.literal(literal)
             size = len(literal)
             self.block(
-                f"if T.startswith({text}, {start}):",
-                lambda: finish(self.named_position(f"{start} + {size}"), text),
+                f"if T.startswith({text}, {pos}):",
+                lambda: finish(self.named_position(f"{pos} + {size}"), text),
             )
             return
         m = self.fresh("m")
-        self.line(f"{m} = {self.constant(match, 'R')}(T, {start})")
+        self.line(f"{m} = {self.constant(match, 'R')}(T, {pos})")
         self.block(
-            f"if {m} is not None and {m}.end() > {start}:",
+            f"if {m} is not None and {m}.end() > {pos}:",
             lambda: finish(self.named_position(f"{m}.end()"), f"{m}.group()"),
         )
 
@@ -897,6 +898,26 @@ def reads_text(root: Parser[Any, Any]) -> bool:
     return False
 
 
+def leading_skip(root: Parser[Any, Any]) -> Pattern[str] | None:
+    """The first `skip` of a `funcparserlib.text.Text` in the grammar, which text may start with."""
+    seen: set[int] = set()
+    stack = [root]
+    try:
+        while stack:
+            p = _target(stack.pop())
+            if id(p) not in seen:
+                seen.add(id(p))
+                match _form(p):
+                    case ("text", _, _, skip) | ("text_end", skip) if skip is not None:
+                        found: Pattern[str] = skip
+                        return found
+                    case _:
+                        stack += reversed(_parts(p))
+    except _Declined:
+        return None
+    return None
+
+
 def reads_tokens(root: Parser[Any, Any]) -> bool:
     """Whether the grammar reads tokens through `tok()`, which text does not have."""
     seen: set[int] = set()
@@ -930,11 +951,13 @@ def compile_text[B](
     if functions is None:
         return None
     run, _ = functions
+    skip = leading_skip(root)
 
     def fast(text: str) -> tuple[B, int] | None:
         try:
             if scan is None:
-                result: tuple[B, int] | None = run(text, [], 0)
+                m = skip.match(text) if skip is not None else None
+                result: tuple[B, int] | None = run(text, [], m.end() if m else 0)
             else:
                 scanned = scan(text)
                 result = None if scanned is None else run(scanned[0], scanned[1], 0)

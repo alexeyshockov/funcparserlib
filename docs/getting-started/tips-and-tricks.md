@@ -210,7 +210,7 @@ tokenizer cannot read:
 >>> product.parse_text("2 * x")
 Traceback (most recent call last):
     ...
-funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected text: 'x', expected: int
+funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: 'x', expected: int
 
 ```
 
