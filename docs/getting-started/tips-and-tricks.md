@@ -189,8 +189,8 @@ This makes a failed parse slower, and calls the functions you gave to `>>` twice
 it reads is valid and its `>>` functions only compute a value.
 
 Given a tokenizer, a compiled grammar parses text itself. As long as the grammar reads tokens through `tok()`, this
-makes no `Token` objects, which takes less time and much less memory. What goes wrong is reported as usual, from the
-tokenizer and the parser:
+makes no `Token` objects, which takes less time and much less memory. An error says what was expected, also at text the
+tokenizer cannot read:
 
 ```pycon
 >>> tokenizer = make_tokenizer(
@@ -210,7 +210,7 @@ tokenizer and the parser:
 >>> product.parse_text("2 * x")
 Traceback (most recent call last):
     ...
-funcparserlib.lexer.LexerError: cannot tokenize data: 1,5: "2 * x"
+funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected text: 'x', expected: int
 
 ```
 

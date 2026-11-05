@@ -533,10 +533,11 @@ def parse_tokens(grammar: P, text: str) -> object:
 
 
 def text_outcome(parse: Any, text: str) -> tuple[object, ...]:
+    """The outcome, every failure at text the tokenizer stops at being the same one."""
     try:
         return outcome(parse, text)
-    except LexerError as e:
-        return (LexerError, str(e))
+    except LexerError:
+        return ("no such tokens",)
 
 
 def token_leaves() -> st.SearchStrategy[P]:
@@ -578,7 +579,11 @@ def test_parse_text_parses_as_the_tokenizer_and_the_parser(
     compiled = grammar.compile(tokenizer)
     for text in documents:
         expected = text_outcome(lambda t: parse_tokens(grammar, t), text)
-        assert text_outcome(compiled.parse_text, text) == expected
+        got = text_outcome(compiled.parse_text, text)
+        if expected == ("no such tokens",):
+            assert got[0] in ("error", "errors", ValueError) or got == expected
+        else:
+            assert got == expected
 
 
 def test_parse_text_makes_no_tokens() -> None:
@@ -594,14 +599,23 @@ def test_parse_text_leaves_out_the_skipped_types(text: str) -> None:
     assert grammar.compile(tokenizer).parse_text(text) == expected
 
 
-def test_parse_text_raises_the_lexer_error_of_the_tokenizer() -> None:
-    compiled = many(tok("a")).compile(tokenizer)
-    with pytest.raises(LexerError) as e:
-        compiled.parse_text("aa\na ?")
-    assert e.value.place == (2, 3)
+def test_parse_text_says_what_was_expected_at_text_no_spec_matches() -> None:
+    compiled = (many(tok("a")) + tok("b")).compile(tokenizer)
+    with pytest.raises(NoParseError) as e:
+        compiled.parse_text("aa\na ?x")
+    assert str(e.value) == "2,3-2,3: got unexpected text: '?x', expected: a or b"
+    assert e.value.expected == ("a", "b")
+    assert isinstance(e.value.__cause__, LexerError)
+    assert e.value.render("aa\na ?x").endswith("2 | a ?x\n      ^")
 
 
-def test_parse_text_reads_past_where_the_grammar_stops_as_the_tokenizer_does() -> None:
+def test_parse_text_reports_a_mistake_before_text_no_spec_matches() -> None:
+    compiled = (tok("a") + tok("b")).compile(tokenizer)
+    with pytest.raises(NoParseError, match="1,3-1,3: got unexpected token: 'a', expected: b"):
+        compiled.parse_text("a a ?")
+
+
+def test_parse_text_raises_the_lexer_error_when_the_parser_stops_before_it() -> None:
     with pytest.raises(LexerError):
         tok("a").compile(tokenizer).parse_text("a ?")
 
@@ -651,7 +665,7 @@ def test_specs_that_do_not_join_parse_text_through_tokens() -> None:
     assert compiled.parse_text("aab") == ("aa", "b")
 
 
-def test_parse_text_without_a_tokenizer_raises() -> None:
+def test_parse_text_of_tokens_without_a_tokenizer_raises() -> None:
     with pytest.raises(ValueError, match="without a tokenizer"):
         tok("a").compile().parse_text("a")
 

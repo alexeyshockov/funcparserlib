@@ -10,6 +10,8 @@
 
 ::: funcparserlib.parser.Parser.parse
 
+::: funcparserlib.parser.Parser.parse_text
+
 ::: funcparserlib.parser.Parser.compile
 
 ::: funcparserlib.parser.CompiledParser
@@ -70,6 +72,8 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 ::: funcparserlib.parser.many
 
 ::: funcparserlib.parser.oneplus
+
+::: funcparserlib.parser.longest
 
 ::: funcparserlib.parser.skip
 

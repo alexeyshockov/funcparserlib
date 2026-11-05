@@ -56,10 +56,7 @@ class Internals:
     ignored: IgnoredValue
     ignore: Callable[[Any], IgnoredValue]
     token_value: Callable[[Any], Any]
-
-
-class _Undecided(Exception):
-    """Raised by generated code: the interpreted parser has to decide this parse."""
+    undecided: type[Exception]
 
 
 class _Declined(Exception):
@@ -111,6 +108,8 @@ def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
             return [_target(inner)]
         case ("ignore" | "many" | "oneplus" | "commit" | "context", inner):
             return [_target(inner)]
+        case ("longest", parsers):
+            return [_target(q) for q in parsers]
         case _:
             return []
 
@@ -129,7 +128,7 @@ class _Compiler:
             "IGV": IgnoredValue,
             "ParsingError": ParsingError,
             "State": State,
-            "Undecided": _Undecided,
+            "Undecided": internals.undecided,
             "_T": internals.tuple_class,
         }
         self.constants: dict[int, str] = {}
@@ -204,8 +203,15 @@ class _Compiler:
                 result = of(inner)[0], True
             case ("pure", _):
                 result = frozenset(), True
-            case ("finished",) | ("opaque",):
+            case ("finished",) | ("opaque",) | ("text_end", _):
                 result = None, True
+            case ("text", _, _, _):
+                result = None, False
+            case ("longest", parsers):
+                found = [of(q) for q in parsers]
+                keys = [f for f, _ in found]
+                union = None if None in keys else frozenset().union(*(k for k in keys if k))
+                result = union, any(nullable for _, nullable in found)
             case (_, inner, *_):
                 result = of(inner)
             case _:
@@ -232,8 +238,11 @@ class _Compiler:
                     kind = "plain"
             case ("ignore", _):
                 kind = "ignored"
-            case ("many" | "oneplus", _):
+            case ("many" | "oneplus", _) | ("text", _, _, _):
                 kind = "plain"
+            case ("longest", parsers):
+                kinds = {self.kind(q) for q in parsers}
+                kind = kinds.pop() if len(kinds) == 1 else "unknown"
             case ("pure", x) if not isinstance(x, (IgnoredValue, self.internals.tuple_class)):
                 kind = "plain"
             case ("context" | "commit", inner) | ("check" | "when" | "but_not", inner, _):
@@ -347,8 +356,10 @@ class _Compiler:
         match _form(p):
             case ("test",):
                 return [self.test_condition(p, pos)]
-            case ("opaque",):
+            case ("opaque",) | ("text", _, _, _):
                 return None
+            case ("longest", found):
+                parts = list(found)
             case ("seq", left, right):
                 parts = [left, right] if self.first[id(_target(left))][1] else [left]
             case ("alt" | "but_not", left, right):
@@ -377,6 +388,76 @@ class _Compiler:
             self.emit_call(p, pos, want, then)
         else:
             getattr(self, f"emit_{_form(p)[0]}")(p, pos, want, then)
+
+    def after_skip(self, skip: object, pos: str) -> str:
+        """The position after what `skip` matches at `pos`, `pos` when it is `None`."""
+        if skip is None:
+            return pos
+        m, at = self.fresh("m"), self.fresh("p")
+        self.line(f"{m} = {self.constant(skip, 'K')}(T, {pos})")
+        self.line(f"{at} = {m}.end() if {m} is not None else {pos}")
+        return at
+
+    def emit_text(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        _, match, literal, skip = _form(p)
+        start = self.fresh("p")
+        # Nothing has skipped what comes before the first token.
+        self.line(f"{start} = {pos}")
+        if skip is not None:
+            self.block(
+                f"if {pos} == 0:", lambda: self.line(f"{start} = {self.after_skip(skip, pos)}")
+            )
+
+        def finish(end: str, value: str) -> None:
+            at = self.after_skip(skip, end)
+            then(at, _Value("plain", value) if want else None)
+
+        if literal is not None:
+            text = self.literal(literal)
+            size = len(literal)
+            self.block(
+                f"if T.startswith({text}, {start}):",
+                lambda: finish(self.named_position(f"{start} + {size}"), text),
+            )
+            return
+        m = self.fresh("m")
+        self.line(f"{m} = {self.constant(match, 'R')}(T, {start})")
+        self.block(
+            f"if {m} is not None and {m}.end() > {start}:",
+            lambda: finish(self.named_position(f"{m}.end()"), f"{m}.group()"),
+        )
+
+    def named_position(self, expr: str) -> str:
+        at = self.fresh("p")
+        self.line(f"{at} = {expr}")
+        return at
+
+    def emit_text_end(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        skip = _form(p)[1]
+        start = self.fresh("p")
+        self.line(f"{start} = {pos}")
+        if skip is not None:
+            self.block(
+                f"if {pos} == 0:", lambda: self.line(f"{start} = {self.after_skip(skip, pos)}")
+            )
+        self.block(f"if {start} >= len(T):", lambda: then(start, _Value("plain", "None")))
+
+    def emit_longest(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        best, name = self.fresh("p"), self.fresh("v")
+        self.line(f"{best} = -1")
+
+        def keep(end: str, value: _Value | None) -> None:
+            def store() -> None:
+                self.line(f"{best} = {end}")
+                if want:
+                    self.line(f"{name} = {value.expr if value else 'IGNORED'}")
+
+            self.block(f"if {end} > {best}:", store)
+
+        for parser in _form(p)[1]:
+            self.emit(parser, pos, want, keep)
+        kind = self.kind(p)
+        self.block(f"if {best} >= 0:", lambda: then(best, _Value(kind, name) if want else None))
 
     def emit_map(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, inner, f = _form(p)
@@ -797,30 +878,49 @@ def compile_grammar[A, B](
     return fast
 
 
+def reads_text(root: Parser[Any, Any]) -> bool:
+    """Whether the grammar reads text through `funcparserlib.text.Text`."""
+    seen: set[int] = set()
+    stack = [root]
+    try:
+        while stack:
+            p = _target(stack.pop())
+            if id(p) not in seen:
+                seen.add(id(p))
+                if _form(p)[0] in ("text", "text_end"):
+                    return True
+                stack += _parts(p)
+    except _Declined:
+        return False
+    return False
+
+
 def compile_text[B](
     root: Parser[Any, B],
     internals: Internals,
-    scan: Callable[[str], tuple[list[str], list[str | None]] | None],
+    scan: Callable[[str], tuple[list[str], list[str | None]] | None] | None,
 ) -> Callable[[str], tuple[B, int] | None] | None:
-    """A function giving the value and the end position of the text `scan` splits into tokens.
+    """A function giving the value and the end position of a text, `None` when it does not parse.
 
-    It runs on the values and types of the tokens, without `Token` objects, so it returns `None` for
-    a grammar that reads a token any other way than through `tok()`. The function returns `None`
-    when the tokenizer and the interpreted parser have to decide.
+    `scan` splits the text into the values and the types of its tokens, without `Token` objects:
+    this returns `None` for a grammar that reads a token any other way than through `tok()`. Without
+    `scan` the grammar reads the text itself. The function raises `internals.undecided` when the
+    interpreted parser has to decide.
     """
-    functions = _functions(root, internals, values=True)
+    functions = _functions(root, internals, values=scan is not None)
     if functions is None:
         return None
     run, _ = functions
 
     def fast(text: str) -> tuple[B, int] | None:
         try:
-            scanned = scan(text)
-            result: tuple[B, int] | None = None
-            if scanned is not None:
-                result = run(scanned[0], scanned[1], 0)
-        except Exception:  # noqa: BLE001 — whatever it was, the interpreted parser raises it again
-            return None
+            if scan is None:
+                result: tuple[B, int] | None = run(text, [], 0)
+            else:
+                scanned = scan(text)
+                result = None if scanned is None else run(scanned[0], scanned[1], 0)
+        except Exception as e:
+            raise internals.undecided from e
         return result
 
     return fast

@@ -29,6 +29,10 @@ messages name what was expected more precisely; see Changed.
 - `make_tokenizer(specs, skip=...)` leaves token types such as whitespace out of the result, and returns a `Tokenizer`
 - `Parser.compile(tokenizer)` and `CompiledParser.parse_text(text)`: text parsed without making `Token` objects, as long
   as the grammar reads tokens through `tok()`
+- `funcparserlib.text.Text`: parsers that read text at the position parsing has reached, with no list of tokens, and
+  `Parser.parse_text(text)`, whose errors give the line and column
+- `longest(p1, p2, ...)`: the longest match of the parsers, whatever their order
+- `CompiledParser.try_parse(text)`: the value, or `None` without making an error
 - `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
   `NoParseError.render()` does
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
