@@ -35,17 +35,18 @@ Three combinators replace `bind()` for what binary formats do, and they work ove
 
 `bind()` stays for what they do not cover. It costs what it always did.
 
-Measured on Python 3.12 on an arm64 laptop, CPU time, best of five, in a prototype, on a 450 KB
-MessagePack document of nested records:
+Measured on Python 3.12 on an arm64 laptop, the fastest round of `bench_comparison.py`, on a 450 KB
+MessagePack document of nested records, with `examples/msgpack_format.py`:
 
 | Parser | Time |
 | --- | ---: |
-| `msgpack`, the C extension | 2.6 ms |
-| Grammar, compiled | 26.4 ms |
-| `msgpack`, its pure Python fallback | 38.7 ms |
-| Grammar, interpreted | 120 ms |
+| `msgpack`, the C extension | 2.7 ms |
+| Grammar, compiled | 27.7 ms |
+| `msgpack`, its pure Python fallback | 39.0 ms |
+| Grammar, interpreted | 107 ms |
 
-The prototype agreed with `msgpack.unpackb()` on 100,000 valid and mutated documents.
+The example agrees with `msgpack.unpackb()` on mutated documents, but for extension types below -1,
+which the specification reserves and `msgpack` refuses.
 
 Rejected:
 
@@ -61,4 +62,7 @@ Rejected:
   the start of the input.
 - A region of `prefixed(length, body)` is parsed as its own input: `previous()` and `Binary.end` see
   its bounds, and errors are moved back to offsets in the buffer.
-- MessagePack's `ext` types put the type between the length and the data, which takes `bind()`.
+- MessagePack's `ext` types put the type between the length and the data, which reads most plainly with
+  `bind()`.
+- `prefixed()` fails after the length it read, so `commit()` and `recover()` see that read. `switch()`
+  fails at its key, as a token that does not match does: the value is what an error should show.

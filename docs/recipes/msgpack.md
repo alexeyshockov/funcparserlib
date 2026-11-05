@@ -171,8 +171,9 @@ funcparserlib.parser.NoParseError: got unexpected token: 0x02 at offset 0x1, exp
 
 ```
 
-Two failures are not parsing errors. A string that is not UTF-8 raises `UnicodeDecodeError` from `bytes.decode`, and a map
-key that is an array or a map raises `TypeError`, as it does in `msgpack.unpackb()`:
+Some failures are not parsing errors. A string that is not UTF-8 raises `UnicodeDecodeError` from `bytes.decode`, and a
+map key that is an array or a map raises `TypeError`, as it does in `msgpack.unpackb()`, and so does a timestamp of a bad
+length with `ValueError`:
 
 ```pycon
 >>> parse(b"\xa2\xff\xfe")

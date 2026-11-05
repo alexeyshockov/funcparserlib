@@ -13,7 +13,7 @@ whose value nothing reads, the position or `-1`.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from operator import attrgetter
+from operator import attrgetter, index
 from re import Pattern
 from typing import Any, Literal
 
@@ -136,6 +136,7 @@ class _Compiler:
         self.names: dict[str, Any] = {
             "IGNORED": internals.ignored,
             "IGV": IgnoredValue,
+            "INDEX": index,
             "ParsingError": ParsingError,
             "State": State,
             "Undecided": internals.undecided,
@@ -536,17 +537,22 @@ class _Compiler:
         _, length, item = _form(p)
 
         def after(start: str, value: _Value | None) -> None:
-            size = self.bound(value or _Value("ignored")).expr
-            at, acc, count, read = (self.fresh(x) for x in ("p", "a", "c", "ok"))
+            size, at, acc, count, read = (self.fresh(x) for x in ("n", "p", "a", "c", "ok"))
+            # What `range()` does to a count that is no integer.
+            self.line(f"{size} = INDEX({(value or _Value('ignored')).expr})")
             self.line(f"{at} = {start}")
             self.line(f"{acc} = []")
             self.line(f"{count} = 0")
-            self.line(f"{read} = True")
+            self.line(f"{read} = {size} >= 0")
+            nullable = self.first[id(_target(item))][1]
 
             def body() -> None:
                 self.line(f"{count} += 1")
 
                 def store(end: str, value: _Value | None) -> None:
+                    if nullable:
+                        # What `counted()` raises for an item that reads no tokens.
+                        self.block(f"if {end} == {at}:", lambda: self.line("raise Undecided"))
                     self.line(f"{acc}.append({value.expr if value else 'IGNORED'})")
                     self.line(f"{at} = {end}")
                     self.line("continue")
@@ -621,7 +627,12 @@ class _Compiler:
 
     def emit_oneplus(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         inner = _form(p)[1]
-        self.emit(inner, pos, want, lambda at, v: self.emit_loop(inner, at, want, then, v))
+
+        def after(at: str, value: _Value | None) -> None:
+            head = (value or _Value("ignored")) if want else None
+            self.emit_loop(inner, at, want, then, head)
+
+        self.emit(inner, pos, want, after)
 
     def emit_finished(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         self.block(f"if {pos} >= len(T):", lambda: then(pos, _Value("plain", "None")))
@@ -968,7 +979,10 @@ class _Compiler:
             self.lines, self.indent, self.loops = [], 1, 0
 
             def result(at: str, value: _Value | None, *, want: bool = want) -> None:
-                self.line(f"return ({value.expr}, {at})" if want and value else f"return {at}")
+                if want:
+                    self.line(f"return ({(value or _Value('ignored')).expr}, {at})")
+                else:
+                    self.line(f"return {at}")
 
             body(result)
             self.line("return None" if want else "return -1")
@@ -1025,7 +1039,7 @@ def compile_grammar[A, B](
 
 
 def reads_text(root: Parser[Any, Any]) -> bool:
-    """Whether the grammar reads text through `funcparserlib.text.Text`."""
+    """Whether the grammar reads text or bytes, through `Text` or `Binary`."""
     seen: set[int] = set()
     stack = [root]
     try:
@@ -1054,6 +1068,8 @@ def leading_skip(root: Parser[Any, Any]) -> Pattern[str] | None:
                     case ("text", _, _, skip) | ("text_end", skip) if skip is not None:
                         found: Pattern[str] = skip
                         return found
+                    case ("prefixed", length, _):
+                        stack.append(length)
                     case _:
                         stack += reversed(_parts(p))
     except _Declined:

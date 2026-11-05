@@ -829,7 +829,8 @@ class Parser[A, B]:
         a parser that matches no tokens.
 
         Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
-        in less memory still. A grammar of `funcparserlib.text.Text` needs no tokenizer.
+        in less memory still. A grammar of `funcparserlib.text.Text` or
+        `funcparserlib.binary.Binary` needs no tokenizer.
 
         Examples:
             ```pycon
@@ -884,10 +885,13 @@ class Parser[A, B]:
 
         @_parser(self.name, shape=self._shape, first=self._first)
         def _recover(tokens: Sequence[A], s: State) -> ParsingResult[B | None]:
-            res = self.run(tokens, s)
-            if res.__class__ is not ParsingError or res.state.max == s.pos:
-                return cast("ParsingResult[B | None]", res)
+            # A fresh furthest position tells whether this parser read a token.
+            res = self.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
             st = res.state
+            if res.__class__ is not ParsingError:
+                return ParsingSuccess(res.value, _merged(st, s))
+            if st.max == s.pos:
+                return res.replace_state(_merged(st, s))
             names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
             found = "got unexpected end of input"
             if st.max < len(tokens):
@@ -1489,7 +1493,7 @@ class CompiledParser[A, B]:
     def try_parse(self, text: str | bytes) -> B | None:
         """The value of `text`, or `None` where it does not parse.
 
-        Type: `(str) -> B | None`
+        Type: `(str | bytes) -> B | None`
 
         It is for text that is often invalid, when the reason does not matter: a parse that fails
         stops there, which can be several times faster than making its error. A failed `check()` or
@@ -1510,6 +1514,17 @@ class CompiledParser[A, B]:
             return None
 
 
+def _merged(st: State, s: State) -> State:
+    """`st`, reached from a fresh furthest position, with what failed furthest of it and `s`."""
+    if st.max > s.max:
+        max_, expected = st.max, st.expected
+    elif st.max == s.max:
+        max_, expected = s.max, (*s.expected, *st.expected)
+    else:
+        max_, expected = s.max, s.expected
+    return State(st.pos, max_, expected, st.context, st.problems)
+
+
 def _moved(s: State, offset: int) -> State:
     """`s` of a region that starts at `offset`, in the input around it."""
     problems = tuple(
@@ -1519,30 +1534,23 @@ def _moved(s: State, offset: int) -> State:
 
 
 def _read_region(
-    p: Parser[Any, Any],
-    body: Parser[Any, Any],
-    region: Sequence[Any],
-    start: int,
-    at: State,
-    s: State,
+    p: Parser[Any, Any], body: Parser[Any, Any], region: Sequence[Any], start: int, at: State
 ) -> ParsingResult[Any]:
-    """What `body` of `p` gives for `region`, in the state of the input around it.
+    """What `body` gives for `region`, which starts at `start`, in the state of the input around it.
 
-    `at` is the state at `start`, and `s` the one `p` started in.
+    `at` is the state at `start`. What `body` expected at the end of its region is no part of what
+    comes after a success: nothing can follow there.
     """
     inner = body.run(region, State(0, 0, (), at.context, ()))
     st = _moved(inner.state, start)
-    problems = (*at.problems, *st.problems)
-    expected = st.expected
-    if s.max > st.max:
-        expected = s.expected
-    elif s.max == st.max:
-        expected = (*s.expected, *st.expected)
-    moved = State(st.pos, max(st.max, s.max), expected, s.context, problems)
+    if inner.__class__ is not ParsingError and inner.state.max >= len(region):
+        st = State(st.pos, st.max, (), st.context, st.problems)
+    merged = _merged(st, at)
+    moved = State(merged.pos, merged.max, merged.expected, at.context, (*at.problems, *st.problems))
     if inner.__class__ is ParsingError:
         return inner.replace_state(moved)
     if inner.state.pos != len(region):
-        return ParsingError(moved.expect(p))
+        return ParsingError(moved, "bytes left in the region")
     return ParsingSuccess(inner.value, moved)
 
 
@@ -1570,7 +1578,8 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
 
     It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
     parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
-    length that is negative or runs past the input fails.
+    length that is negative or runs past the input fails where those bytes start. What `skip` of a
+    `funcparserlib.text.Text` matches before `body` is not read for it.
 
     Examples:
         ```pycon
@@ -1583,7 +1592,7 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
         >>> prefixed(b.byte).parse_bytes(b"\\x09hi")
         Traceback (most recent call last):
             ...
-        funcparserlib.parser.NoParseError: length 9 runs past the end: 0x09 at offset 0x0
+        funcparserlib.parser.NoParseError: length 9 runs past the end: 0x68 at offset 0x1
 
         ```
     """
@@ -1596,11 +1605,11 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
         start = res.state.pos
         end = start + res.value
         if res.value < 0 or end > len(tokens):
-            return ParsingError(s, f"length {res.value} runs past the end")
+            return ParsingError(res.state, f"length {res.value} runs past the end")
         region = tokens[start:end]
         if body is None:
             return ParsingSuccess(region, res.state.reset_pos(end))
-        return _read_region(_prefixed, body, region, start, res.state, s)
+        return _read_region(_prefixed, body, region, start, res.state)
 
     _prefixed._form = ("prefixed", length, body)
     return _prefixed
@@ -1610,6 +1619,8 @@ def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[
     """Return a parser of as many of `item` as `length` parses, in a list.
 
     Type: `(Parser[A, int], Parser[A, B]) -> Parser[A, list[B]]`
+
+    A negative count fails. Raises `ValueError` when `item` reads no tokens, as `many()` does.
 
     Examples:
         ```pycon
@@ -1626,12 +1637,20 @@ def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[
         res = length.run(tokens, s)
         if res.__class__ is ParsingError:
             return cast("ParsingResult[list[B]]", res)
+        if res.value < 0:
+            return ParsingError(res.state, f"count {res.value} is negative")
         items: list[B] = []
         st = res.state
         for _ in range(res.value):
             read = item.run(tokens, st)
             if read.__class__ is ParsingError:
                 return cast("ParsingResult[list[B]]", read)
+            if read.state.pos == st.pos:
+                raise with_hint(
+                    ValueError(f"{item.name} matched no tokens inside counted()"),
+                    "A count bounds how many items are read, and an item that reads nothing"
+                    " repeats for nothing: count a parser that reads a token.",
+                )
             items.append(read.value)
             st = read.state
         return ParsingSuccess(items, st)
@@ -1646,7 +1665,8 @@ def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parse
     Type: `(Parser[A, Any], Mapping[Any, Parser[A, Any]]) -> Parser[A, Any]`
 
     A key of `cases` is a value, or a `range` of values. For a value `cases` has no parser for, it
-    fails at the start of `key`. Unlike `p1 | p2`, no other case is tried.
+    fails at the start of `key`, as a token that does not match does, so `commit()` does not count
+    `key` as read. Unlike `p1 | p2`, no other case is tried.
 
     Examples:
         ```pycon
@@ -1672,7 +1692,8 @@ def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parse
             return res
         p = table.get(res.value)
         if p is None:
-            return ParsingError(s.expect(_switch))
+            at = State(s.pos, s.max, s.expected, s.context, res.state.problems)
+            return ParsingError(at.expect(_switch))
         return p.run(tokens, res.state)
 
     _switch._form = ("switch", key, table)
@@ -2434,13 +2455,7 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
         # A fresh furthest position tells whether `p` read a token.
         res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
         st = res.state
-        if st.max > s.max:
-            max_, expected = st.max, st.expected
-        elif st.max == s.max:
-            max_, expected = s.max, (*s.expected, *st.expected)
-        else:
-            max_, expected = s.max, s.expected
-        merged = State(st.pos, max_, expected, st.context, st.problems)
+        merged = _merged(st, s)
         if isinstance(res, ParsingError):
             return ParsingError(merged, res.message, res.committed or st.max > s.pos)
         return ParsingSuccess(res.value, merged)
