@@ -29,13 +29,9 @@ def pretty_tree[A](x: A, kids: Callable[[A], Sequence[A]], show: Callable[[A], s
     """Return a pseudo-graphic tree representation of the object `x` similar to the `tree` command
     in Unix.
 
-    Type: `(T, Callable[[T], List[T]], Callable[[T], str]) -> str`
+    It applies the parameter `show` to get a textual representation of the objects to show.
 
-    It applies the parameter `show` (which is a function of type `(T) -> str`) to get a textual
-    representation of the objects to show.
-
-    It applies the parameter `kids` (which is a function of type `(T) -> List[T]`) to list the
-    children of the object to show.
+    It applies the parameter `kids` to list the children of the object to show.
 
     Examples:
         ```pycon
@@ -98,8 +94,6 @@ def expand_tuple_args[T1, T2, T3, T4, T5, A](
 
 def expand_tuple_args[A](f: Callable[..., A]) -> Callable[..., A]:
     """Adapt `f` to take its positional arguments as one tuple, the value of `p1 + ... + pN`.
-
-    Type: `(Callable[[T1, ..., TN], A]) -> Callable[[tuple[T1, ..., TN]], A]`, for N from 2 to 5
 
     A function whose first parameter is `self` or `cls` keeps it and takes the tuple second, so a
     method decorated with it works with `>>` as well.

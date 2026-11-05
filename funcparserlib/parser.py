@@ -519,8 +519,6 @@ class Parser[A, B]:
     """A parser object that can parse a sequence of tokens or can be combined with other parsers
     using `+`, `|`, `>>`, `many()`, and other parsing combinators.
 
-    Type: `Parser[A, B]`
-
     Extensible by design: `Parser(f)` makes a parser of the parsing function `f`, as the `parser()`
     decorator does with a name, and that function is what a grammar adds to the library. A subclass
     may add to a parser, as `forward_decl()` does; overriding `run` is not supported.
@@ -540,8 +538,6 @@ class Parser[A, B]:
 
     run: ParserFn[A, B]
     """Run the parser against the tokens with the specified parsing state.
-
-    Type: `(Sequence[A], State) -> ParsingResult[B]`
 
     The parsing state includes the current position in the sequence being parsed, and the position
     of the rightmost token that has been consumed while parsing for better error messages.
@@ -578,8 +574,6 @@ class Parser[A, B]:
     def named(self, name: str | None) -> Self:
         # noinspection GrazieInspection
         """Specify the name of the parser for easier debugging.
-
-        Type: `(str) -> Parser[A, B]`
 
         The name is a label for error messages: when the parser fails without getting past its first
         token, the message says it expected `name` rather than what the parser is made of. It is
@@ -655,8 +649,6 @@ class Parser[A, B]:
     def _define(self, p: ParserObjOrFn[A, B], *, adapt: bool = True) -> None:
         """Define the parser created earlier as a forward declaration.
 
-        Type: `(Parser[A, B]) -> None`
-
         Use `p = forward_decl()` in combination with `p.define(...)` to define recursive parsers.
 
         See the examples in the docs for `forward_decl()`.
@@ -730,8 +722,6 @@ class Parser[A, B]:
     ) -> B:
         """Parse the sequence of tokens and return the parsed value.
 
-        Type: `(Sequence[A]) -> B`
-
         It takes a sequence of tokens of arbitrary type `A` and returns the parsed value of
         arbitrary type `B`.
 
@@ -760,8 +750,6 @@ class Parser[A, B]:
     def parse_text(self, text: str) -> B:
         """Parse the text, with the line and column of the text in errors.
 
-        Type: `(str) -> B`
-
         It is for a grammar that reads text: the parsers of `funcparserlib.text.Text`, and `a()` and
         `some()` of a character. A grammar of `tok()` reads tokens: give those to `Parser.parse()`,
         or a tokenizer to `Parser.compile()`.
@@ -779,8 +767,6 @@ class Parser[A, B]:
 
     def parse_bytes(self, data: bytes) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
-
-        Type: `(bytes) -> B`
 
         It is for a grammar of the parsers of `funcparserlib.binary.Binary`, and raises what
         `Parser.parse()` raises.
@@ -807,8 +793,6 @@ class Parser[A, B]:
 
     def compile(self, tokenizer: Tokenizer | None = None) -> CompiledParser[A, B]:
         """Generate Python functions that parse as this parser does, several times faster.
-
-        Type: `(Parser[A, B], Tokenizer | None) -> CompiledParser[A, B]`
 
         Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
         functions handle the parses that succeed; for any other, `CompiledParser.parse()` runs this
@@ -853,8 +837,6 @@ class Parser[A, B]:
 
     def recover(self, until: Parser[A, Any], default: B | None = None) -> Parser[A, B | None]:
         """Record the error of a failure and go on from where `until` matches.
-
-        Type: `(Parser[A, B], Parser[A, Any], B | None) -> Parser[A, B | None]`
 
         It gives one parse every error of a document, for a grammar of parts that a line or a
         delimiter separates: `Parser.parse()` raises the recorded errors together as `ParseErrors`,
@@ -905,8 +887,6 @@ class Parser[A, B]:
     def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
 
-        Type: `(Parser[A, B], Parser[A, Any]) -> Parser[A, B]`
-
         Examples:
             ```pycon
             >>> name = some(str.isalpha).named("name")
@@ -940,8 +920,6 @@ class Parser[A, B]:
     def when(self, pred: Callable[[B], bool]) -> Parser[A, B]:
         """Wrap the parser to a new one, that parses a token if it satisfies the predicate `pred`.
 
-        Type: `(Parser[A, B], Callable[[B], bool]) -> Parser[A, B]`
-
         Examples:
             ```pycon
             >>> digit = some(str.isdigit).named("digit")
@@ -968,8 +946,6 @@ class Parser[A, B]:
 
     def context(self, label: str) -> Parser[A, B]:
         """Name what this parser parses, for the errors inside it: `... in label`.
-
-        Type: `(Parser[A, B], str) -> Parser[A, B]`
 
         An error inside the parser ends with `in label`; nested contexts are listed innermost first,
         and `NoParseError.context` holds them.
@@ -1004,8 +980,6 @@ class Parser[A, B]:
 
     def check(self, pred: Callable[[B], bool], message: str) -> Parser[A, B]:
         """Record an error, `message`, when `pred` is false for the parsed value, and go on.
-
-        Type: `(Parser[A, B], Callable[[B], bool], str) -> Parser[A, B]`
 
         Unlike `when()`, a failed check does not fail the parser: parsing goes on with the value,
         and `Parser.parse()` raises `ParseErrors` with every recorded error at the end. An error
@@ -1224,8 +1198,6 @@ class Parser[A, B]:
     def __rshift__[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function.
 
-        Type: `(Callable[[B], C]) -> Parser[A, C]`
-
         You can use it for transforming the parsed value into another value before including it into
         the parse tree (the AST).
 
@@ -1246,8 +1218,6 @@ class Parser[A, B]:
     def bind[C](self, f: Callable[[B], Parser[A, C]]) -> Parser[A, C]:
         """Bind the parser to a monadic function that returns a new parser.
 
-        Type: `(Callable[[B], Parser[A, C]]) -> Parser[A, C]`
-
         Also known as `>>=` in Haskell.
 
         !!! Note
@@ -1266,8 +1236,6 @@ class Parser[A, B]:
     def __neg__(self) -> IgnoredParser[A]:
         """Return a parser that parses the same tokens, but its parsing result is ignored by the
         sequential `+` combinator.
-
-        Type: `(Parser[A, B]) -> IgnoredParser[A]`
 
         You can use it for throwing away elements of concrete syntax (e.g. `","`, `";"`).
 
@@ -1342,8 +1310,6 @@ class Parser[A, B]:
     def __invert__(self) -> Parser[A, A]:
         """Return a parser that parses one token, any token this parser does not parse.
 
-        Type: `(Parser[A, B]) -> Parser[A, A]`
-
         Examples:
             ```pycon
             >>> expr = ~a("x")
@@ -1408,8 +1374,6 @@ class CompiledParser[A, B]:
     ) -> B:
         """Parse the sequence of tokens and return the parsed value, as `Parser.parse()` does.
 
-        Type: `(Sequence[A]) -> B`
-
         It raises what `Parser.parse()` raises. With `funcparserlib.parser.debug` set, the parser
         runs interpreted and writes its parsing log.
         """
@@ -1420,8 +1384,6 @@ class CompiledParser[A, B]:
         self, text: str, *, describe: Callable[[A], TokenDescription] | None = None
     ) -> B:
         """Parse the text, with the tokenizer given to `Parser.compile()` if the grammar needs one.
-
-        Type: `(str) -> B`
 
         It gives what `Parser.parse()` gives for the tokens of `text`. Where the tokenizer stops at
         text no token spec matches, the error is a mistake among the tokens before it, or what the
@@ -1442,10 +1404,7 @@ class CompiledParser[A, B]:
         return res[0] if res is not None else self._interpreted(text, describe)
 
     def parse_bytes(self, data: bytes) -> B:
-        """Parse the bytes, as `Parser.parse_bytes()` does.
-
-        Type: `(bytes) -> B`
-        """
+        """Parse the bytes, as `Parser.parse_bytes()` does."""
         return self.parse_text(cast("Any", data))
 
     def _interpreted(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
@@ -1487,8 +1446,6 @@ class CompiledParser[A, B]:
 
     def try_parse(self, text: str | bytes) -> B | None:
         """The value of `text`, or `None` where it does not parse.
-
-        Type: `(str | bytes) -> B | None`
 
         It is for text that is often invalid, when the reason does not matter: a parse that fails
         stops there, which can be several times faster than making its error. A failed `check()` or
@@ -1568,9 +1525,6 @@ def prefixed[A, B](length: Parser[A, int], body: Parser[A, B]) -> Parser[A, B]: 
 def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> Parser[Any, Any]:
     """Return a parser of as many tokens as `length` parses, as they are or through `body`.
 
-    Type: `(Parser[A, int]) -> Parser[A, bytes | str]`,
-    `(Parser[A, int], Parser[A, B]) -> Parser[A, B]`
-
     It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
     parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
     length that is negative or runs past the input fails where those bytes start. What `skip` of a
@@ -1613,8 +1567,6 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
 def counted[A, B](count: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B]]:
     """Return a parser of as many of `item` as `count` parses, in a list.
 
-    Type: `(Parser[A, int], Parser[A, B]) -> Parser[A, list[B]]`
-
     A negative count fails. Raises `ValueError` when `item` reads no tokens, as `many()` does.
 
     Examples:
@@ -1656,8 +1608,6 @@ def counted[A, B](count: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B
 
 def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parser[A, Any]:
     """Return a parser that reads `key`, then runs the parser `cases` holds for its value.
-
-    Type: `(Parser[A, Any], Mapping[Any, Parser[A, Any]]) -> Parser[A, Any]`
 
     A key of `cases` is a value, or a `range` of values. For a value `cases` has no parser for, it
     fails at the start of `key`, as a token that does not match does, so `commit()` does not count
@@ -1718,8 +1668,6 @@ def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]: ...
 def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]:
     """Return a parser of the longest match of `parsers`, the first of them when several tie.
 
-    Type: `(Parser[A, B], Parser[A, C]) -> Parser[A, B | C]`, and so on
-
     `p1 | p2` keeps the first parser that succeeds, so a shorter match can hide a longer one, and
     the order of the alternatives matters. `longest(p1, p2)` runs them all, so it has no order to
     get right, and the functions after `>>` of each run.
@@ -1767,8 +1715,6 @@ def longest[A](*parsers: Parser[A, Any]) -> Parser[A, Any]:
 
 def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     """Make a named `Parser` from a parsing function, as a decorator.
-
-    Type: `(str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]`
 
     The decorated function takes the tokens and the current `State` and returns a `ParsingSuccess`
     or a `ParsingFailure`; unlike `Parser(f)`, it does not adapt a 1.0 parsing function. A success
@@ -2281,8 +2227,6 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
 def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
     """Return a parser that parses a token if it satisfies the predicate `pred`.
 
-    Type: `(Callable[[A], bool]) -> Parser[A, A]`
-
     Examples:
         ```pycon
         >>> expr = some(lambda s: s.isalpha()).named('alpha')
@@ -2331,8 +2275,6 @@ def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
 def a[A](value: A) -> Parser[A, A]:
     """Return a parser that parses a token if it's equal to `value`.
 
-    Type: `(A) -> Parser[A, A]`
-
     Examples:
         ```pycon
         >>> expr = a("x")
@@ -2375,8 +2317,6 @@ def a[A](value: A) -> Parser[A, A]:
 # noinspection PyShadowingBuiltins
 def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A002 — public keyword
     """Return a parser that parses a `Token` and returns the string value of the token.
-
-    Type: `(str, Optional[str]) -> Parser[Token, str]`
 
     You can match any token of the specified `type` or you can match a specific token by its `type`
     and `value`.
@@ -2432,8 +2372,6 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
 def pure[A](x: A) -> Parser[Any, A]:
     """Wrap any object into a parser.
 
-    Type: `(B) -> Parser[Any, B]`
-
     A pure parser doesn't touch the tokens sequence, it just returns its pure `x` value.
 
     Also known as `return` in Haskell.
@@ -2449,8 +2387,6 @@ def pure[A](x: A) -> Parser[Any, A]:
 
 def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
     """Return a parser that parses as `p`, and makes a failure of `p` final once it read a token.
-
-    Type: `(Parser[A, B]) -> Parser[A, B]`
 
     Without it, `p1 | p2` tries `p2` whenever `p1` fails, and `many(p)` stops at the first failure,
     however far into the tokens `p` got; the error then names where the backtracking ended. A
@@ -2674,8 +2610,6 @@ class ForwardDeclParser[A, B](Parser[A, B]):
 
 def forward_decl() -> ForwardDeclParser[Any, Any]:
     """Return an undefined parser that can be used as a forward declaration.
-
-    Type: `Parser[Any, Any]`
 
     Use `p = forward_decl()` in combination with `p.define(...)` to define recursive parsers.
 

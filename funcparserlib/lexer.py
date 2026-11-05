@@ -304,8 +304,6 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec], *, skip: Collection[str] =
     # noinspection GrazieInspection
     """Make a function that tokenizes text based on the regexp specs.
 
-    Type: `(Sequence[TokenSpec | Tuple]) -> Tokenizer`
-
     A token spec is `TokenSpec` instance.
 
     !!! Note
