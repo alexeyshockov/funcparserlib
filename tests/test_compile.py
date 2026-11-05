@@ -85,13 +85,13 @@ leaves: st.SearchStrategy[P] = st.sampled_from("abc").flatmap(
     lambda t: st.sampled_from(
         [
             tok(t),
-            tok(t, "x"),
-            tok(t, "y"),
+            tok(t, "xx"),
+            tok(t, "yy"),
             -tok(t),
             tok(t) >> str.upper,
             -(tok(t) >> str.upper),
             some(lambda token: token.type == t),
-            a(Token(t, "x")),
+            a(Token(t, "xx")),
             pure(None),
             pure("p"),
         ]
@@ -124,7 +124,9 @@ def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
 
 
 grammars = st.recursive(leaves, combined, max_leaves=12)
-inputs = st.lists(st.builds(Token, st.sampled_from("abc"), st.sampled_from("xy")), max_size=7)
+inputs = st.lists(
+    st.builds(Token, st.sampled_from("abc"), st.sampled_from(["xx", "yy"])), max_size=7
+)
 
 
 @settings(max_examples=300, deadline=None)
@@ -718,3 +720,43 @@ def test_the_kdl_grammar_parses_text_without_tokens() -> None:
     assert compiled._fast_text is not None
     text = 'server "web" port=8080 {\n  (t)route "/api" #true\n}\n'
     assert compiled.parse_text(text) == kdl.parse(text)
+
+
+# A rule used twice gets a function, and what `+` builds from its value depends on what is known of
+# it. A value of several characters tells a tuple from text that was unpacked as one.
+
+
+def word_tokens(types: str) -> list[Token]:
+    return [Token(t, "word") for t in types]
+
+
+def shared_rule(last: P) -> P:
+    rule = tok("a")
+    for _ in range(11):
+        rule += -tok("a")
+    return rule + last
+
+
+@pytest.mark.parametrize(
+    ("last", "tail"),
+    [
+        (tok("b"), "b"),
+        (-tok("b"), "b"),
+        (tok("b") >> same, "b"),
+        (tok("b") >> wrap, "b"),
+        (-tok("b") | tok("c"), "b"),
+        (-tok("b") | tok("c"), "c"),
+        (many(tok("b")) >> same, "bb"),
+    ],
+)
+def test_a_value_crosses_the_function_of_a_rule_used_twice(last: P, tail: str) -> None:
+    rule = shared_rule(last)
+    once = word_tokens("a" * 12 + tail)
+    end = word_tokens("d")
+    for grammar, document in [
+        (rule + rule, once + once),
+        (rule + rule + tok("d"), once + once + end),
+        ((rule | rule) + tok("d"), once + end),
+        (tok("d") + rule + rule, end + once + once),
+    ]:
+        assert outcome(grammar.compile().parse, document) == outcome(grammar.parse, document)
