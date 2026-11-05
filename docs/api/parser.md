@@ -10,6 +10,10 @@
 
 ::: funcparserlib.parser.Parser.parse
 
+::: funcparserlib.parser.Parser.compile
+
+::: funcparserlib.parser.CompiledParser
+
 ::: funcparserlib.parser.ForwardDeclParser.define
 
 ::: funcparserlib.parser.Parser.named

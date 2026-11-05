@@ -161,6 +161,33 @@ Parse the shared start once and make the rest optional:
 The result changes shape, so a function after `>>` has to tell the two cases apart.
 [Parsing KDL](../recipes/kdl.md#the-grammar) does this for an entry of a node.
 
+## Compile a Grammar That Parses a Lot
+
+[`Parser.compile()`](../api/parser.md#funcparserlib.parser.Parser.compile) generates Python functions from a finished
+grammar. They run several times faster than the parsers do, and `parse()` works the same way:
+
+```pycon
+>>> expr = (number + many(-op("*") + number) + -finished).compile()
+
+>>> expr.parse(tokenize("2 * 3 * 4"))
+(2, [3, 4])
+
+```
+
+The functions keep no record of what was expected, so a parse that fails runs again in the parser it was compiled from.
+Errors are the same as without compiling:
+
+```pycon
+>>> expr.parse(tokenize("2 * *"))
+Traceback (most recent call last):
+    ...
+funcparserlib.parser.NoParseError: 1,5-1,5: got unexpected token: '*', expected: number
+
+```
+
+This makes a failed parse slower, and calls the functions you gave to `>>` twice, so compile a grammar when most of what
+it reads is valid and its `>>` functions only compute a value.
+
 ## Watch Out for Left Recursion
 
 There are certain kinds grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion in

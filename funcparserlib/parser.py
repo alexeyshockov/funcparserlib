@@ -62,6 +62,7 @@ __all__ = [
     "anything_but",
     "tok",
     "Parser",
+    "CompiledParser",
     "ForwardDeclParser",
     "State",
     "NoParseError",
@@ -473,6 +474,8 @@ class Parser[A, B]:
     _first: frozenset[object] | None = None
     # A `|` parser: the two parsers it was built from.
     _parts: tuple[Parser[Any, Any], Parser[Any, Any]] | None = None
+    # What the parser is built from, for `compile()`: a tag and its operands.
+    _form: tuple[Any, ...] | None = None
 
     def __init__(self, p: ParserObjOrFn[A, B]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
@@ -569,6 +572,7 @@ class Parser[A, B]:
 
         See the examples in the docs for `forward_decl()`.
         """
+        self._form = ("ref", p) if isinstance(p, Parser) else None
         if not isinstance(p, Parser):
             self._fn = self._adapted(p) if adapt else p
         elif isinstance(p, ForwardDeclParser):
@@ -616,7 +620,10 @@ class Parser[A, B]:
         # After the conversion the test has: `-(p >> f)` still calls `f`.
         prev = test.conv
         then = conv if prev is None else lambda t: conv(prev(t))
-        p: Parser[A, C] = _token_test(_TokenTest(test.leaf, chain, test.pred, then))
+        convs = (*test.convs, conv)
+        p: Parser[A, C] = _token_test(
+            _TokenTest(test.leaf, chain, test.pred, then, test.token, convs)
+        )
         p._rename(self.name)
         p._shape = self._shape
         p._first = self._first
@@ -674,6 +681,38 @@ class Parser[A, B]:
             )
         return res.value
 
+    def compile(self) -> CompiledParser[A, B]:
+        """Generate Python functions that parse as this parser does, several times faster.
+
+        Type: `(Parser[A, B]) -> CompiledParser[A, B]`
+
+        Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
+        functions handle the parses that succeed; for any other, `CompiledParser.parse()` runs this
+        parser on the same tokens, so the result and the errors are this parser's.
+
+        That has a cost: a failed parse takes longer, and calls the functions given to `>>` a second
+        time. The compiled parser is a snapshot of the grammar, and does not follow a
+        `forward_decl()` defined again afterwards. A grammar nested beyond what Python can compile
+        stays interpreted, as does a `many()` of a parser that matches no tokens.
+
+        Examples:
+            ```pycon
+            >>> compiled = (many(a("x")) + a("y")).compile()
+            >>> compiled.parse("xxy")
+            (['x', 'x'], 'y')
+            >>> compiled.parse("xz")
+            Traceback (most recent call last):
+                ...
+            funcparserlib.parser.NoParseError: got unexpected token: 'z', expected: 'x' or 'y'
+
+            ```
+        """
+        # Imported here: the module reads the classes of this one.
+        from ._compile import Internals, compile_grammar  # noqa: PLC0415
+
+        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value)
+        return CompiledParser(self, compile_grammar(self, internals))
+
     def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
         """Parse as usual, but only if the other parser fails at the same position.
 
@@ -706,6 +745,7 @@ class Parser[A, B]:
                 return res_not if res_not.committed else res
             return ParsingError(s.expect(_but_not))
 
+        _but_not._form = ("but_not", self, other)
         return _but_not
 
     def when(self, pred: Callable[[B], bool]) -> Parser[A, B]:
@@ -734,6 +774,7 @@ class Parser[A, B]:
                 return res
             return ParsingError(s.expect(_when))
 
+        _when._form = ("when", self, pred)
         return _when
 
     def context(self, label: str) -> Parser[A, B]:
@@ -769,6 +810,7 @@ class Parser[A, B]:
                 return ParsingError(out, res.message, res.committed)
             return ParsingSuccess(res.value, out)
 
+        _context._form = ("context", self)
         return _context
 
     def check(self, pred: Callable[[B], bool], message: str) -> Parser[A, B]:
@@ -804,6 +846,7 @@ class Parser[A, B]:
             checked = State(st.pos, st.max, st.expected, st.context, (*st.problems, problem))
             return ParsingSuccess(res.value, checked)
 
+        _check._form = ("check", self, pred)
         return _check
 
     @overload
@@ -885,6 +928,7 @@ class Parser[A, B]:
                 return ParsingSuccess(_Tuple((*v1, v2)), res_r.state)
             return ParsingSuccess(_Tuple((v1, v2)), res_r.state)
 
+        _add._form = ("seq", self, other)
         return _add
 
     def __or__[C](self, other: Parser[A, C]) -> Parser[A, B | C]:
@@ -962,6 +1006,7 @@ class Parser[A, B]:
 
             p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(dispatched)
         p._parts = (self, other)
+        p._form = ("alt", self, other)
         return p
 
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
@@ -974,6 +1019,7 @@ class Parser[A, B]:
             res = self.run(tokens, s)
             return res.map(f)
 
+        _map._form = ("map", self, f)
         return _map
 
     def starmap[C](self, f: Callable[..., C]) -> Parser[A, C]:
@@ -984,6 +1030,7 @@ class Parser[A, B]:
             res = self.run(tokens, s)
             return res.starmap(f)
 
+        _map._form = ("starmap", self, f)
         return _map
 
     def __rshift__[C](self, f: Callable[[B], C]) -> Parser[A, C]:
@@ -1101,6 +1148,7 @@ class Parser[A, B]:
                 return res
             return ParsingSuccess(_IGNORED, res.state)
 
+        _ignored._form = ("ignore", self)
         return cast("IgnoredParser[A]", _ignored)
 
     def __invert__(self) -> Parser[A, A]:
@@ -1140,6 +1188,34 @@ class Parser[A, B]:
             return ParsingError(s.expect(_invert))
 
         return _invert
+
+
+@final
+class CompiledParser[A, B]:
+    """A grammar compiled to Python functions, see `Parser.compile()`.
+
+    Users get it from `Parser.compile()`; its constructor is internal.
+    """
+
+    def __init__(
+        self, parser: Parser[A, B], fast: Callable[[Sequence[A]], tuple[B, int] | None] | None
+    ) -> None:
+        """`parser`, with its generated functions, `None` for a grammar that stays interpreted."""
+        self._parser = parser
+        self._fast = fast
+
+    def parse(
+        self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
+    ) -> B:
+        """Parse the sequence of tokens and return the parsed value, as `Parser.parse()` does.
+
+        Type: `(Sequence[A]) -> B`
+
+        It raises what `Parser.parse()` raises. With `funcparserlib.parser.debug` set, the parser
+        runs interpreted and writes its parsing log.
+        """
+        res = None if self._fast is None or debug else self._fast(tokens)
+        return self._parser.parse(tokens, describe=describe) if res is None else res[0]
 
 
 def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
@@ -1457,6 +1533,12 @@ class _TokenTest:
     chain: tuple[Parser[Any, Any], ...]
     pred: Callable[[Any], bool]
     conv: Callable[[Any], Any] | None
+    # The type and value `tok()` tests, and the functions `conv` applies, in order.
+    token: tuple[str, str | None] | None = None
+    convs: tuple[Callable[[Any], Any], ...] = ()
+
+
+_token_value = attrgetter("value")
 
 
 def _key(t: object) -> object:
@@ -1602,6 +1684,7 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
             _log.debug("*matched* %d instances of %s, new state = %s", len(acc), _many.name, s)
         return ParsingSuccess(acc, s)
 
+    _many._form = ("many", p)
     return _many
 
 
@@ -1752,7 +1835,8 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
     eq = eq_type if value is None else cast("Callable[[Token], bool]", eq_token)
     p = some(eq).named(type if value is None else repr(value))
     p._first = frozenset({type})
-    return (p >> cast("Callable[[Token], str]", attrgetter("value")))._rename(p.name)
+    p._test = _TokenTest(p, (), eq, None, (type, value))
+    return (p >> cast("Callable[[Token], str]", _token_value))._rename(p.name)
 
 
 def pure[A](x: A) -> Parser[Any, A]:
@@ -1769,6 +1853,7 @@ def pure[A](x: A) -> Parser[Any, A]:
     def _pure(_: Sequence[Any], s: State) -> ParsingResult[A]:
         return ParsingSuccess(x, s)
 
+    _pure._form = ("pure", x)
     return _pure
 
 
@@ -1811,6 +1896,7 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
             return ParsingError(merged, res.message, res.committed or st.max > s.pos)
         return ParsingSuccess(res.value, merged)
 
+    _commit._form = ("commit", p)
     return _commit
 
 
@@ -1902,6 +1988,7 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
             return rest
         return ParsingSuccess([first.value, *rest.value], rest.state)
 
+    _oneplus._form = ("oneplus", p)
     return _oneplus
 
 
@@ -1953,6 +2040,7 @@ def _end_of_input() -> EndOfInput:
 
     p = _built(EndOfInput, run)._rename("end of input")
     p._leaf = True
+    p._form = ("finished",)
     return p
 
 

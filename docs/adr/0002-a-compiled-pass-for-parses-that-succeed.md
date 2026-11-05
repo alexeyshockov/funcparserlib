@@ -39,13 +39,13 @@ Compiling is opt-in. Measured on Python 3.12 on an arm64 laptop, CPU time, best 
 
 | Input | Interpreted | Compiled |
 | --- | ---: | ---: |
-| KDL slice, 453,043 tokens, parsing | 2.40 s | 0.24 s |
-| JSON, 945 KB, 327,545 tokens, parsing | 0.296 s | 0.090 s |
-| DOT, 342 KB, 96,004 tokens, parsing | 0.304 s | 0.026 s |
-| KDL benchmark, 21 MB, tokenizing and parsing, wall clock, one run | 32.45 s | 8.80 s |
+| KDL slice, 453,043 tokens, parsing | 2.37 s | 0.25 s |
+| JSON, 945 KB, 327,545 tokens, parsing | 0.277 s | 0.091 s |
+| DOT, 342 KB, 96,004 tokens, parsing | 0.288 s | 0.026 s |
+| KDL benchmark, 21 MB, tokenizing and parsing, wall clock, one run | 32.45 s | 8.86 s |
 
-Generating the KDL grammar takes 3 ms. A parse that fails at its last token took 2.72 s against
-2.42 s, as both passes ran.
+Generating the KDL grammar takes 3 ms. A parse that fails at its last token took 2.82 s against
+2.51 s, as both passes ran.
 
 Rejected:
 

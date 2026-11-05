@@ -8,6 +8,7 @@ from typing import assert_type
 
 from funcparserlib.lexer import Token
 from funcparserlib.parser import (
+    CompiledParser,
     ForwardDeclParser,
     IgnoredParser,
     Parser,
@@ -52,6 +53,10 @@ def join(xy: tuple[str, str]) -> str:
 
 
 _ = assert_type((x + x) >> join, Parser[str, str])
+
+_ = assert_type(n.compile(), CompiledParser[Token, int])
+_ = assert_type(n.compile().parse([]), int)
+_ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
 _ = assert_type(many(n), Parser[Token, list[int]])
 _ = assert_type(oneplus(n), Parser[Token, list[int]])

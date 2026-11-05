@@ -54,8 +54,19 @@ def bench_json_parse(benchmark: Any) -> None:
     assert benchmark(json_grammar.parse, JSON_TOKENS) == json.loads(JSON_TEXT)
 
 
+def bench_json_parse_compiled(benchmark: Any) -> None:
+    compiled = json_grammar._grammar().compile()
+    assert benchmark(compiled.parse, JSON_TOKENS) == json.loads(JSON_TEXT)
+
+
 def bench_dot_parse(benchmark: Any) -> None:
     graph = benchmark(dot.parse, DOT_TOKENS)
+    assert len(graph.stmts) == 400
+
+
+def bench_dot_parse_compiled(benchmark: Any) -> None:
+    compiled = dot._grammar().compile()
+    graph = benchmark(compiled.parse, DOT_TOKENS)
     assert len(graph.stmts) == 400
 
 
