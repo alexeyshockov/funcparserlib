@@ -17,4 +17,5 @@ venv/
 .copier-answers.yml
 .hypothesis/
 benchmarks/results/
+mutants/
 .nox/

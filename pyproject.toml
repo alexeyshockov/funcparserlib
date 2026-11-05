@@ -50,6 +50,8 @@ bench = [
     "pytest-benchmark ~=5.2",
 ]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
+# The mutation run (`just mutants`), which no gate depends on.
+mutation = ["mutmut ~=3.8"]
 tests = [
     "hypothesis ~=6.169",
     "pytest ~=9.0",
@@ -67,6 +69,31 @@ testpaths = ["tests", "funcparserlib", "docs"]
 # creates `.benchmarks/`.
 addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark"]
 filterwarnings = ["error"]
+
+# `just mutants`: the code whose bugs tests see least, as a broken fast path falls back to the same
+# result. The two deselected tests sit near the recursion limit, which mutmut's wrappers pass.
+[tool.mutmut]
+paths_to_mutate = ["funcparserlib/lexer.py", "funcparserlib/text.py", "funcparserlib/_compile.py"]
+also_copy = [
+    "examples",
+    "tests",
+    "funcparserlib/__init__.py",
+    "funcparserlib/_commons.py",
+    "funcparserlib/_version.py",
+    "funcparserlib/parser.py",
+    "funcparserlib/util.py",
+]
+pytest_add_cli_args_test_selection = [
+    "tests/test_text.py",
+    "tests/test_compile.py",
+    "tests/test_lexer.py",
+]
+pytest_add_cli_args = [
+    "--deselect",
+    "tests/test_compile.py::test_a_long_sequence_compiles[400]",
+    "--deselect",
+    "tests/test_compile.py::test_deeply_nested_options_compile",
+]
 
 [tool.interrogate]
 fail-under = 30

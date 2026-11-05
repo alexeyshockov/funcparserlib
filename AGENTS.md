@@ -44,6 +44,7 @@ just tests               # the noxfile's local sessions: the 3.12 floor and free
 just docs-build          # the site into site/
 just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
 just bench::compare      # the last two saved runs side by side
+just mutants [FILTER]    # mutation testing, over an hour, on demand and in no gate
 uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 ```
 
