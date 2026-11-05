@@ -39,11 +39,11 @@ nav = [
         { "Parsing MessagePack" = "recipes/msgpack.md" },
     ] },
     { "Glossary" = "explanation/glossary.md" },
-    { "Decisions (ADR)" = "adr/index.md" },
     { "Changelog" = "changes.md" },
 ]
 
 [project.theme]
+variant = "classic"
 features = [
     "navigation.expand",
     "navigation.tabs",
@@ -59,7 +59,7 @@ media = "(prefers-color-scheme: light)"
 scheme = "default"
 primary = "indigo"
 accent = "indigo"
-toggle.icon = "lucide/sun"
+toggle.icon = "material/weather-sunny"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
@@ -67,7 +67,7 @@ media = "(prefers-color-scheme: dark)"
 scheme = "slate"
 primary = "blue"
 accent = "blue"
-toggle.icon = "lucide/moon"
+toggle.icon = "material/weather-night"
 toggle.name = "Switch to light mode"
 
 [project.plugins.search]
