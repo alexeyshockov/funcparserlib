@@ -113,13 +113,13 @@ messages name what was expected more precisely; see Changed.
 - `Parser.define()` outside forward declarations: `define()` is a method of `ForwardDeclParser`
 - `funcparserlib.parser.log`: configure the `"funcparserlib"` logger by its name
 
-## 1.0.1 — 2022-11-04
+## [1.0.1] — 2022-11-04
 
 ### Added
 
 - Added support for Python 3.11
 
-## 1.0.0 — 2022-05-02
+## [1.0.0] — 2022-05-02
 
 The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was released on
 2013-05-02, with a few bug fixes and small features.
@@ -166,7 +166,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
   ([#49](https://github.com/vlasovskikh/funcparserlib/issues/49))
 - Fixed several cases of wrong expected tokens in error messages
 
-## 0.3.6 — 2013-05-02
+## [0.3.6] — 2013-05-02
 
 ### Changed
 
@@ -179,7 +179,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
 - Fixed `many()` that consumed too many tokens in some cases
   ([#31](https://github.com/vlasovskikh/funcparserlib/issues/31))
 
-## 0.3.5 — 2011-01-13
+## [0.3.5] — 2011-01-13
 
 ### Changed
 
@@ -190,7 +190,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
 
 - Fixed wrong token positions in lexer error messages
 
-## 0.3.4 — 2009-10-06
+## [0.3.4] — 2009-10-06
 
 ### Changed
 
@@ -201,7 +201,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
 
 - Fixed importing all symbols from `funcparserlib.lexer`
 
-## 0.3.3 — 2009-08-03
+## [0.3.3] — 2009-08-03
 
 ### Added
 
@@ -215,7 +215,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
 
 - Fixed a bug in results of skip + skip parsers
 
-## 0.3.2 — 2009-07-26
+## [0.3.2] — 2009-07-26
 
 ### Added
 
@@ -225,7 +225,7 @@ The stable 1.0.0 release freezes the API of funcparserlib 0.3.6 which was releas
 
 - Fixed some string and number encoding issues in examples
 
-## 0.3.1 — 2009-07-26
+## [0.3.1] — 2009-07-26
 
 Major optimizations (10x faster than the version 0.3).
 
@@ -242,7 +242,7 @@ Major optimizations (10x faster than the version 0.3).
 - Call a wrapped parser directly using `run` (without `__call__`)
 - The slow `logging` is enabled only when the `debug` flag is set
 
-## 0.3 — 2009-07-23
+## [0.3] — 2009-07-23
 
 ### Added
 
@@ -254,7 +254,7 @@ Major optimizations (10x faster than the version 0.3).
 
 - Translated the docs from Russian into English
 
-## 0.2 — 2009-07-07
+## [0.2] — 2009-07-07
 
 ### Added
 
@@ -266,6 +266,6 @@ Major optimizations (10x faster than the version 0.3).
 - Un-curried the parser function type in order to simplify things
 - Improvements to the DOT parser
 
-## 0.1 — 2009-06-26
+## [0.1] — 2009-06-26
 
 Initial release.
