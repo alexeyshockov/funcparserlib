@@ -1,5 +1,5 @@
 import warnings
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -15,6 +15,7 @@ from funcparserlib.parser import (
     ParsingResult,
     ParsingSuccess,
     State,
+    _alternatives,
     a,
     anything_but,
     finished,
@@ -28,6 +29,8 @@ from funcparserlib.parser import (
     tok,
 )
 from funcparserlib.util import expand_tuple_args, pretty_tree
+
+type P = Parser[Any, Any]
 
 
 def test_map_is_rshift() -> None:
@@ -315,3 +318,76 @@ def test_a_parsing_function_that_reads_run_sees_a_later_definition() -> None:
 
     declared.define(a("x"))
     assert reads.parse("x") == "x"
+
+
+def repeated(step: Callable[[P], P], levels: int = 20) -> P:
+    grammar: P = tok("a")
+    for _ in range(levels):
+        grammar = step(grammar)
+    return grammar
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        lambda g: g + g,
+        lambda g: g | g,
+        lambda g: g | (g + tok("b")),
+        lambda g: oneplus(g + tok("b")),
+        lambda g: maybe(g) + g,
+        lambda g: many(g) + g,
+        lambda g: g.but_not(g),
+    ],
+    ids=["+", "|", "| +", "oneplus", "maybe", "many", "but_not"],
+)
+def test_a_composed_name_stays_bounded(step: Callable[[P], P]) -> None:
+    name = repeated(step).name
+    assert name is not None
+    assert len(name) <= 200
+
+
+def test_the_name_of_a_nested_maybe_stays_bounded() -> None:
+    name = repeated(maybe, 60).name
+    assert name is not None
+    assert len(name) <= 200
+
+
+def test_a_short_composed_name_is_whole() -> None:
+    assert (tok("a") + tok("b")).name == "(a, b)"
+
+
+def test_a_name_given_to_a_parser_is_whole() -> None:
+    name = "x" * 300
+    assert tok("a").named(name).name == name
+    assert (tok("a").named(name) >> str).name == name
+
+
+def test_a_parser_repeated_in_a_choice_counts_once() -> None:
+    x, y = a("x"), a("y")
+    assert _alternatives(x | y | x | (y | x)) == (x, y)
+
+
+def test_a_choice_nested_in_itself_counts_each_parser_once() -> None:
+    x = tok("a")
+    grammar: P = x
+    for _ in range(20):
+        grammar = grammar | grammar
+    assert _alternatives(grammar) == (x,)
+
+
+@pytest.mark.parametrize(
+    ("text", "value"), [("x", "x"), ("y", "y"), ("z", "z")], ids=["first", "repeated", "last"]
+)
+def test_a_repeated_alternative_changes_no_value(text: str, value: str) -> None:
+    x, y, z = a("x"), a("y"), a("z")
+    assert (x | y | x | z | y).parse(text) == value
+
+
+def test_a_repeated_alternative_changes_no_error() -> None:
+    x, y, z = a("x"), a("y"), a("z")
+    repeated_choice = x | y | x | z | y
+    with pytest.raises(NoParseError) as got:
+        repeated_choice.parse("q")
+    with pytest.raises(NoParseError) as expected:
+        (x | y | z).parse("q")
+    assert str(got.value) == str(expected.value)

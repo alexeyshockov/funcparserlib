@@ -892,7 +892,7 @@ class Parser[A, B]:
         """
 
         name = _label_of(self)
-        shown = f"{name} (but not {_label_of(other) or '...'})" if name else "but_not(...)"
+        shown = _brief(f"{name} (but not {_label_of(other) or '...'})") if name else "but_not(...)"
 
         @_parser(shown, leaf=True, first=self._first)
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
@@ -1111,7 +1111,7 @@ class Parser[A, B]:
             return other.run(tokens, res.state._reset_pos_to(s))
 
         first = None if self._first is None or other._first is None else self._first | other._first
-        if debug or not _narrows((*_alternatives(self), *_alternatives(other))):
+        if debug or not _narrows(_alternatives(self, other)):
             p = _parser(f"{self.name} or {other.name}", shape=True, first=first)(tried)
         else:
             # Built on the first run: of `p1 | p2 | p3`, only the outermost parser ever runs.
@@ -1122,7 +1122,7 @@ class Parser[A, B]:
                 nonlocal alts, table
                 if table is None:
                     # A parser may be named after this one is built.
-                    alts = (*_alternatives(self), *_alternatives(other))
+                    alts = _alternatives(self, other)
                     table = _dispatch_table(alts)
                 pos = s.pos
                 if pos < len(tokens):
@@ -1783,6 +1783,14 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     return decorator
 
 
+_MAX_NAME = 200
+"""The length of a name the library composes from the names of parsers, see ADR 0008."""
+
+
+def _brief(name: str) -> str:
+    return name if len(name) <= _MAX_NAME else f"{name[: _MAX_NAME - 3]}..."
+
+
 def _parser[A, B](
     name: str | None,
     *,
@@ -1798,7 +1806,7 @@ def _parser[A, B](
     """
 
     def decorator(f: ParserFn[A, B]) -> Parser[A, B]:
-        p: Parser[A, B] = _built(Parser, f)._rename(name)
+        p: Parser[A, B] = _built(Parser, f)._rename(_brief(name) if shape and name else name)
         p._leaf = leaf
         p._shape = shape
         p._first = first
@@ -2100,14 +2108,18 @@ type _Alternatives = tuple[tuple[Parser[Any, Any], ...], tuple[Parser[Any, Any],
 type _Dispatch = tuple[dict[object, _Alternatives], _Alternatives]
 
 
-def _alternatives(p: Parser[Any, Any]) -> tuple[Parser[Any, Any], ...]:
-    """What `|` chooses among in `p`: a labelled parser is one alternative, as its label is what an
-    error names.
+def _alternatives(*parsers: Parser[Any, Any]) -> tuple[Parser[Any, Any], ...]:
+    """What `|` chooses among in `parsers`, each parser once: a labelled parser is one alternative,
+    as its label is what an error names.
     """
     alts: list[Parser[Any, Any]] = []
-    stack = [p]
+    seen: set[int] = set()
+    stack = list(reversed(parsers))
     while stack:
         q = stack.pop()
+        if id(q) in seen:
+            continue
+        seen.add(id(q))
         if q._form is None or q._form[0] != "alt" or q._label:
             alts.append(q)
         else:
@@ -2447,7 +2459,7 @@ def maybe[A, B](p: Parser[A, B]) -> Parser[A, B | None]:
 
         ```
     """
-    return (p | pure(None))._rename(f"[ {p.name} ]")
+    return (p | pure(None))._rename(_brief(f"[ {p.name} ]"))
 
 
 def skip[A](p: Parser[A, Any]) -> IgnoredParser[A]:

@@ -10,3 +10,4 @@ The architectural decisions behind funcparserlib, one record each. A new one sta
 - [ADR 0005 — Byte grammars](0005-byte-grammars.md)
 - [ADR 0006 — Parsing functions extend Parser](0006-parsing-functions-extend-parser.md)
 - [ADR 0007 — Generated code is built as `ast` nodes](0007-generated-code-is-built-as-ast-nodes.md)
+- [ADR 0008 — A composed name is bounded](0008-a-composed-name-is-bounded.md)

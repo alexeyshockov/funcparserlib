@@ -78,6 +78,8 @@ messages name what was expected more precisely; see Changed.
 - The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
   mypy, pyright and ty
 - Built with uv and `uv_build`
+- A name the library composes from the names of parsers is cut at 200 characters, with `...`: `Parser.name`, the parsing
+  log and the `ValueError` of `many()` show the cut name. A name given with `Parser.named()` is kept whole
 
 ### Deprecated
 
