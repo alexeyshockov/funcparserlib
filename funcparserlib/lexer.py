@@ -239,31 +239,7 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec]) -> Callable[[str], Iterabl
         while i < length:
             t = match_specs(s, i, (line, pos))
             yield t
-            if t.end is None:
-                raise ValueError(f"token {t!r} has no end position")
-            line, pos = t.end
+            line, pos = cast("Place", t.end)
             i += len(t.value)
 
     return f
-
-
-# This is an example of token specs. See also [this article][1] for a
-# discussion of searching for multiline comments using regexps (including `*?`).
-#
-#   [1]: http://ostermiller.org/findcomment.html
-_example_token_specs = [
-    TokenSpec("COMMENT", r"\(\*(.|[\r\n])*?\*\)", re.MULTILINE),
-    TokenSpec("COMMENT", r"\{(.|[\r\n])*?\}", re.MULTILINE),
-    TokenSpec("COMMENT", r"//.*"),
-    TokenSpec("NL", r"[\r\n]+"),
-    TokenSpec("SPACE", r"[ \t\r\n]+"),
-    TokenSpec("NAME", r"[A-Za-z_][A-Za-z_0-9]*"),
-    TokenSpec("REAL", r"[0-9]+\.[0-9]*([Ee][+\-]?[0-9]+)*"),
-    TokenSpec("INT", r"[0-9]+"),
-    TokenSpec("INT", r"\$[0-9A-Fa-f]+"),
-    TokenSpec("OP", r"(\.\.)|(<>)|(<=)|(>=)|(:=)|[;,=\(\):\[\]\.+\-<>\*/@\^]"),
-    TokenSpec("STRING", r"'([^']|(''))*'"),
-    TokenSpec("CHAR", r"#[0-9]+"),
-    TokenSpec("CHAR", r"#\$[0-9A-Fa-f]+"),
-]
-# tokenize = make_tokenizer(_example_token_specs)
