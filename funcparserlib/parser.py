@@ -168,6 +168,8 @@ class _Byte(int):
 class _Offsets(Sequence[Any]):
     """The bytes of a buffer, for errors: each knows its offset."""
 
+    __slots__ = ("_data",)
+
     def __init__(self, data: bytes) -> None:
         self._data = data
 
@@ -180,6 +182,8 @@ class _Offsets(Sequence[Any]):
 
 class _Located(Sequence[Any]):
     """The characters of a text, for errors: each knows its line and column."""
+
+    __slots__ = ("_skip", "_text")
 
     def __init__(self, text: str, skip: re.Pattern[str] | None = None) -> None:
         self._text = text
@@ -1391,6 +1395,8 @@ class CompiledParser[A, B]:
 
     Users get it from `Parser.compile()`; its constructor is internal.
     """
+
+    __slots__ = ("_fast", "_fast_text", "_parser", "_reads_tokens", "_tokenizer")
 
     def __init__(
         self,

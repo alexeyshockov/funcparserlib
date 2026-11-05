@@ -222,6 +222,8 @@ class Tokenizer:
     Users get it from `make_tokenizer()`; its constructor is internal.
     """
 
+    __slots__ = ("_pattern", "_skip", "_specs", "_types")
+
     def __init__(self, specs: tuple[tuple[str, Pattern[str]], ...], skip: frozenset[str]) -> None:
         """A tokenizer of `specs` that leaves out the token types in `skip`."""
         self._specs = specs

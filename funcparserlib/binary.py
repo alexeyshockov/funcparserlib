@@ -38,6 +38,8 @@ class Binary:
         ```
     """
 
+    __slots__ = ()
+
     @staticmethod
     def _leaf(name: str, run: Any, form: tuple[Any, ...]) -> Parser[Any, Any]:
         p: Parser[Any, Any] = Parser(run).named(name)

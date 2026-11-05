@@ -45,6 +45,8 @@ class Text:
         ```
     """
 
+    __slots__ = ("_skip",)
+
     def __init__(self, skip: str | None = None, flags: int = 0) -> None:
         """Make parsers that skip what the regexp `skip`, with its `flags`, matches."""
         self._skip: Pattern[str] | None = None

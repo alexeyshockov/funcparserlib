@@ -3,7 +3,7 @@
 The assertions are static, made by `just types-api`; see this directory's conftest.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, assert_type
 
 from funcparserlib.binary import Binary
@@ -13,6 +13,9 @@ from funcparserlib.parser import (
     ForwardDeclParser,
     IgnoredParser,
     Parser,
+    ParsingResult,
+    ParsingSuccess,
+    State,
     Tuple2Parser,
     Tuple3Parser,
     Tuple4Parser,
@@ -37,6 +40,14 @@ x = a("x")
 n = tok("number") >> int
 _ = assert_type(x, Parser[str, str])
 _ = assert_type(n, Parser[Token, int])
+
+
+def one(_tokens: Sequence[str], s: State) -> ParsingResult[int]:
+    return ParsingSuccess(1, s)
+
+
+# `Parser(f)` takes its types from the parsing function.
+_ = assert_type(Parser(one), Parser[str, int])
 
 # `+` builds a tuple type per arity.
 _ = assert_type(x + x, Tuple2Parser[str, str, str])
