@@ -15,10 +15,11 @@ The primary focus of `funcparserlib` is **parsing little languages** or **extern
 Parsers made with `funcparserlib` are pure-Python LL(\*) parsers. It means that it's **very easy to write parsers**
 without thinking about lookaheads and other hardcore parsing stuff. However, recursive descent parsing is a rather slow
 method compared to LL(k) or LR(k) algorithms. Still, parsing with `funcparserlib` is **at least twice faster than
-PyParsing**, a very popular library for Python.
+PyParsing**, a very popular library for Python, and [compiling a grammar](https://funcparserlib.pirx.ru/guide/performance/)
+makes it several times faster still.
 
-The source code of `funcparserlib` is only 1.2K lines of code, with lots of comments. Its API is fully type hinted. It
-features the longest parsed prefix error reporting, as well as a tiny lexer generator for token position tracking.
+Its API is fully type hinted. It features the longest parsed prefix error reporting, as well as a tiny lexer generator
+for token position tracking.
 
 The idea of parser combinators used in `funcparserlib` comes from the [Introduction to Functional
 Programming](https://www.cl.cam.ac.uk/teaching/Lectures/funprog-jrh-1996/) course. We have converted it from ML into
@@ -38,6 +39,10 @@ There are no dependencies on other libraries.
 
 * [Getting Started](https://funcparserlib.pirx.ru/getting-started/)
     * Your **starting point** with `funcparserlib`
+* [Guides](https://funcparserlib.pirx.ru/guide/errors/)
+    * Error handling, performance, and parsing without a tokenizer
+* [Recipes](https://funcparserlib.pirx.ru/recipes/)
+    * Complete parsers of real formats
 * [API Reference](https://funcparserlib.pirx.ru/api/)
     * Learn the details of the API
 
