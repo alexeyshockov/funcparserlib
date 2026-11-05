@@ -8,10 +8,14 @@ backtracking needs no reset.
 Every function takes the tokens `T`, their types `Y` and a position. `Y` ends in `None`, so testing
 it past the last token fails. A function returns `(value, position)` or `None`, or for a parser
 whose value nothing reads, the position or `-1`.
+
+The code is built as `ast` nodes, see ADR 0007. In an expression a `str` is a name of generated
+code, and a `str` constant is `ast.Constant`.
 """
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Callable, Sequence
 from operator import attrgetter, index
 from re import Pattern
@@ -27,14 +31,18 @@ type _Kind = Literal["ignored", "plain", "tuple", "unknown"]
 type _Next = Callable[[str, _Value | None], None]
 """Emits what follows a parser, given the position after it and its value, if asked for."""
 
+type _Expr = ast.expr | str | int | None
+"""An expression of generated code: a `str` is a name, an `int` or `None` a constant."""
+
 type _First = tuple[frozenset[str] | None, bool]
 """The token types a parser can start with, `None` when unknown, and whether it can read none."""
 
 _INLINE_SIZE = 10
 """A parser used more than once gets a function of its own when it is larger than this."""
 
-_MAX_INDENT = 60
-"""Code nested deeper goes to a function of its own: CPython compiles 100 levels of indentation."""
+_MAX_DEPTH = 60
+"""Code nested deeper goes to a function of its own: CPython's compiler recurses over the nesting.
+"""
 
 _MAX_LOOPS = 15
 """Loops nested deeper go to a function of their own: CPython compiles 20 nested blocks."""
@@ -70,22 +78,109 @@ class _Declined(Exception):
     """The grammar stays interpreted."""
 
 
+def _node(value: _Expr) -> ast.expr:
+    if isinstance(value, ast.expr):
+        return value
+    return ast.Name(value, ast.Load()) if isinstance(value, str) else ast.Constant(value)
+
+
+def _store(name: str) -> ast.Name:
+    return ast.Name(name, ast.Store())
+
+
+def _call(function: _Expr, *args: _Expr) -> ast.Call:
+    return ast.Call(_node(function), [_node(arg) for arg in args], [])
+
+
+def _attr(value: _Expr, name: str) -> ast.Attribute:
+    return ast.Attribute(_node(value), name, ast.Load())
+
+
+def _item(value: _Expr, index: _Expr) -> ast.Subscript:
+    return ast.Subscript(_node(value), _node(index), ast.Load())
+
+
+def _slice(value: _Expr, start: _Expr, end: _Expr) -> ast.Subscript:
+    return ast.Subscript(_node(value), ast.Slice(_node(start), _node(end)), ast.Load())
+
+
+def _plus(left: _Expr, right: _Expr) -> ast.BinOp:
+    return ast.BinOp(_node(left), ast.Add(), _node(right))
+
+
+def _compare(left: _Expr, op: ast.cmpop, right: _Expr) -> ast.Compare:
+    return ast.Compare(_node(left), [op], [_node(right)])
+
+
+def _class_is(value: _Expr, name: str) -> ast.Compare:
+    return _compare(_attr(value, "__class__"), ast.Is(), name)
+
+
+def _is_found(match: _Expr) -> ast.Compare:
+    return _compare(match, ast.IsNot(), None)
+
+
+def _length() -> ast.Call:
+    return _call("len", "T")
+
+
+def _not(test: _Expr) -> ast.UnaryOp:
+    return ast.UnaryOp(ast.Not(), _node(test))
+
+
+def _all(*tests: ast.expr) -> ast.expr:
+    return ast.BoolOp(ast.And(), list(tests)) if len(tests) > 1 else tests[0]
+
+
+def _any(*tests: ast.expr) -> ast.expr:
+    return ast.BoolOp(ast.Or(), list(tests)) if len(tests) > 1 else tests[0]
+
+
+def _tuple(*items: _Expr) -> ast.Tuple:
+    return ast.Tuple([_node(item) for item in items], ast.Load())
+
+
+def _star(value: ast.expr) -> ast.Starred:
+    return ast.Starred(value, ast.Load())
+
+
+def _undecided() -> ast.Raise:
+    return ast.Raise(_node("Undecided"))
+
+
+def _function(name: str, body: list[ast.stmt]) -> ast.FunctionDef:
+    """`def name(T, Y, p0):`."""
+    args = [ast.arg("T"), ast.arg("Y"), ast.arg("p0")]
+    return ast.FunctionDef(
+        name=name,
+        args=ast.arguments(posonlyargs=[], args=args, kwonlyargs=[], kw_defaults=[], defaults=[]),
+        body=body,
+        decorator_list=[],
+        type_params=[],
+    )
+
+
 @valueclass
 class _Value:
     """A value in generated code: an expression, or the expressions of a tuple to build."""
 
     kind: _Kind
-    text: str | None = None
-    parts: tuple[str, ...] | None = None
+    code: _Expr = None
+    parts: tuple[ast.expr, ...] | None = None
 
     @property
-    def expr(self) -> str:
+    def expr(self) -> ast.expr:
         """The expression of the value."""
         if self.kind == "ignored":
-            return "IGNORED"
+            return _node("IGNORED")
         if self.parts is not None:
-            return f"_T(({', '.join(self.parts)},))"
-        return str(self.text)
+            return _call("_T", _tuple(*self.parts))
+        return _node(self.code)
+
+
+def _read(value: _Value | None) -> ast.expr:
+    """The expression of `value`, of an `IgnoredValue` without one."""
+    return (value or _Value("ignored")).expr
 
 
 def _form(p: Parser[Any, Any]) -> tuple[Any, ...]:
@@ -149,8 +244,8 @@ class _Compiler:
         self.functions: dict[tuple[int, bool], str] = {}
         self.pending: list[tuple[Callable[[_Next], None], bool, str]] = []
         self.tables: dict[str, dict[Any, str]] = {}
-        self.lines: list[str] = []
-        self.indent = 1
+        self.body: list[ast.stmt] = []
+        self.depth = 1
         self.loops = 0
         self.counter = 0
         self.tests_token_types = False
@@ -300,8 +395,15 @@ class _Compiler:
 
     # --- Emission ---
 
-    def line(self, code: str) -> None:
-        self.lines.append("    " * self.indent + code)
+    def add(self, statement: ast.stmt) -> None:
+        self.body.append(statement)
+
+    def assign(self, name: str, value: _Expr) -> None:
+        self.add(ast.Assign([_store(name)], _node(value)))
+
+    def unpack(self, value: str, at: str, pair: _Expr) -> None:
+        """`value, at = pair`."""
+        self.add(ast.Assign([ast.Tuple([_store(value), _store(at)], ast.Store())], _node(pair)))
 
     def fresh(self, prefix: str) -> str:
         self.counter += 1
@@ -315,39 +417,53 @@ class _Compiler:
             self.names[name] = value
         return name
 
-    def block(self, head: str, body: Callable[[], None]) -> None:
-        self.line(head)
-        self.indent += 1
-        before = len(self.lines)
+    def nested(self, body: Callable[[], None]) -> list[ast.stmt]:
+        """The statements `body` emits, one level deeper."""
+        outer, self.body = self.body, []
+        self.depth += 1
         body()
-        if len(self.lines) == before:
-            self.line("pass")
-        self.indent -= 1
+        self.depth -= 1
+        statements, self.body = self.body, outer
+        return statements or [ast.Pass()]
 
-    def literal(self, value: object) -> str:
-        """An expression of `value`: `repr()` for a `str`, which a subclass may override."""
-        return repr(value) if type(value) is str else self.constant(value, "C")
+    def block(
+        self, test: _Expr, body: Callable[[], None], otherwise: Callable[[], None] | None = None
+    ) -> None:
+        """An `if` running `body`, and `otherwise` in its `else`."""
+        then = self.nested(body)
+        self.add(ast.If(_node(test), then, self.nested(otherwise) if otherwise else []))
+
+    def loop(self, test: _Expr, body: Callable[[], None]) -> None:
+        self.loops += 1
+        statements = self.nested(body)
+        self.loops -= 1
+        self.add(ast.While(_node(test), statements, []))
+
+    def undecided_if(self, test: _Expr) -> None:
+        self.add(ast.If(_node(test), [_undecided()], []))
+
+    def literal(self, value: object) -> _Expr:
+        """An expression of `value`: a constant for a `str`, which a subclass may override."""
+        return ast.Constant(value) if type(value) is str else self.constant(value, "C")
 
     def bound(self, value: _Value) -> _Value:
         """`value` under a name, for code that reads it twice."""
-        if value.kind == "ignored":
-            return value
-        if value.text is not None and value.text.isidentifier():
+        if value.kind == "ignored" or (value.parts is None and not isinstance(value.code, ast.AST)):
             return value
         name = self.fresh("v")
-        self.line(f"{name} = {value.expr}")
+        self.assign(name, value.expr)
         return _Value(value.kind, name)
 
-    def start_test(self, p: Parser[Any, Any], pos: str) -> str | None:
+    def start_test(self, p: Parser[Any, Any], pos: str) -> ast.expr | None:
         """The test that `p` can start at `pos`, when it saves running `p`."""
         first, nullable = self.first[id(p)]
         if first is None or nullable or _form(p)[0] == "test":
             return None
         if len(first) == 1:
-            return f"Y[{pos}] == {self.literal(next(iter(first)))}"
-        return f"Y[{pos}] in {self.constant(first, 'S')}"
+            return _compare(_item("Y", pos), ast.Eq(), self.literal(next(iter(first))))
+        return _compare(_item("Y", pos), ast.In(), self.constant(first, "S"))
 
-    def test_condition(self, p: Parser[Any, Any], pos: str) -> str:
+    def test_condition(self, p: Parser[Any, Any], pos: str) -> ast.expr:
         """Whether the token at `pos` passes the token test `p`."""
         test = p._test
         if test is None:
@@ -355,28 +471,29 @@ class _Compiler:
         if test.token is None:
             if self.values:
                 raise _Declined(f"{p.name} tests a token, and there are only its values")
-            return f"{pos} < len(T) and {self.constant(test.pred)}(T[{pos}])"
+            read = _call(self.constant(test.pred), _item("T", pos))
+            return _all(_compare(pos, ast.Lt(), _length()), read)
         self.tests_token_types = True
         type_, value = test.token
-        condition = f"Y[{pos}] == {self.literal(type_)}"
-        if value is not None:
-            condition += f" and {self.token_value(pos)} == {self.literal(value)}"
-        return condition
+        condition = _compare(_item("Y", pos), ast.Eq(), self.literal(type_))
+        if value is None:
+            return condition
+        return _all(condition, _compare(self.token_value(pos), ast.Eq(), self.literal(value)))
 
-    def token_value(self, pos: str) -> str:
+    def token_value(self, pos: str) -> ast.expr:
         """The value of the token at `pos`."""
-        return f"T[{pos}]" if self.values else f"T[{pos}].value"
+        return _item("T", pos) if self.values else _attr(_item("T", pos), "value")
 
-    def leaf_start_tests(self, p: Parser[Any, Any], pos: str) -> list[str] | None:
+    def leaf_start_tests(self, p: Parser[Any, Any], pos: str) -> list[ast.expr] | None:
         """What `start_tests()` gives for a parser that reads the input itself."""
-        tests: list[str] | None = None
+        tests: list[ast.expr] | None = None
         match _form(p):
             case ("test",):
                 tests = [self.test_condition(p, pos)]
             case ("text", _, literal, _) if literal is not None:
-                tests = [f"T.startswith({self.literal(literal)}, {pos})"]
+                tests = [_call(_attr("T", "startswith"), self.literal(literal), pos)]
             case ("text", match, _, _):
-                tests = [f"{self.constant(match, 'R')}(T, {pos}) is not None"]
+                tests = [_is_found(_call(self.constant(match, "R"), "T", pos))]
             case ("text_end", None):
                 tests = []
             case _:
@@ -385,7 +502,7 @@ class _Compiler:
                 pass
         return tests
 
-    def start_tests(self, p: Parser[Any, Any], pos: str, seen: set[int]) -> list[str] | None:
+    def start_tests(self, p: Parser[Any, Any], pos: str, seen: set[int]) -> list[ast.expr] | None:
         """The token tests `p` can run at `pos` before it reads a token, `None` when unknown."""
         p = _target(p)
         if id(p) in seen:
@@ -411,7 +528,7 @@ class _Compiler:
                 parts = [inner]
             case _:
                 pass
-        tests: list[str] = []
+        tests: list[ast.expr] = []
         for part in parts:
             found = self.start_tests(part, pos, seen)
             if found is None:
@@ -424,7 +541,7 @@ class _Compiler:
     ) -> None:
         """Code running `p` at `pos`; on a success `then` emits what follows, inside the test."""
         p = _target(p)
-        too_deep = self.indent > _MAX_INDENT or self.loops >= _MAX_LOOPS
+        too_deep = self.depth > _MAX_DEPTH or self.loops >= _MAX_LOOPS
         if not inline and (self.has_function(p) or (too_deep and _form(p)[0] != "test")):
             self.emit_call(p, pos, want, then)
         else:
@@ -435,61 +552,66 @@ class _Compiler:
         if skip is None:
             return pos
         m, at = self.fresh("m"), self.fresh("p")
-        self.line(f"{m} = {self.constant(skip.match, 'K')}(T, {pos})")
-        self.line(f"{at} = {m}.end() if {m} is not None else {pos}")
+        self.assign(m, _call(self.constant(skip.match, "K"), "T", pos))
+        self.assign(at, ast.IfExp(_is_found(m), _call(_attr(m, "end")), _node(pos)))
         return at
 
     def emit_text(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, match, literal, skip = _form(p)
 
-        def finish(end: str, value: str) -> None:
+        def finish(end: str, value: _Expr) -> None:
             then(self.after_skip(skip, end), _Value("plain", value) if want else None)
 
         if literal is not None:
             text = self.literal(literal)
             size = len(literal)
             self.block(
-                f"if T.startswith({text}, {pos}):",
-                lambda: finish(self.named_position(f"{pos} + {size}"), text),
+                _call(_attr("T", "startswith"), text, pos),
+                lambda: finish(self.named_position(_plus(pos, size)), text),
             )
             return
         m = self.fresh("m")
-        self.line(f"{m} = {self.constant(match, 'R')}(T, {pos})")
+        self.assign(m, _call(self.constant(match, "R"), "T", pos))
+        end = _call(_attr(m, "end"))
         self.block(
-            f"if {m} is not None and {m}.end() > {pos}:",
-            lambda: finish(self.named_position(f"{m}.end()"), f"{m}.group()"),
+            _all(_is_found(m), _compare(end, ast.Gt(), pos)),
+            lambda: finish(self.named_position(end), _call(_attr(m, "group"))),
         )
 
-    def named_position(self, expr: str) -> str:
+    def named_position(self, expr: _Expr) -> str:
         at = self.fresh("p")
-        self.line(f"{at} = {expr}")
+        self.assign(at, expr)
         return at
 
     def emit_text_end(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         start = self.after_skip(_form(p)[1], pos)
-        self.block(f"if {start} >= len(T):", lambda: then(start, _Value("plain", "None")))
+        self.block(
+            _compare(start, ast.GtE(), _length()), lambda: then(start, _Value("plain", None))
+        )
 
     def emit_byte(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         def body() -> None:
-            at = self.named_position(f"{pos} + 1")
-            then(at, _Value("plain", f"T[{pos}]") if want else None)
+            at = self.named_position(_plus(pos, 1))
+            then(at, _Value("plain", _item("T", pos)) if want else None)
 
-        self.block(f"if {pos} < len(T):", body)
+        self.block(_compare(pos, ast.Lt(), _length()), body)
 
     def emit_previous(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        value = _Value("plain", f"(T[{pos} - 1] & {_form(p)[1]})")
-        self.block(f"if {pos} > 0:", lambda: then(pos, value if want else None))
+        before = _item("T", ast.BinOp(_node(pos), ast.Sub(), _node(1)))
+        value = _Value("plain", ast.BinOp(before, ast.BitAnd(), _node(self.literal(_form(p)[1]))))
+        self.block(_compare(pos, ast.Gt(), 0), lambda: then(pos, value if want else None))
 
     def emit_fixed(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, unpack, size = _form(p)
 
         def body() -> None:
-            at = self.named_position(f"{pos} + {size}")
-            then(
-                at, _Value("plain", f"{self.constant(unpack, 'U')}(T, {pos})[0]") if want else None
-            )
+            at = self.named_position(_plus(pos, size))
+            if want:
+                then(at, _Value("plain", _item(_call(self.constant(unpack, "U"), "T", pos), 0)))
+            else:
+                then(at, None)
 
-        self.block(f"if {pos} + {size} <= len(T):", body)
+        self.block(_compare(_plus(pos, size), ast.LtE(), _length()), body)
 
     def function_for(self, p: Parser[Any, Any], want: bool) -> str:
         """The name of the function of `p`, which `pending` gets on the first call."""
@@ -512,27 +634,29 @@ class _Compiler:
 
         def after(at: str, value: _Value | None) -> None:
             size = self.bound(value or _Value("ignored")).expr
-            end = self.named_position(f"{at} + {size}")
+            end = self.named_position(_plus(at, size))
 
             def read() -> None:
                 if body is None:
-                    then(end, _Value("plain", f"T[{at}:{end}]") if want else None)
+                    then(end, _Value("plain", _slice("T", at, end)) if want else None)
                     return
                 function = self.function_for(body, True)
                 res, name, stop = self.fresh("r"), self.fresh("v"), self.fresh("p")
-                self.line(f"{res} = {function}(T[{at}:{end}], Y[{at}:{end}] + [None], 0)")
+                types = _plus(_slice("Y", at, end), ast.List([_node(None)], ast.Load()))
+                self.assign(res, _call(function, _slice("T", at, end), types, 0))
 
                 def done() -> None:
-                    self.line(f"{name}, {stop} = {res}")
+                    self.unpack(name, stop, res)
                     kind = self.kind(body)
                     self.block(
-                        f"if {stop} == {size}:",
+                        _compare(stop, ast.Eq(), size),
                         lambda: then(end, _Value(kind, name) if want else None),
                     )
 
-                self.block(f"if {res} is not None:", done)
+                self.block(_compare(res, ast.IsNot(), None), done)
 
-            self.block(f"if {size} >= 0 and {end} <= len(T):", read)
+            fits = _compare(end, ast.LtE(), _length())
+            self.block(_all(_compare(size, ast.GtE(), 0), fits), read)
 
         self.emit(length, pos, True, after)
 
@@ -542,32 +666,30 @@ class _Compiler:
         def after(start: str, value: _Value | None) -> None:
             size, at, acc, count, read = (self.fresh(x) for x in ("n", "p", "a", "c", "ok"))
             # What `range()` does to a count that is no integer.
-            self.line(f"{size} = INDEX({(value or _Value('ignored')).expr})")
-            self.line(f"{at} = {start}")
-            self.line(f"{acc} = []")
-            self.line(f"{count} = 0")
-            self.line(f"{read} = {size} >= 0")
+            self.assign(size, _call("INDEX", _read(value)))
+            self.assign(at, start)
+            self.assign(acc, ast.List([], ast.Load()))
+            self.assign(count, 0)
+            self.assign(read, _compare(size, ast.GtE(), 0))
             nullable = self.first[id(_target(item))][1]
 
             def body() -> None:
-                self.line(f"{count} += 1")
+                self.add(ast.AugAssign(_store(count), ast.Add(), _node(1)))
 
                 def store(end: str, value: _Value | None) -> None:
                     if nullable:
                         # What `counted()` raises for an item that reads no tokens.
-                        self.block(f"if {end} == {at}:", lambda: self.line("raise Undecided"))
-                    self.line(f"{acc}.append({value.expr if value else 'IGNORED'})")
-                    self.line(f"{at} = {end}")
-                    self.line("continue")
+                        self.undecided_if(_compare(end, ast.Eq(), at))
+                    self.add(ast.Expr(_call(_attr(acc, "append"), _read(value))))
+                    self.assign(at, end)
+                    self.add(ast.Continue())
 
                 self.emit(item, at, True, store)
-                self.line(f"{read} = False")
-                self.line("break")
+                self.assign(read, False)
+                self.add(ast.Break())
 
-            self.loops += 1
-            self.block(f"while {count} < {size}:", body)
-            self.loops -= 1
-            self.block(f"if {read}:", lambda: then(at, _Value("plain", acc) if want else None))
+            self.loop(_compare(count, ast.Lt(), size), body)
+            self.block(read, lambda: then(at, _Value("plain", acc) if want else None))
 
         self.emit(length, pos, True, after)
 
@@ -579,45 +701,47 @@ class _Compiler:
         def after(end: str, value: _Value | None) -> None:
             k = self.bound(value or _Value("ignored")).expr
             function, res, name_v, at = (self.fresh(x) for x in ("g", "r", "v", "p"))
-            self.line(f"{function} = {name}.get({k})")
+            self.assign(function, _call(_attr(name, "get"), k))
 
             def called() -> None:
-                self.line(f"{res} = {function}(T, Y, {end})")
+                self.assign(res, _call(function, "T", "Y", end))
 
                 def got() -> None:
-                    self.line(f"{name_v}, {at} = {res}")
+                    self.unpack(name_v, at, res)
                     then(at, _Value("unknown", name_v) if want else None)
 
-                self.block(f"if {res} is not None:", got)
+                self.block(_compare(res, ast.IsNot(), None), got)
 
-            self.block(f"if {function} is not None:", called)
+            self.block(_compare(function, ast.IsNot(), None), called)
 
         self.emit(key, pos, True, after)
 
     def emit_longest(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         best, name = self.fresh("p"), self.fresh("v")
-        self.line(f"{best} = -1")
+        self.assign(best, -1)
 
         def keep(end: str, value: _Value | None) -> None:
             def store() -> None:
-                self.line(f"{best} = {end}")
+                self.assign(best, end)
                 if want:
-                    self.line(f"{name} = {value.expr if value else 'IGNORED'}")
+                    self.assign(name, _read(value))
 
-            self.block(f"if {end} > {best}:", store)
+            self.block(_compare(end, ast.Gt(), best), store)
 
         for parser in _form(p)[1]:
             self.emit(parser, pos, want, keep)
         kind = self.kind(p)
-        self.block(f"if {best} >= 0:", lambda: then(best, _Value(kind, name) if want else None))
+        self.block(
+            _compare(best, ast.GtE(), 0), lambda: then(best, _Value(kind, name) if want else None)
+        )
 
     def emit_map(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, inner, f = _form(p)
-        self.emit_conversion(inner, self.constant(f) + "({})", pos, want, then)
+        self.emit_conversion(inner, self.constant(f), pos, want, then)
 
     def emit_starmap(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, inner, f = _form(p)
-        self.emit_conversion(inner, self.constant(f) + "(*{})", pos, want, then)
+        self.emit_conversion(inner, self.constant(f), pos, want, then, star=True)
 
     def emit_ignore(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         self.emit(_form(p)[1], pos, False, lambda at, _: then(at, _Value("ignored")))
@@ -638,19 +762,11 @@ class _Compiler:
         self.emit(inner, pos, want, after)
 
     def emit_finished(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        self.block(f"if {pos} >= len(T):", lambda: then(pos, _Value("plain", "None")))
+        self.block(_compare(pos, ast.GtE(), _length()), lambda: then(pos, _Value("plain", None)))
 
     def emit_call(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         want = want and self.kind(p) != "ignored"
-        key = (id(p), want)
-        function = self.functions.get(key)
-        if function is None:
-            function = self.functions[key] = self.fresh("f")
-
-            def body(result: _Next) -> None:
-                self.emit(p, "p0", want, result, inline=True)
-
-            self.pending.append((body, want, function))
+        function = self.function_for(p, want)
         kind = self.kind(p)
         self.emit_function_call(
             function, pos, want, lambda at, value: then(at, _Value(kind, value) if value else None)
@@ -662,17 +778,17 @@ class _Compiler:
         """A call of `function`; `then` gets the position after it and the name of its value."""
         at = self.fresh("p")
         if not want:
-            self.line(f"{at} = {function}(T, Y, {pos})")
-            self.block(f"if {at} >= 0:", lambda: then(at, None))
+            self.assign(at, _call(function, "T", "Y", pos))
+            self.block(_compare(at, ast.GtE(), 0), lambda: then(at, None))
             return
         res, value = self.fresh("r"), self.fresh("v")
-        self.line(f"{res} = {function}(T, Y, {pos})")
+        self.assign(res, _call(function, "T", "Y", pos))
 
         def body() -> None:
-            self.line(f"{value}, {at} = {res}")
+            self.unpack(value, at, res)
             then(at, value)
 
-        self.block(f"if {res} is not None:", body)
+        self.block(_compare(res, ast.IsNot(), None), body)
 
     def emit_test(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         test = p._test
@@ -680,9 +796,8 @@ class _Compiler:
             raise AssertionError(f"{p.name} tests no token")
 
         def body() -> None:
-            at = self.fresh("p")
-            self.line(f"{at} = {pos} + 1")
-            expr = f"T[{pos}]"
+            at = self.named_position(_plus(pos, 1))
+            expr: _Expr = _item("T", pos)
             kind: _Kind = "plain" if not test.convs else "unknown"
             for conv in test.convs:
                 if conv is self.internals.token_value:
@@ -691,22 +806,29 @@ class _Compiler:
                     expr, kind = "IGNORED", "ignored"
                 else:
                     name = self.fresh("v")
-                    self.line(f"{name} = {self.constant(conv)}({expr})")
+                    self.assign(name, _call(self.constant(conv), expr))
                     expr, kind = name, "unknown"
             then(at, _Value(kind, expr) if want else None)
 
-        self.block(f"if {self.test_condition(p, pos)}:", body)
+        self.block(self.test_condition(p, pos), body)
 
     def emit_pure(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         x = _form(p)[1]
-        then(pos, _Value(self.kind(p), "None" if x is None else self.constant(x, "C")))
+        then(pos, _Value(self.kind(p), None if x is None else self.constant(x, "C")))
 
     def emit_conversion(
-        self, inner: Parser[Any, Any], call: str, pos: str, want: bool, then: _Next
+        self,
+        inner: Parser[Any, Any],
+        function: str,
+        pos: str,
+        want: bool,
+        then: _Next,
+        *,
+        star: bool = False,
     ) -> None:
         def after(at: str, value: _Value | None) -> None:
             name = self.fresh("v")
-            self.line(f"{name} = {call.format(value.expr if value else 'IGNORED')}")
+            self.assign(name, _call(function, _star(_read(value)) if star else _read(value)))
             then(at, _Value("unknown", name) if want else None)
 
         self.emit(inner, pos, True, after)
@@ -716,8 +838,7 @@ class _Compiler:
 
         def after(at: str, value: _Value | None) -> None:
             value = self.bound(value or _Value("ignored"))
-            condition = f"if not {self.constant(pred)}({value.expr}):"
-            self.block(condition, lambda: self.line("raise Undecided"))
+            self.undecided_if(_not(_call(self.constant(pred), value.expr)))
             then(at, value if want else None)
 
         self.emit(inner, pos, True, after)
@@ -727,8 +848,8 @@ class _Compiler:
 
         def after(at: str, value: _Value | None) -> None:
             value = self.bound(value or _Value("ignored"))
-            condition = f"if {self.constant(pred)}({value.expr}):"
-            self.block(condition, lambda: then(at, value if want else None))
+            test = _call(self.constant(pred), value.expr)
+            self.block(test, lambda: then(at, value if want else None))
 
         self.emit(inner, pos, True, after)
 
@@ -737,23 +858,25 @@ class _Compiler:
         # A failure is final once `inner` read a token, which is when one of its token tests passed
         # at `pos`. The interpreted parser decides that failure, as it has what the error needs.
         done, at, name = self.fresh("ok"), self.fresh("p"), self.fresh("v")
-        self.line(f"{done} = False")
+        self.assign(done, False)
 
         def store(end: str, value: _Value | None) -> None:
-            self.line(f"{at} = {end}")
+            self.assign(at, end)
             if want:
-                self.line(f"{name} = {value.expr if value else 'IGNORED'}")
-            self.line(f"{done} = True")
+                self.assign(name, _read(value))
+            self.assign(done, True)
 
         self.emit(inner, pos, want, store)
         kind = self.kind(inner)
-        self.block(f"if {done}:", lambda: then(at, _Value(kind, name) if want else None))
+        body = self.nested(lambda: then(at, _Value(kind, name) if want else None))
         tests = self.start_tests(inner, pos, set())
+        orelse: list[ast.stmt] = []
         if tests is None or len(tests) > _MAX_START_TESTS:
-            self.block("else:", lambda: self.line("raise Undecided"))
+            orelse = [_undecided()]
         elif tests:
-            read = " or ".join(f"({test})" for test in dict.fromkeys(tests))
-            self.block(f"elif {read}:", lambda: self.line("raise Undecided"))
+            distinct = {ast.dump(test): test for test in tests}
+            orelse = [ast.If(_any(*distinct.values()), [_undecided()], [])]
+        self.add(ast.If(_node(done), body, orelse))
 
     def emit_but_not(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         _, inner, other = _form(p)
@@ -761,9 +884,9 @@ class _Compiler:
         def after(at: str, value: _Value | None) -> None:
             kept = self.bound(value) if value is not None else None
             matched = self.fresh("ok")
-            self.line(f"{matched} = False")
-            self.emit(other, pos, False, lambda _at, _v: self.line(f"{matched} = True"))
-            self.block(f"if not {matched}:", lambda: then(at, kept))
+            self.assign(matched, False)
+            self.emit(other, pos, False, lambda _at, _v: self.assign(matched, True))
+            self.block(_not(matched), lambda: then(at, kept))
 
         self.emit(inner, pos, want, after)
 
@@ -771,20 +894,20 @@ class _Compiler:
         if self.values:
             raise _Declined(f"{p.name} reads tokens, and there are only their values")
         res = self.fresh("r")
-        self.line(f"{res} = {self.constant(p, 'P')}.run(T, State({pos}, {pos}))")
+        state = _call("State", pos, pos)
+        self.assign(res, _call(_attr(self.constant(p, "P"), "run"), "T", state))
 
         def failed() -> None:
-            self.block(f"if {res}.committed:", lambda: self.line("raise Undecided"))
+            self.undecided_if(_attr(res, "committed"))
 
         def succeeded() -> None:
-            self.block(f"if {res}.state.problems:", lambda: self.line("raise Undecided"))
+            self.undecided_if(_attr(_attr(res, "state"), "problems"))
             at, value = self.fresh("p"), self.fresh("v")
-            self.line(f"{at} = {res}.state.pos")
-            self.line(f"{value} = {res}.value")
+            self.assign(at, _attr(_attr(res, "state"), "pos"))
+            self.assign(value, _attr(res, "value"))
             then(at, _Value("unknown", value))
 
-        self.block(f"if {res}.__class__ is ParsingFailure:", failed)
-        self.block("else:", succeeded)
+        self.block(_class_is(res, "ParsingFailure"), failed, succeeded)
 
     def emit_seq(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         items: list[Parser[Any, Any]] = []
@@ -829,7 +952,7 @@ class _Compiler:
             def after(next_at: str, values: str | None) -> None:
                 joined = value
                 for n, kind in enumerate(kinds):
-                    joined = self.joined(joined, _Value(kind, f"{values}[{n}]"))
+                    joined = self.joined(joined, _Value(kind, _item(values, n)))
                 step(i + 1, next_at, joined)
 
             self.emit_function_call(function, at, bool(kinds), after)
@@ -840,10 +963,9 @@ class _Compiler:
         """Code of a function running `group`, which gives the values `+` has to join."""
 
         def body(result: _Next) -> None:
-            def step(i: int, at: str, values: tuple[str, ...]) -> None:
+            def step(i: int, at: str, values: tuple[ast.expr, ...]) -> None:
                 if i == len(group):
-                    tuple_ = "".join(f"{value}, " for value in values)
-                    result(at, _Value("plain", f"({tuple_})") if values else None)
+                    result(at, _Value("plain", _tuple(*values)) if values else None)
                     return
                 takes = want and self.kind(group[i]) != "ignored"
 
@@ -866,25 +988,27 @@ class _Compiler:
         if left.kind != "unknown" and right.kind != "unknown":
             return _Value("tuple", parts=(*self.tuple_parts(left), right.expr))
         b = self.bound(right).expr
+        value: ast.expr
         if left.kind == "unknown":
             a = self.bound(left).expr
-            value = f"_T((*{a}, {b})) if {a}.__class__ is _T else _T(({a}, {b}))"
-            value = f"{b} if {a}.__class__ is IGV else {value}"
+            extended = _call("_T", _tuple(_star(a), b))
+            value = ast.IfExp(_class_is(a, "_T"), extended, _call("_T", _tuple(a, b)))
+            value = ast.IfExp(_class_is(a, "IGV"), b, value)
         else:
             a = left.expr
             value = _Value("tuple", parts=(*self.tuple_parts(left), b)).expr
         if right.kind == "unknown":
-            value = f"{a} if {b}.__class__ is IGV else {value}"
+            value = ast.IfExp(_class_is(b, "IGV"), a, value)
         name = self.fresh("v")
-        self.line(f"{name} = {value}")
+        self.assign(name, value)
         return _Value("unknown", name)
 
     @staticmethod
-    def tuple_parts(value: _Value) -> tuple[str, ...]:
+    def tuple_parts(value: _Value) -> tuple[ast.expr, ...]:
         """The items a value known to be plain or a tuple gives the tuple `+` builds from it."""
         if value.parts is not None:
             return value.parts
-        return (f"*{value.expr}",) if value.kind == "tuple" else (value.expr,)
+        return (_star(value.expr),) if value.kind == "tuple" else (value.expr,)
 
     def alternatives(self, parts: tuple[Parser[Any, Any], ...]) -> list[Parser[Any, Any]]:
         """`parts` and, in order, the alternatives inside them that are inlined."""
@@ -904,23 +1028,23 @@ class _Compiler:
 
         def store(flag: str | None) -> _Next:
             def stored(end: str, value: _Value | None) -> None:
-                self.line(f"{at} = {end}")
+                self.assign(at, end)
                 if want:
-                    self.line(f"{name} = {value.expr if value else 'IGNORED'}")
+                    self.assign(name, _read(value))
                 if flag:
-                    self.line(f"{flag} = True")
+                    self.assign(flag, True)
 
             return stored
 
         def result() -> None:
             then(at, _Value(kind, name) if want else None)
 
-        def attempt(alt: Parser[Any, Any], flag: str | None, *conditions: str) -> None:
+        def attempt(alt: Parser[Any, Any], flag: str | None, *conditions: ast.expr) -> None:
             def run() -> None:
                 self.emit(alt, pos, want, store(flag))
 
             if conditions:
-                self.block(f"if {' and '.join(conditions)}:", run)
+                self.block(_all(*conditions), run)
             else:
                 run()
 
@@ -933,42 +1057,40 @@ class _Compiler:
             result()
             return
         done = self.fresh("ok")
-        self.line(f"{done} = False")
+        self.assign(done, False)
         for i, alt in enumerate(alts):
             start = self.start_test(alt, pos)
-            attempt(alt, done, *([f"not {done}"] if i else []), *([start] if start else []))
-        self.block(f"if {done}:", result)
+            attempt(alt, done, *([_not(done)] if i else []), *([start] if start else []))
+        self.block(done, result)
 
     def emit_loop(
         self, inner: Parser[Any, Any], pos: str, want: bool, then: _Next, head: _Value | None
     ) -> None:
         item = _target(inner)
         at, acc = self.fresh("p"), self.fresh("a")
-        self.line(f"{at} = {pos}")
+        self.assign(at, pos)
         if want:
-            self.line(f"{acc} = [{head.expr if head else ''}]")
+            self.assign(acc, ast.List([head.expr] if head else [], ast.Load()))
         nullable = self.first[id(item)][1]
 
         def body() -> None:
             def after(end: str, value: _Value | None) -> None:
                 if nullable:
                     # What `many()` raises for a parser that reads no tokens.
-                    self.block(f"if {end} == {at}:", lambda: self.line("raise Undecided"))
+                    self.undecided_if(_compare(end, ast.Eq(), at))
                 if want:
-                    self.line(f"{acc}.append({value.expr if value else 'IGNORED'})")
-                self.line(f"{at} = {end}")
-                self.line("continue")
+                    self.add(ast.Expr(_call(_attr(acc, "append"), _read(value))))
+                self.assign(at, end)
+                self.add(ast.Continue())
 
             self.emit(item, at, want and self.kind(item) != "ignored", after)
-            self.line("break")
+            self.add(ast.Break())
 
-        self.loops += 1
-        self.block("while True:", body)
-        self.loops -= 1
+        self.loop(True, body)
         then(at, _Value("plain", acc) if want else None)
 
-    def source(self) -> tuple[str, str]:
-        """The source of the functions, and the name of the one that runs the grammar."""
+    def module(self) -> tuple[ast.Module, str]:
+        """The functions as a module, and the name of the one that runs the grammar."""
         entry = self.fresh("f")
         self.functions[id(self.root), True] = entry
 
@@ -976,21 +1098,18 @@ class _Compiler:
             self.emit(self.root, "p0", True, result, inline=True)
 
         self.pending.append((root, True, entry))
-        functions: list[str] = []
+        functions: list[ast.stmt] = []
         while self.pending:
             body, want, name = self.pending.pop()
-            self.lines, self.indent, self.loops = [], 1, 0
+            self.body, self.depth, self.loops = [], 1, 0
 
             def result(at: str, value: _Value | None, *, want: bool = want) -> None:
-                if want:
-                    self.line(f"return ({(value or _Value('ignored')).expr}, {at})")
-                else:
-                    self.line(f"return {at}")
+                self.add(ast.Return(_tuple(_read(value), at) if want else _node(at)))
 
             body(result)
-            self.line("return None" if want else "return -1")
-            functions.append(f"def {name}(T, Y, p0):\n" + "\n".join(self.lines))
-        return "\n\n".join(functions) + "\n", entry
+            self.add(ast.Return(_node(None if want else -1)))
+            functions.append(_function(name, self.body))
+        return ast.Module(functions, []), entry
 
 
 def _functions(
@@ -999,18 +1118,12 @@ def _functions(
     """The function running `root`, and whether it reads token types; `None` when it cannot be."""
     try:
         compiler = _Compiler(root, internals, values=values)
-        source, entry = compiler.source()
-        code = compile(source, _FILENAME, "exec")
-    except (_Declined, RecursionError, MemoryError):
-        # A `MemoryError` is nesting past what CPython compiles.
+        module, entry = compiler.module()
+        code = compile(ast.fix_missing_locations(module), _FILENAME, "exec")
+    except (_Declined, RecursionError):
         return None
-    except SyntaxError as e:
-        # Nesting past what CPython compiles; any other is a mistake of the generator.
-        if e.msg.startswith("too many"):
-            return None
-        raise
     names = compiler.names
-    exec(code, names)  # noqa: S102 — the source is built from the grammar, see ADR 0002
+    exec(code, names)  # noqa: S102 — the code is built from the grammar, see ADR 0002
     for table, functions in compiler.tables.items():
         names[table] = {key: names[function] for key, function in functions.items()}
     return names[entry], compiler.tests_token_types

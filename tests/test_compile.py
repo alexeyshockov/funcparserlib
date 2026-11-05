@@ -1,5 +1,6 @@
 """`Parser.compile()`: a compiled parser parses as the parser it was compiled from."""
 
+import ast
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -167,7 +168,7 @@ def test_generated_code_decides_a_grammar_without_check_or_commit(
 
 def test_a_name_generated_code_lacks_fails_a_test(monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(compiler: Any, p: P, pos: str, want: bool, then: Any) -> None:
-        compiler.line("missing")
+        compiler.add(ast.Expr(ast.Name("missing", ast.Load())))
 
     monkeypatch.setattr(compile_module._Compiler, "emit_finished", broken)
     with pytest.raises(GeneratedCodeError, match="missing"):

@@ -32,9 +32,9 @@ one implementation there is, and the compiled pass has a single obligation: when
 interpreted parser would have given the same value.
 
 Each combinator records what it was built from in `Parser._form`. A parser with no form, such as a
-function passed to `Parser()`, is called through `run` from the generated code. CPython compiles 100
-levels of indentation and 20 nested loops, so a long sequence is split into functions, and code
-nested too deeply moves to a function of its own. A grammar that the generated code still cannot
+function passed to `Parser()`, is called through `run` from the generated code. CPython's compiler
+recurses over nested code and takes 20 nested loops, so a long sequence is split into functions, and
+code nested too deeply moves to a function of its own. A grammar that the generated code still cannot
 express stays interpreted: one so deep the generator runs out of stack, a `forward_decl()` defined
 as itself, and a `many()` of a parser that matches no tokens, whose `ValueError` a first-token test
 would skip.
@@ -48,7 +48,7 @@ Compiling is opt-in. Measured on Python 3.12 on an arm64 laptop, CPU time, best 
 | DOT, 342 KB, 96,004 tokens, parsing | 0.288 s | 0.025 s |
 | KDL benchmark, 21 MB, tokenizing and parsing, wall clock, one run | 32.45 s | 8.90 s |
 
-Generating the KDL grammar takes 3 ms. A parse that fails at its last token took 2.89 s against
+Generating the KDL grammar takes 6 ms (ADR 0007). A parse that fails at its last token took 2.89 s against
 2.56 s, as both passes ran.
 
 Rejected:
@@ -65,7 +65,7 @@ Rejected:
   the code it compiles took 0.123 s and takes 0.061 s, and the rest is `>>` functions, the tree, garbage
   collection and the tokenizer. Integer token types gave nothing more, at 0.188 s. Users would need a
   build step and a wheel per platform and Python version, for 8% end to end. The step can come later,
-  as the generated source stays typable.
+  as the source `ast.unparse()` gives stays typable.
 
 ## Consequences
 
@@ -79,8 +79,8 @@ Rejected:
 - Recursion uses about a fifth of the stack, so a document nested too deeply for the interpreted parser
   can parse once compiled: 330 levels of KDL against 60.
 - The package uses `exec()`. What it runs is built from the grammar: a token type or value that is
-  exactly a `str` enters it through `repr()`, and every other object through a name bound to that
-  object. Parsed text never reaches it.
+  exactly a `str` enters it as `ast.Constant` (ADR 0007), and every other object through a name bound
+  to that object. Parsed text never reaches it.
 - A new combinator works without a form, through `run`, and is only slower. A form that describes
   it wrongly makes the compiled pass accept what the parser rejects, which `tests/test_compile.py`
   looks for by running random grammars through both.

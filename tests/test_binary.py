@@ -2,7 +2,7 @@
 
 import struct
 from collections.abc import Callable
-from enum import StrEnum
+from enum import IntFlag, StrEnum
 from typing import Any
 
 import pytest
@@ -46,6 +46,10 @@ def longest(*parsers: P) -> P:
 b = Binary()
 plain = Text()
 skipping = Text(skip=r"\s+")
+
+
+class Mask(IntFlag):
+    LOW = 0x0F
 
 
 def loose(value: Any) -> Any:
@@ -731,6 +735,10 @@ def test_a_failure_in_a_region_does_not_hide_a_failure_further_on(run: Runner) -
     assert message(run, grammar, b"\x01ab") == (
         "got unexpected token: 0x62 at offset 0x2, expected: b'z'"
     )
+
+
+def test_previous_takes_a_mask_of_an_int_subclass(run: Runner) -> None:
+    assert run(b.byte + b.previous(Mask.LOW), b"\x7f") == (0x7F, 0x0F)
 
 
 def test_previous_at_the_start_of_a_region_fails(run: Runner) -> None:
