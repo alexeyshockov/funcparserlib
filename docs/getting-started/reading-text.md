@@ -220,3 +220,10 @@ goes on from a point you choose, here the next line. The errors come together in
 ```
 
 A parser recovers from a failure past its first token, so `many()` still ends where it would.
+
+## Reading Bytes
+
+Bytes are read the same way. A [`Binary`](../api/binary.md) makes the parsers of a byte grammar, `Parser.parse_bytes()`
+runs it, and `prefixed()`, `counted()` and `switch()` read what depends on a number just read: a length, a count, a
+type. A grammar of them compiles as a text grammar does. For a whole format, see
+[Parsing MessagePack](../recipes/msgpack.md).

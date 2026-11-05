@@ -1,11 +1,14 @@
+import math
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
+import msgpack
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from ruamel.yaml.error import YAMLError
 
-from examples import kdl, kdl_text, markdown, yaml
+from examples import kdl, kdl_text, markdown, msgpack_format, yaml
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
@@ -514,3 +517,226 @@ def test_kdl_either_gives_nodes_or_raises_a_documented_error(text: str) -> None:
         kdl.parse(text)
     except (LexerError, NoParseError, ParseErrors, InvalidOperation):
         pass
+
+
+def own(value: Any) -> object:
+    """`value` with the timestamps of `msgpack` as the example's."""
+    if isinstance(value, msgpack.Timestamp):
+        return msgpack_format.Timestamp(value.seconds, value.nanoseconds)
+    if isinstance(value, list):
+        return [own(item) for item in value]
+    if isinstance(value, dict):
+        return {key: own(item) for key, item in value.items()}
+    return value
+
+
+def unpack(data: bytes) -> object:
+    return own(msgpack.unpackb(data, raw=False, strict_map_key=False, timestamp=0))
+
+
+def assert_agrees(value: object, **options: object) -> None:
+    data = msgpack.packb(value, **options)
+    expected = unpack(data)
+    assert msgpack_format.parse(data) == expected
+    assert msgpack_format.document.parse_bytes(data) == expected
+
+
+def test_msgpack_reads_what_unpackb_reads_of_every_type() -> None:
+    assert_agrees(None)
+    assert_agrees(True)
+    assert_agrees(False)
+    assert_agrees([1, "a", b"b", 2.5, None, {"k": [True]}, msgpack.ExtType(3, b"xyz")])
+
+
+@pytest.mark.parametrize(
+    "n",
+    [0, 1, 127, 128, 255, 256, 65535, 65536, 2**32 - 1, 2**32, 2**64 - 1]
+    + [-1, -32, -33, -128, -129, -32768, -32769, -(2**31), -(2**31) - 1, -(2**63)],
+)
+def test_msgpack_reads_an_integer_at_the_edge_of_each_width(n: int) -> None:
+    assert_agrees(n)
+
+
+def test_msgpack_reads_the_marker_of_each_width_of_an_integer() -> None:
+    markers = {n: msgpack.packb(n)[0] for n in [0, 128, 256, 65536, 2**32, -1, -33, -129]}
+    assert sorted(markers.values()) == sorted([0x00, 0xCC, 0xCD, 0xCE, 0xCF, 0xFF, 0xD0, 0xD1])
+
+
+@pytest.mark.parametrize("x", [0.0, -0.0, 1.5, 1e300, -1e-300, float("inf"), float("-inf")])
+def test_msgpack_reads_a_float_of_either_width(x: float) -> None:
+    assert_agrees(x)
+    if abs(x) < 1e30:
+        assert_agrees(x, use_single_float=True)
+
+
+def test_msgpack_reads_a_nan() -> None:
+    parsed = msgpack_format.parse(msgpack.packb(float("nan")))
+    assert isinstance(parsed, float)
+    assert math.isnan(parsed)
+
+
+@pytest.mark.parametrize("size", [0, 1, 31, 32, 255, 256, 65535, 65536])
+def test_msgpack_reads_a_string_at_the_edge_of_each_header(size: int) -> None:
+    assert_agrees("é" * (size // 2) + "x" * (size % 2))
+    assert_agrees("x" * size)
+
+
+@pytest.mark.parametrize("size", [0, 1, 255, 256, 65535, 65536])
+def test_msgpack_reads_binary_at_the_edge_of_each_header(size: int) -> None:
+    assert_agrees(bytes(range(256)) * (size // 256) + bytes(range(size % 256)))
+
+
+@pytest.mark.parametrize("size", [0, 1, 15, 16, 65535, 65536])
+def test_msgpack_reads_an_array_at_the_edge_of_each_header(size: int) -> None:
+    assert_agrees(list(range(size)))
+
+
+@pytest.mark.parametrize("size", [0, 1, 15, 16, 65535, 65536])
+def test_msgpack_reads_a_map_at_the_edge_of_each_header(size: int) -> None:
+    assert_agrees({i: str(i) for i in range(size)})
+
+
+def ext_bytes(code: int, data: bytes) -> bytes:
+    """An extension in the shortest header, written out as `packb()` writes only codes from 0."""
+    size = len(data)
+    if size in (1, 2, 4, 8, 16):
+        header = bytes([{1: 0xD4, 2: 0xD5, 4: 0xD6, 8: 0xD7, 16: 0xD8}[size]])
+    elif size < 2**8:
+        header = bytes([0xC7, size])
+    elif size < 2**16:
+        header = b"\xc8" + size.to_bytes(2, "big")
+    else:
+        header = b"\xc9" + size.to_bytes(4, "big")
+    return header + code.to_bytes(1, "big", signed=True) + data
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 4, 5, 8, 16, 17, 255, 256, 65535, 65536])
+@pytest.mark.parametrize("code", [0, 5, 127])
+def test_msgpack_reads_an_extension_of_each_header(size: int, code: int) -> None:
+    data = ext_bytes(code, b"\xab" * size)
+    assert data == msgpack.packb(msgpack.ExtType(code, b"\xab" * size))
+    assert msgpack_format.parse(data) == unpack(data) == msgpack_format.Ext(code, b"\xab" * size)
+
+
+@pytest.mark.parametrize("size", [1, 2, 4, 8, 16, 255, 65536])
+@pytest.mark.parametrize("code", [-128, -2])
+def test_msgpack_reads_an_extension_of_a_reserved_type_which_unpackb_rejects(
+    size: int, code: int
+) -> None:
+    data = ext_bytes(code, b"\xab" * size)
+    assert msgpack_format.parse(data) == msgpack_format.Ext(code, b"\xab" * size)
+    with pytest.raises(ValueError, match="code must be 0~127"):
+        unpack(data)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "nanoseconds"),
+    [(0, 0), (1, 0), (2**32 - 1, 0), (2**32, 0), (0, 1), (2**34 - 1, 999_999_999)]
+    + [(2**34, 0), (2**34, 1), (-1, 0), (-(2**63), 0), (2**63 - 1, 999_999_999)],
+)
+def test_msgpack_reads_a_timestamp_of_each_layout(seconds: int, nanoseconds: int) -> None:
+    stamp = msgpack.Timestamp(seconds, nanoseconds)
+    assert_agrees(stamp)
+    parsed = msgpack_format.parse(msgpack.packb(stamp))
+    assert isinstance(parsed, msgpack_format.Timestamp)
+    assert parsed == (seconds, nanoseconds)
+
+
+@pytest.mark.parametrize("size", [0, 1, 2, 3, 5, 9, 16])
+def test_msgpack_rejects_a_timestamp_of_another_length_as_unpackb_does(size: int) -> None:
+    data = ext_bytes(-1, bytes(size))
+    with pytest.raises(ValueError, match="invalid timestamp data"):
+        msgpack_format.parse(data)
+    with pytest.raises(ValueError, match="invalid timestamp data"):
+        unpack(data)
+
+
+def test_msgpack_rejects_nanoseconds_of_a_second_or_more() -> None:
+    data = ext_bytes(-1, (10**9 << 34).to_bytes(8, "big"))
+    with pytest.raises(ValueError, match="nanoseconds"):
+        msgpack_format.parse(data)
+    with pytest.raises(ValueError, match="nanoseconds"):
+        unpack(data)
+
+
+def test_msgpack_reads_nested_arrays_and_maps() -> None:
+    nested = [[[[]], {"a": {"b": [1, {"c": None}]}}], {1: [2, [3, [4]]], b"k": {}}]
+    assert_agrees(nested)
+
+
+def test_msgpack_reads_the_keys_a_map_may_have() -> None:
+    assert_agrees({1: "int", "s": "str", b"b": "bytes", 2.5: "float", None: "nil"})
+
+
+def test_msgpack_reads_a_repeated_key_as_unpackb_does() -> None:
+    data = bytes([0x82, 0x01, 0x0A, 0x01, 0x0B])
+    assert msgpack_format.parse(data) == unpack(data) == {1: 11}
+
+
+MSGPACK_SCALARS = st.one_of(
+    st.none(),
+    st.booleans(),
+    st.integers(-(2**63), 2**64 - 1),
+    st.floats(allow_nan=False),
+    st.text(max_size=70),
+    st.binary(max_size=70),
+    st.builds(msgpack.ExtType, st.integers(0, 127), st.binary(max_size=70)),
+    st.builds(msgpack.Timestamp, st.integers(-(2**63), 2**63 - 1), st.integers(0, 999_999_999)),
+)
+MSGPACK_VALUES = st.recursive(
+    MSGPACK_SCALARS,
+    lambda inner: st.one_of(
+        st.lists(inner, max_size=20),
+        st.dictionaries(
+            st.one_of(st.integers(-(2**63), 2**64 - 1), st.text(max_size=10)), inner, max_size=20
+        ),
+    ),
+    max_leaves=60,
+)
+
+
+@given(MSGPACK_VALUES)
+def test_msgpack_agrees_with_unpackb_on_what_packb_makes(value: object) -> None:
+    assert_agrees(value)
+
+
+def failure(data: bytes) -> str:
+    with pytest.raises(NoParseError) as e:
+        msgpack_format.parse(data)
+    return str(e.value)
+
+
+@pytest.mark.parametrize(
+    ("data", "message"),
+    [
+        (b"", "got unexpected end of input at offset 0x0, expected: MessagePack value"),
+        (b"\xc1", "got unexpected token: 0xc1 at offset 0x0, expected: MessagePack value"),
+        (b"\x92\x01\xc1", "got unexpected token: 0xc1 at offset 0x2, expected: MessagePack value"),
+        (b"\x92\x01", "got unexpected end of input at offset 0x2, expected: MessagePack value"),
+        (b"\x01\x02", "got unexpected token: 0x02 at offset 0x1, expected: end of input"),
+        (b"\xa5ab", "length 5 runs past the end: 0x61 at offset 0x1"),
+        (b"\xc7\x05\x01ab", "length 5 runs past the end: 0x61 at offset 0x3"),
+        (b"\xcd\x01", "not enough bytes: 0x01 at offset 0x1, expected: uint16"),
+        (b"\xd9", "got unexpected end of input at offset 0x1, expected: uint8"),
+    ],
+)
+def test_msgpack_errors_name_the_offset_and_what_was_expected(data: bytes, message: str) -> None:
+    assert failure(data) == message
+    with pytest.raises(ValueError, match=r"^$|Unpack failed|extra data"):
+        unpack(data)
+
+
+def test_msgpack_errors_are_the_same_interpreted_and_compiled() -> None:
+    data = b"\x93\x01\x81\xa1k\xc1\x03"
+    with pytest.raises(NoParseError) as interpreted:
+        msgpack_format.document.parse_bytes(data)
+    assert str(interpreted.value) == failure(data)
+    assert failure(data) == "got unexpected token: 0xc1 at offset 0x5, expected: MessagePack value"
+
+
+def test_msgpack_raises_what_unpackb_raises_for_a_string_and_a_key() -> None:
+    for data, error in [(b"\xa2\xff\xfe", UnicodeDecodeError), (b"\x81\x90\x01", TypeError)]:
+        with pytest.raises(error):
+            msgpack_format.parse(data)
+        with pytest.raises(error):
+            unpack(data)

@@ -48,3 +48,21 @@ tokenizer and no order of token specs. `Text` makes its parsers, and `Parser.par
 
 **`longest()`**: a choice that runs every alternative and keeps the longest match, the first when several tie. It has no
 order to get right, unlike `p1 | p2`, which keeps the first alternative that succeeds.
+
+**byte grammar**: a grammar defined by the bytes its parsers read at the position the parsing has reached, as a text
+grammar is by its text. `Binary` makes its parsers, `Parser.parse_bytes()` runs it, and `Parser.compile()` compiles it.
+Not a token grammar: a byte is not a token, and nothing reads it ahead of the grammar.
+
+**`Binary`**: makes the parsers of a byte grammar: `Binary.byte`, `Binary.fixed()` for a number of a `struct` format,
+`Binary.token()` for a regexp, `Binary.literal()` for fixed bytes, `Binary.previous()` for the byte just read and
+`Binary.end` for the end of the bytes. Not `Text`, which reads `str` and skips what lies between tokens.
+
+**`prefixed()`**: a parser of as many bytes as a length parser says, or with a body, of what the body parses of them.
+It is the length field of a binary format. Not `many()`, which reads for as long as its parser matches.
+
+**`counted()`**: a parser of as many items as a count parser says, in a list. It is the count field of a binary
+format. Not `prefixed()`, which counts bytes.
+
+**`switch()`**: a parser that reads a key and runs the parser a table holds for its value, where a key of the table is a
+value or a `range`. It is the type tag of a binary format. Not `p1 | p2`, which tries each alternative in turn; a
+`switch()` runs the one case.

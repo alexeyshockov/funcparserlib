@@ -12,6 +12,8 @@
 
 ::: funcparserlib.parser.Parser.parse_text
 
+::: funcparserlib.parser.Parser.parse_bytes
+
 ::: funcparserlib.parser.Parser.compile
 
 ::: funcparserlib.parser.CompiledParser
@@ -19,6 +21,8 @@
 ::: funcparserlib.parser.CompiledParser.parse
 
 ::: funcparserlib.parser.CompiledParser.parse_text
+
+::: funcparserlib.parser.CompiledParser.parse_bytes
 
 ::: funcparserlib.parser.CompiledParser.try_parse
 
@@ -94,6 +98,16 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 ::: funcparserlib.parser.Parser.__invert__
 
 ::: funcparserlib.parser.anything_but
+
+## Reading by a Number Just Read
+
+The parsers of a [`Binary`](binary.md) read what depends on a number just read: a length, a count, a type.
+
+::: funcparserlib.parser.prefixed
+
+::: funcparserlib.parser.counted
+
+::: funcparserlib.parser.switch
 
 ## Error Reporting
 

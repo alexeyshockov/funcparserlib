@@ -16,3 +16,6 @@ and 3.15 it varies by about 1 ms.
   in, values out, with funcparserlib as a token grammar and as a text grammar (`_json_text.py`), each interpreted and
   compiled; each case asserts it returns what `json.loads()` does. The stdlib `json` and orjson show the scale of a
   parser written for this one format.
+  The `msgpack` group reads a MessagePack document of nested records, about 450 KB, built with a fixed seed in the
+  module: the `msgpack` package as its C extension and as its pure Python fallback, and the grammar of
+  `examples/msgpack_format.py` interpreted and compiled. Each case asserts the value `msgpack.unpackb()` gives.

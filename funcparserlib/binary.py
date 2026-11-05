@@ -85,22 +85,26 @@ class Binary:
     def fixed(self, fmt: str) -> Parser[int, Any]:
         """A parser of the one value the `struct` format `fmt` reads, such as `">I"` or `"<d"`.
 
-        Raises `ValueError` for a format of anything but one value.
+        Raises `ValueError` for an invalid format, and one of anything but a single value that takes
+        at least one byte.
         """
-        layout = struct.Struct(fmt)
-        if len(layout.unpack(bytes(layout.size))) != 1:
+        try:
+            layout = struct.Struct(fmt)
+        except struct.error as e:
+            raise ValueError(f"struct format {fmt!r} is invalid: {e}") from e
+        if layout.size == 0 or len(layout.unpack(bytes(layout.size))) != 1:
             raise with_hint(
-                ValueError(f"struct format {fmt!r} reads more than one value"),
+                ValueError(f"struct format {fmt!r} reads no single value"),
                 "Read each value with a `Binary.fixed()` of its own, and join them with `+`.",
             )
         unpack, size = layout.unpack_from, layout.size
 
         def run(data: Any, s: State) -> ParsingResult[Any]:
             if s.pos + size > len(data):
-                return ParsingError(s.expect(p), "got unexpected end of input")
+                return ParsingError(s.expect(p), "not enough bytes")
             return ParsingSuccess(unpack(data, s.pos)[0], s.reset_pos(s.pos + size))
 
-        p = self._leaf(f"{size} bytes", run, ("fixed", unpack, size))
+        p = self._leaf(f"{size} byte{'s' if size > 1 else ''}", run, ("fixed", unpack, size))
         return p
 
     @property
@@ -109,7 +113,7 @@ class Binary:
 
         def run(data: Any, s: State) -> ParsingResult[int]:
             if s.pos >= len(data):
-                return ParsingError(s.expect(p), "got unexpected end of input")
+                return ParsingError(s.expect(p), "not enough bytes")
             return ParsingSuccess(data[s.pos], s.reset_pos(s.pos + 1))
 
         p = self._leaf("a byte", run, ("byte",))

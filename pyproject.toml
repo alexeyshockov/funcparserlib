@@ -40,11 +40,12 @@ dev = [
     { include-group = "examples" },
 ]
 # What examples/ imports besides the package: markdown.py and yaml.py read another library's token
-# stream, markdown-it-py's and ruamel.yaml's.
-examples = ["markdown-it-py ~=4.0", "ruamel.yaml ~=0.19"]
+# stream, markdown-it-py's and ruamel.yaml's; msgpack_format.py is checked against msgpack.
+examples = ["markdown-it-py ~=4.0", "msgpack ~=1.1", "ruamel.yaml ~=0.19"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = [
     # The other parsing libraries bench_comparison.py measures against.
+    "msgpack ~=1.1",
     "orjson ~=3.11",
     "parsy ~=2.2",
     "pyparsing ~=3.3",
@@ -74,7 +75,12 @@ filterwarnings = ["error"]
 # `just mutants`: the code whose bugs tests see least, as a broken fast path falls back to the same
 # result. The two deselected tests sit near the recursion limit, which mutmut's wrappers pass.
 [tool.mutmut]
-paths_to_mutate = ["funcparserlib/lexer.py", "funcparserlib/text.py", "funcparserlib/_compile.py"]
+paths_to_mutate = [
+    "funcparserlib/lexer.py",
+    "funcparserlib/text.py",
+    "funcparserlib/binary.py",
+    "funcparserlib/_compile.py",
+]
 also_copy = [
     "examples",
     "tests",
@@ -86,6 +92,7 @@ also_copy = [
 ]
 pytest_add_cli_args_test_selection = [
     "tests/test_text.py",
+    "tests/test_binary.py",
     "tests/test_compile.py",
     "tests/test_lexer.py",
 ]

@@ -217,6 +217,14 @@ class _Located(Sequence[Any]):
         return TokenDescription(repr(text), self._place(start), self._place(last))
 
 
+def _shown(tokens: Sequence[Any], i: int) -> str:
+    """The token at `i` in an error that gives its place apart: a word of a text, a byte in hex."""
+    if isinstance(tokens, bytes):
+        return f"0x{tokens[i]:02x}"
+    word = _WORD.match(tokens, i) if isinstance(tokens, str) else None
+    return _describe(word[0] if word else tokens[i]).text
+
+
 def _is_place(x: object) -> TypeGuard[Place]:
     return isinstance(x, tuple) and len(x) == 2 and all(isinstance(n, int) for n in x)
 
@@ -883,10 +891,7 @@ class Parser[A, B]:
             names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
             found = "got unexpected end of input"
             if st.max < len(tokens):
-                word = _WORD.match(tokens, st.max) if isinstance(tokens, str) else None
-                found = (
-                    f"got unexpected token: {_describe(word[0] if word else tokens[st.max]).text}"
-                )
+                found = f"got unexpected token: {_shown(tokens, st.max)}"
             message = found + (f", expected: {' or '.join(names)}" if names else "")
             problem = CheckFailure(message, st.max, st.max + 1, st.context)
             pos = st.max
@@ -1528,7 +1533,12 @@ def _read_region(
     inner = body.run(region, State(0, 0, (), at.context, ()))
     st = _moved(inner.state, start)
     problems = (*at.problems, *st.problems)
-    moved = State(st.pos, max(st.max, s.max), st.expected, s.context, problems)
+    expected = st.expected
+    if s.max > st.max:
+        expected = s.expected
+    elif s.max == st.max:
+        expected = (*s.expected, *st.expected)
+    moved = State(st.pos, max(st.max, s.max), expected, s.context, problems)
     if inner.__class__ is ParsingError:
         return inner.replace_state(moved)
     if inner.state.pos != len(region):
@@ -1542,6 +1552,10 @@ def prefixed(length: Parser[int, int]) -> Parser[int, bytes]: ...
 
 @overload
 def prefixed(length: Parser[str, int]) -> Parser[str, str]: ...
+
+
+@overload
+def prefixed[A](length: Parser[A, int]) -> Parser[A, Sequence[A]]: ...
 
 
 @overload
@@ -1626,10 +1640,10 @@ def counted[A, B](length: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[
     return _counted
 
 
-def switch[A, K, B](key: Parser[A, K], cases: Mapping[K | range, Parser[A, B]]) -> Parser[A, B]:
+def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parser[A, Any]:
     """Return a parser that reads `key`, then runs the parser `cases` holds for its value.
 
-    Type: `(Parser[A, K], Mapping[K | range, Parser[A, B]]) -> Parser[A, B]`
+    Type: `(Parser[A, Any], Mapping[Any, Parser[A, Any]]) -> Parser[A, Any]`
 
     A key of `cases` is a value, or a `range` of values. For a value `cases` has no parser for, it
     fails at the start of `key`. Unlike `p1 | p2`, no other case is tried.
@@ -1646,16 +1660,16 @@ def switch[A, K, B](key: Parser[A, K], cases: Mapping[K | range, Parser[A, B]]) 
 
         ```
     """
-    table: dict[Any, Parser[A, B]] = {}
+    table: dict[Any, Parser[A, Any]] = {}
     for case, p in cases.items():
         for value in case if isinstance(case, range) else (case,):
             table[value] = p
 
     @_parser(f"one of the cases of {key.name}", shape=True)
-    def _switch(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+    def _switch(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
         res = key.run(tokens, s)
         if res.__class__ is ParsingError:
-            return cast("ParsingResult[B]", res)
+            return res
         p = table.get(res.value)
         if p is None:
             return ParsingError(s.expect(_switch))
