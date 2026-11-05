@@ -80,6 +80,8 @@ messages name what was expected more precisely; see Changed.
 - Built with uv and `uv_build`
 - A name the library composes from the names of parsers is cut at 200 characters, with `...`: `Parser.name`, the parsing
   log and the `ValueError` of `many()` show the cut name. A name given with `Parser.named()` is kept whole
+- `|` tries a parser it holds more than once a single time where it dispatches on the next token, so a function given
+  to `>>` inside it can run fewer times. The value and the error stay the same
 
 ### Deprecated
 

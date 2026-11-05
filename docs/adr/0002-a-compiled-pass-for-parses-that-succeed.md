@@ -33,11 +33,20 @@ interpreted parser would have given the same value.
 
 Each combinator records what it was built from in `Parser._form`. A parser with no form, such as a
 function passed to `Parser()`, is called through `run` from the generated code. CPython's compiler
-recurses over nested code and takes 20 nested loops, so a long sequence is split into functions, and
-code nested too deeply moves to a function of its own. A grammar that the generated code still cannot
+recurses over nested code, compiling 700 nested `if` statements and raising `RecursionError` at 1,000 on
+3.12 to 3.15, and takes 20 nested loops, so a long sequence is split into functions, and code nested
+too deeply moves to a function of its own. A grammar that the generated code still cannot
 express stays interpreted: one so deep the generator runs out of stack, a `forward_decl()` defined
 as itself, and a `many()` of a parser that matches no tokens, whose `ValueError` a first-token test
 would skip.
+
+The emitter builds `ast` nodes, and `compile()` takes the module they make. In an expression a `str` is
+a name of generated code; a `str` constant is `ast.Constant`. Generated code stays inside what the
+compiler takes, so nothing declines on a `SyntaxError`, and a malformed node raises from
+`Parser.compile()`. A wrong name still compiles, as `ast.Name` takes any string, and would fall back to
+the same result, so `tests/conftest.py` turns a `NameError` raised in a generated frame into an error no
+fallback catches, and the random grammars without `check()` or `commit()` assert that generated code
+decides the result alone.
 
 Compiling is opt-in. Measured on Python 3.12 on an arm64 laptop, CPU time, best of three:
 
@@ -48,8 +57,8 @@ Compiling is opt-in. Measured on Python 3.12 on an arm64 laptop, CPU time, best 
 | DOT, 342 KB, 96,004 tokens, parsing | 0.288 s | 0.025 s |
 | KDL benchmark, 21 MB, tokenizing and parsing, wall clock, one run | 32.45 s | 8.90 s |
 
-Generating the KDL grammar takes 6 ms (ADR 0007). A parse that fails at its last token took 2.89 s against
-2.56 s, as both passes ran.
+Generating the KDL grammar takes 6 ms. A parse that fails at its last token took 2.89 s against 2.56 s,
+as both passes ran.
 
 Rejected:
 
@@ -66,6 +75,18 @@ Rejected:
   collection and the tokenizer. Integer token types gave nothing more, at 0.188 s. Users would need a
   build step and a wheel per platform and Python version, for 8% end to end. The step can come later,
   as the source `ast.unparse()` gives stays typable.
+- **Generating source text.** It generates in 3.3 ms against 5.9 ms for the KDL grammar on 3.12. Every
+  expression is then an f-string with precedence to keep by hand, and a malformed line is a `SyntaxError`
+  that nesting past CPython's limits also raises, so a mistake leaves the grammar interpreted unseen.
+- **Bytecode, written directly.** It is as much concatenation, with stack depth to keep by hand and
+  nothing to check it: wrong bytecode can crash the interpreter, where a wrong node raises. It follows
+  CPython's instruction set, with 140 opcodes on 3.12, 150 on 3.13 and 154 on 3.14, and it runs in the
+  interpreter loop that mypyc removes for the gain measured above.
+- **Generated code that differs by Python version.** No syntax or builtin of 3.13 to 3.15 changes how
+  this code is written, and the shapes tried did not gain on one version over another. On an arm64
+  laptop, CPU time, best of six, JSON of 169,514 tokens and DOT of 78,004 take 48 ms and 13 ms on both
+  3.12 and 3.15. The 3.15 JIT takes DOT to 10 ms and leaves JSON at 49 ms; it is experimental and set by
+  the user, and the same code gets it.
 
 ## Consequences
 
@@ -79,8 +100,12 @@ Rejected:
 - Recursion uses about a fifth of the stack, so a document nested too deeply for the interpreted parser
   can parse once compiled: 330 levels of KDL against 60.
 - The package uses `exec()`. What it runs is built from the grammar: a token type or value that is
-  exactly a `str` enters it as `ast.Constant` (ADR 0007), and every other object through a name bound
-  to that object. Parsed text never reaches it.
+  exactly a `str` enters it as `ast.Constant`, and every other object through a name bound to that
+  object, as `ast.Constant` rejects a subclass of `int` or `str`. Parsed text never reaches it.
+- `CompiledParser.source` is `ast.unparse()` of the module. Text goes through the tokenizer's indentation
+  limit, so generated code is compiled from the nodes, with statements numbered as `ast.unparse()` lays
+  them out, which `tests/test_compile.py` compares against parsing the text. The compiled parser keeps the
+  module, 1.2 MB for the KDL grammar, as a `forward_decl()` defined again would regenerate other code.
 - A new combinator works without a form, through `run`, and is only slower. A form that describes
   it wrongly makes the compiled pass accept what the parser rejects, which `tests/test_compile.py`
   looks for by running random grammars through both.

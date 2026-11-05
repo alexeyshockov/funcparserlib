@@ -321,6 +321,7 @@ def test_a_parsing_function_that_reads_run_sees_a_later_definition() -> None:
 
 
 def repeated(step: Callable[[P], P], levels: int = 20) -> P:
+    """`step` applied `levels` times. Growth that doubles exhausts memory at about 33 levels."""
     grammar: P = tok("a")
     for _ in range(levels):
         grammar = step(grammar)

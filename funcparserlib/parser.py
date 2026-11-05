@@ -1784,7 +1784,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
 
 
 _MAX_NAME = 200
-"""The length of a name the library composes from the names of parsers, see ADR 0008."""
+"""The length of a composed name: a parser used twice doubles it at each level."""
 
 
 def _brief(name: str) -> str:

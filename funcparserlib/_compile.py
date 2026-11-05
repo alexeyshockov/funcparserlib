@@ -9,7 +9,7 @@ Every function takes the tokens `T`, their types `Y` and a position. `Y` ends in
 it past the last token fails. A function returns `(value, position)` or `None`, or for a parser
 whose value nothing reads, the position or `-1`.
 
-The code is built as `ast` nodes, see ADR 0007. In an expression a `str` is a name of generated
+The code is built as `ast` nodes, see ADR 0002. In an expression a `str` is a name of generated
 code, and a `str` constant is `ast.Constant`.
 """
 
