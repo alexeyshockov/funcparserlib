@@ -59,8 +59,13 @@ Rejected:
   implementation of every error rule.
 - **A `run(tokens, pos)` without `State`, in the interpreted parsers.** It breaks the public
   `ParserFn`, and it removes allocations while the 68 calls per token stay.
-- **mypyc.** It needs a wheel per platform for a package that ships none, and the attempt did not
-  build, so it has no figure.
+- **mypyc, over the library.** It needs a wheel per platform for a package that ships none.
+- **mypyc, over the generated code.** The source types mechanically, passes `mypy --strict` and builds
+  in 3 s. It takes the KDL slice from 0.254 s to 0.181 s and the 21 MB benchmark from 8.90 s to 8.23 s:
+  the code it compiles took 0.123 s and takes 0.061 s, and the rest is `>>` functions, the tree, garbage
+  collection and the tokenizer. Integer token types gave nothing more, at 0.188 s. Users would need a
+  build step and a wheel per platform and Python version, for 8% end to end. The step can come later,
+  as the generated source stays typable.
 
 ## Consequences
 
