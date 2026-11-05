@@ -78,6 +78,8 @@ import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from operator import attrgetter
+from os import PathLike
+from pathlib import Path
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
 from ._commons import valueclass, with_hint
@@ -774,7 +776,9 @@ class Parser[A, B]:
             )
         return res.value
 
-    def compile(self, tokenizer: Tokenizer | None = None) -> CompiledParser[A, B]:
+    def compile(
+        self, tokenizer: Tokenizer | None = None, *, source_file: str | PathLike[str] | None = None
+    ) -> CompiledParser[A, B]:
         """Generate Python functions that parse as this parser does, several times faster.
 
         Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
@@ -792,6 +796,13 @@ class Parser[A, B]:
         in less memory still. A grammar of `funcparserlib.text.Text` or
         `funcparserlib.binary.Binary` needs no tokenizer.
 
+        Given a `source_file`, the Python source of the generated functions is written there, and
+        their frames report that file, so tracebacks, `pdb` and an IDE can show them. Given a
+        tokenizer too, the file holds what `CompiledParser.parse_text()` runs, then what
+        `CompiledParser.parse()` runs. The file is rewritten on each call and left alone for a
+        grammar that stays interpreted, and `OSError` reaches the caller. It is for reading: the
+        names in it stand for objects of the running parser, so it cannot be imported.
+
         Examples:
             ```pycon
             >>> compiled = (many(a("x")) + a("y")).compile()
@@ -805,17 +816,31 @@ class Parser[A, B]:
             ```
         """
         # Imported here: the module reads the classes of this one.
-        from ._compile import Internals, compile_grammar, compile_text, reads_text, reads_tokens  # noqa: PLC0415
+        from ._compile import (  # noqa: PLC0415
+            Internals,
+            compile_grammar,
+            compile_text,
+            line_after,
+            reads_text,
+            reads_tokens,
+            write_source,
+        )
 
+        path = None if source_file is None else str(Path(source_file).resolve())
         internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
         # What reads text reads bytes too: generated code takes either.
         if reads_text(self):
-            fast_text, source = compile_text(self, internals, None)
+            fast_text, source = compile_text(self, internals, None, path)
+            if path is not None:
+                write_source(path, source)
             return CompiledParser(self, None, None, fast_text, reads_tokens=False, source=source)
         fast_text, text_source = None, None
         if tokenizer is not None and tokenizer._pattern is not None:
-            fast_text, text_source = compile_text(self, internals, tokenizer._scan)
-        fast, source = compile_grammar(self, internals)
+            fast_text, text_source = compile_text(self, internals, tokenizer._scan, path)
+        line = 1 if path is None else line_after(text_source)
+        fast, source = compile_grammar(self, internals, path, line)
+        if path is not None:
+            write_source(path, text_source, source)
         return CompiledParser(
             self,
             fast,

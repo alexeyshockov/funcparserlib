@@ -106,6 +106,10 @@ Rejected:
   limit, so generated code is compiled from the nodes, with statements numbered as `ast.unparse()` lays
   them out, which `tests/test_compile.py` compares against parsing the text. The compiled parser keeps the
   module, 1.2 MB for the KDL grammar, as a `forward_decl()` defined again would regenerate other code.
+- `Parser.compile(source_file=...)` writes that text and gives its path to `compile()`, so a debugger
+  shows generated code. The path is a label: what runs is still compiled from the nodes, as the names in
+  the text stand for live objects such as the functions given to `>>`. Writing is opt-in, as a library
+  that wrote on every compile would fail on a read-only filesystem and leave files to clean up.
 - A new combinator works without a form, through `run`, and is only slower. A form that describes
   it wrongly makes the compiled pass accept what the parser rejects, which `tests/test_compile.py`
   looks for by running random grammars through both.

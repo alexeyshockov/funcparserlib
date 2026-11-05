@@ -7,6 +7,7 @@ import sys
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -35,6 +36,7 @@ from funcparserlib.parser import (
     some,
     tok,
 )
+from funcparserlib.text import Text
 
 from . import dot, json
 from .conftest import GeneratedCodeError
@@ -479,6 +481,86 @@ def test_the_source_is_a_snapshot() -> None:
     before = compiled.source
     declared.define(tok("b"))
     assert compiled.source == before
+
+
+def frame_lines(path: Path, lines: list[tuple[str, int]]) -> None:
+    """Assert each frame of `lines` reports `path`, on a line of it that calls a function."""
+    text = path.read_text(encoding="utf-8").splitlines()
+    assert lines
+    for filename, line in lines:
+        assert filename == str(path)
+        assert re.fullmatch(r"\s*v\d+ = F\d+\(.*\)", text[line - 1])
+
+
+def recording(lines: list[tuple[str, int]]) -> Callable[[object], object]:
+    def seen(value: object) -> object:
+        frame = sys._getframe(1)
+        lines.append((frame.f_code.co_filename, frame.f_lineno))
+        return value
+
+    return seen
+
+
+def test_a_source_file_holds_the_source_and_frames_report_it(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    lines: list[tuple[str, int]] = []
+    compiled = (tok("a") + (tok("b") >> recording(lines))).compile(source_file=path)
+    assert compiled._fast is not None
+    assert compiled._fast(tokens("ab")) is not None
+    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+    frame_lines(path, lines)
+
+
+def test_a_source_file_holds_both_programs_of_a_tokenizer(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    lines: list[tuple[str, int]] = []
+    compiled = many(tok("a") >> recording(lines)).compile(tokenizer, source_file=path)
+    assert compiled._fast_text is not None
+    assert compiled._fast is not None
+    assert compiled.source is not None
+    assert compiled._fast_text("aa") is not None
+    from_text = list(lines)
+    lines.clear()
+    assert compiled._fast(list(tokenizer("aa"))) is not None
+    assert path.read_text(encoding="utf-8").startswith(f"{compiled.source}\n\n")
+    frame_lines(path, from_text)
+    frame_lines(path, lines)
+    assert from_text[0][1] < len(compiled.source.splitlines()) < lines[0][1]
+
+
+def test_a_source_file_holds_a_grammar_of_text(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    compiled = many(Text().literal("a")).compile(source_file=path)
+    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+
+
+def test_a_source_file_is_rewritten(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    path.write_text("old", encoding="utf-8")
+    compiled = tok("a").compile(source_file=path)
+    assert path.read_text(encoding="utf-8") == f"{compiled.source}\n"
+
+
+def test_a_grammar_that_stays_interpreted_writes_no_source_file(tmp_path: Path) -> None:
+    path = tmp_path / "grammar.py"
+    many(maybe(tok("a"))).compile(source_file=path)
+    assert not path.exists()
+
+
+def test_a_relative_source_file_is_absolute_in_a_frame(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    lines: list[tuple[str, int]] = []
+    compiled = (tok("a") >> recording(lines)).compile(source_file="grammar.py")
+    assert compiled._fast is not None
+    assert compiled._fast(tokens("a")) is not None
+    frame_lines(tmp_path.resolve() / "grammar.py", lines)
+
+
+def test_a_source_file_that_cannot_be_written_raises(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        tok("a").compile(source_file=tmp_path / "missing" / "grammar.py")
 
 
 def test_a_grammar_too_deep_to_compile_stays_interpreted() -> None:

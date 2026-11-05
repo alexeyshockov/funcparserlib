@@ -40,6 +40,8 @@ messages name what was expected more precisely; see Changed.
 - `CompiledParser.try_parse(text)`: the value, or `None` without making an error
 - `CompiledParser.source`: the Python source of the generated functions, `None` for a grammar that stays interpreted.
   A frame of generated code reports its line in this text
+- `Parser.compile(source_file=path)`: the generated source is written to `path`, and frames of generated code report
+  that file, so tracebacks, `pdb` and an IDE can show it
 - `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
   `NoParseError.render()` does
 - `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`

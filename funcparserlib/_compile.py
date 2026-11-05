@@ -19,6 +19,7 @@ import ast
 from collections.abc import Callable, Sequence
 from functools import partial
 from operator import attrgetter, index
+from pathlib import Path
 from re import Pattern
 from typing import Any, Literal
 
@@ -1134,16 +1135,15 @@ def _number_lines(statements: list[ast.stmt], line: int) -> int:
     return line
 
 
-def _with_lines(module: ast.Module) -> ast.Module:
-    """`module` with the lines of its source, a blank one between its functions."""
-    line = 1
+def _with_lines(module: ast.Module, line: int = 1) -> ast.Module:
+    """`module` with the lines of its source from `line`, a blank one between its functions."""
     for function in module.body:
         line = _number_lines([function], line) + 1
     return ast.fix_missing_locations(module)
 
 
 def _functions(
-    root: Parser[Any, Any], internals: Internals, *, values: bool
+    root: Parser[Any, Any], internals: Internals, *, values: bool, filename: str | None, line: int
 ) -> tuple[Callable[[Any, list[str | None], int], Any], bool, ast.Module] | None:
     """The function running `root`, whether it reads token types, and the module it comes from.
 
@@ -1152,7 +1152,7 @@ def _functions(
     try:
         compiler = _Compiler(root, internals, values=values)
         module, entry = compiler.module()
-        code = compile(_with_lines(module), _FILENAME, "exec")
+        code = compile(_with_lines(module, line), filename or _FILENAME, "exec")
     except (_Declined, RecursionError):
         return None
     names = compiler.names
@@ -1163,14 +1163,14 @@ def _functions(
 
 
 def compile_grammar[A, B](
-    root: Parser[A, B], internals: Internals
+    root: Parser[A, B], internals: Internals, filename: str | None, line: int
 ) -> tuple[Callable[[Sequence[A]], tuple[B, int] | None] | None, Callable[[], str] | None]:
     """A function giving the value and the end position of a parse, and one giving its source.
 
     The first returns `None` when the interpreted parser has to decide. Both are `None` for a
-    grammar that stays interpreted.
+    grammar that stays interpreted. Its frames report `filename`, and lines from `line`.
     """
-    functions = _functions(root, internals, values=False)
+    functions = _functions(root, internals, values=False, filename=filename, line=line)
     if functions is None:
         return None, None
     run, tests_token_types, module = functions
@@ -1190,6 +1190,18 @@ def compile_grammar[A, B](
         return result
 
     return fast, partial(ast.unparse, module)
+
+
+def line_after(source: Callable[[], str] | None) -> int:
+    """The line a program starts on in a file that holds `source` before it."""
+    return 1 if source is None else source().count("\n") + 3
+
+
+def write_source(filename: str, *sources: Callable[[], str] | None) -> None:
+    """Write `sources` to `filename`, a blank line between them; nothing when there are none."""
+    texts = [source() for source in sources if source is not None]
+    if texts:
+        Path(filename).write_text("\n\n".join(texts) + "\n", encoding="utf-8")
 
 
 def reads_text(root: Parser[Any, Any]) -> bool:
@@ -1252,6 +1264,7 @@ def compile_text[B](
     root: Parser[Any, B],
     internals: Internals,
     scan: Callable[[str], tuple[list[str], list[str | None]] | None] | None,
+    filename: str | None,
 ) -> tuple[Callable[[str], tuple[B, int] | None] | None, Callable[[], str] | None]:
     """A function giving the value and the end position of a text, and one giving its source.
 
@@ -1260,9 +1273,9 @@ def compile_text[B](
 
     `scan` splits the text into the values and the types of its tokens, without `Token` objects: a
     grammar that reads a token any other way than through `tok()` then stays interpreted. Without
-    `scan` the grammar reads the text itself.
+    `scan` the grammar reads the text itself. Its frames report `filename`.
     """
-    functions = _functions(root, internals, values=scan is not None)
+    functions = _functions(root, internals, values=scan is not None, filename=filename, line=1)
     if functions is None:
         return None, None
     run, _, module = functions
