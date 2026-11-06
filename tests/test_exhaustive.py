@@ -6,7 +6,7 @@ all of them up to a size, and finds it on every run.
 """
 
 from collections.abc import Callable, Iterator
-from itertools import product
+from itertools import islice, product
 from typing import Any
 
 import pytest
@@ -20,6 +20,8 @@ P = Parser[Any, Any]
 
 text = Text()
 skipping = Text(skip=r"\s+")
+# The walk in parts, for the workers of a parallel run.
+SHARDS = 8
 TEXTS = ["".join(chars) for size in range(4) for chars in product("ab", repeat=size)]
 
 
@@ -94,7 +96,8 @@ def differences(grammar: P) -> Iterator[tuple[str, object, object]]:
 
 
 @pytest.mark.exhaustive
-@pytest.mark.timeout(300)
-def test_every_small_grammar_parses_the_same_compiled() -> None:
-    found = [difference for grammar in grammars() for difference in differences(grammar)]
-    assert found == []
+@pytest.mark.timeout(120)
+@pytest.mark.parametrize("shard", range(SHARDS))
+def test_every_small_grammar_parses_the_same_compiled(shard: int) -> None:
+    every = islice(grammars(), shard, None, SHARDS)
+    assert [difference for grammar in every for difference in differences(grammar)] == []

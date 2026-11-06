@@ -8,6 +8,7 @@ its declared dependencies only, so an import of another distribution it does not
 even though the shared `.venv` holds it.
 """
 
+import os
 from pathlib import Path
 
 import nox
@@ -27,6 +28,8 @@ MEMBERS = {
 FIRST = nox.project.load_toml(Path(next(iter(MEMBERS))) / "pyproject.toml")
 VERSIONS = nox.project.python_versions(FIRST)
 FLOOR, NEWEST = VERSIONS[0], VERSIONS[-1]
+# A third of the cores: the tests share a working machine, and past 4 workers they gain little.
+WORKERS = ("-n", str(max(2, (os.cpu_count() or 2) // 3)), "--dist", "worksteal")
 
 
 def sync(session: nox.Session, *args: str) -> None:
@@ -48,29 +51,31 @@ def sync(session: nox.Session, *args: str) -> None:
 @nox.session
 @nox.parametrize(
     "python",
-    [nox.param(v, tags=["ci", "local"] if v == FLOOR else ["ci"]) for v in VERSIONS]
-    + [nox.param(f"{NEWEST}t", tags=["ci", "local"])],
+    # `shadow` runs this suite on the floor locally.
+    [nox.param(v, tags=["ci"]) for v in VERSIONS] + [nox.param(f"{NEWEST}t", tags=["ci", "local"])],
 )
 @nox.parametrize("member", list(MEMBERS))
 def tests(session: nox.Session, member: str) -> None:
     """One member's suite, on every supported version and the newest free-threaded build."""
     sync(session, *(["--package", MEMBERS[member]] if WORKSPACE else []))
     session.chdir(member)
-    session.run("pytest", *session.posargs)
+    session.run("pytest", *WORKERS, *session.posargs)
 
 
 @nox.session(python=FLOOR, tags=["ci", "local"])
 def shadow(session: nox.Session) -> None:
     """The suite with every parse also run by the compiled parser: see `tests/shadow.py`."""
     sync(session)
-    session.run("pytest", "-p", "tests.shadow", *session.posargs)
+    session.run("pytest", *WORKERS, "-p", "tests.shadow", *session.posargs)
 
 
 @nox.session(python=FLOOR, tags=["ci", "local"])
 def exhaustive(session: nox.Session) -> None:
     """Every small grammar, compiled and interpreted: see `tests/test_exhaustive.py`."""
     sync(session)
-    session.run("pytest", "-m", "exhaustive", "tests/test_exhaustive.py", *session.posargs)
+    session.run(
+        "pytest", *WORKERS, "-m", "exhaustive", "tests/test_exhaustive.py", *session.posargs
+    )
 
 
 # The micro-benchmarks (`just bench::micro`), where the project has them: one session per

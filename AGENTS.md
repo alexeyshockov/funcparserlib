@@ -42,7 +42,7 @@ just check [FILES]       # read-only: every applicable hook, + ty for Python pat
 just fix [FILES]         # apply the fixers
 just types               # mypy over the package, the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
-just tests               # the noxfile's local sessions: 3.12, free-threaded 3.15t, shadow, exhaustive
+just tests               # the noxfile's local sessions: free-threaded 3.15t, shadow on 3.12, exhaustive
 just docs-build          # the site into site/
 just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
 just bench::compare      # the last two saved runs side by side
