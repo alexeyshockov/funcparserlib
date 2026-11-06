@@ -1,9 +1,14 @@
 """Parsers that read bytes at the position the parsing has reached.
 
-These parsers read a binary format as the parsers of `funcparserlib.text` read text. Run a grammar
-of them with `Parser.parse_bytes()`, or compile it with `Parser.compile()`, and end it with
-`finished`. `prefixed()`, `counted()` and `switch()` from `funcparserlib.parser` read what depends
-on a number just read, and generated code runs them, as it does not `Parser.bind()`.
+!!! Warning
+
+    This module is experimental. Its API, with `Parser.parse_bytes()`, is not covered by the
+    compatibility of the library: it can change, or be removed, in any release.
+
+These parsers read a binary format as `lit()` and `regex()` read text. Run a grammar of them with
+`Parser.parse_bytes()`, or compile it with `Parser.compile()`, and end it with `finished`.
+`prefixed()`, `counted()` and `switch()` from `funcparserlib.parser` read what depends on a number
+just read, and generated code runs them, as it does not `Parser.bind()`.
 
 Examples:
     ```pycon

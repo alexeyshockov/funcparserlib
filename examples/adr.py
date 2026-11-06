@@ -21,7 +21,6 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from funcparserlib import text
 from funcparserlib.parser import (
     Invalid,
     NoParseError,
@@ -29,7 +28,9 @@ from funcparserlib.parser import (
     Parser,
     TokenDescription,
     finished,
+    lit,
     many,
+    regex,
     some,
 )
 
@@ -84,25 +85,21 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-number = text.regex(r"\d+").named("number") >> int
-day = text.regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+number = regex(r"\d+").named("number") >> int
+day = regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 
-plain_status = text.lit("Proposed") | text.lit("Accepted") | text.lit("Deprecated")
-written = -text.lit("Superseded by ADR ") + number
-linked = -text.lit("Superseded by [") + number + -text.regex(r"[^\]]*\]\([^)]*\)")
+plain_status = lit("Proposed") | lit("Accepted") | lit("Deprecated")
+written = -lit("Superseded by ADR ") + number
+linked = -lit("Superseded by [") + number + -regex(r"[^\]]*\]\([^)]*\)")
 superseded = written | linked
 status = (plain_status >> Status) | (superseded >> (lambda n: Status("Superseded", n)))
 
-title_number = (
-    number + -text.lit(" — ")
-    | number + -text.lit(". ")
-    | -text.lit("ADR ") + number + -text.lit(": ")
-)
-title = title_number + text.regex(r".+") + -finished >> (lambda p: Title(*p))
+title_number = number + -lit(" — ") | number + -lit(". ") | -lit("ADR ") + number + -lit(": ")
+title = title_number + regex(r".+") + -finished >> (lambda p: Title(*p))
 
-listed_status = -text.lit("**Status:** ") + status + -finished
-listed_date = -text.lit("**Date:** ") + day + -finished
-plain_date = -text.lit("Date: ") + day + -finished
+listed_status = -lit("**Status:** ") + status + -finished
+listed_date = -lit("**Date:** ") + day + -finished
+plain_date = -lit("Date: ") + day + -finished
 # --8<-- [end:parts]
 
 

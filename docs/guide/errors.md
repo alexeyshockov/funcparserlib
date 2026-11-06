@@ -192,9 +192,9 @@ a bug. To parse a value with another grammar, call that grammar in the function.
 and `expected` names what should have been there:
 
 ```pycon
->>> from funcparserlib import text
+>>> from funcparserlib.parser import lit, regex
 
->>> version = text.regex(r"\d+") + -text.lit(".") + text.regex(r"\d+") + -finished
+>>> version = regex(r"\d+") + -lit(".") + regex(r"\d+") + -finished
 >>> parsed = some(lambda t: True).validated(version.parse_text, "a version")
 >>> parsed.parse(["1.2"])
 ('1', '2')

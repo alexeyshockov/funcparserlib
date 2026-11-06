@@ -21,7 +21,6 @@ from itertools import pairwise
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from funcparserlib import text
 from funcparserlib.parser import (
     Invalid,
     NoParseError,
@@ -29,8 +28,10 @@ from funcparserlib.parser import (
     Parser,
     TokenDescription,
     finished,
+    lit,
     many,
     maybe,
+    regex,
     some,
 )
 
@@ -94,11 +95,11 @@ class Release:
 
 
 # --8<-- [start:version]
-number = text.regex(r"\d+").named("number") >> int
-release_segment = number + many(-text.lit(".") + number) >> (lambda p: (p[0], *p[1]))
-pre_release = (text.lit("a") | text.lit("b") | text.lit("rc")) + number
-post_release = -text.lit(".post") + number
-dev_release = -text.lit(".dev") + number
+number = regex(r"\d+").named("number") >> int
+release_segment = number + many(-lit(".") + number) >> (lambda p: (p[0], *p[1]))
+pre_release = (lit("a") | lit("b") | lit("rc")) + number
+post_release = -lit(".post") + number
+dev_release = -lit(".dev") + number
 version = (
     release_segment + maybe(pre_release) + maybe(post_release) + maybe(dev_release)
     >> (lambda p: Version(*p))
@@ -115,26 +116,24 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-day = text.regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+day = regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 # --8<-- [end:date]
 
 
 # --8<-- [start:headings]
-unreleased = text.lit("[Unreleased]") >> (lambda _: Title(None, None, yanked=False))
-separator = -(text.lit(" - ") | text.lit(" — "))
-yanked = maybe(text.lit(" [YANKED]")) >> (lambda y: y is not None)
-numbered = -text.lit("[") + version + -text.lit("]") + separator + day + yanked >> (
-    lambda p: Title(*p)
-)
+unreleased = lit("[Unreleased]") >> (lambda _: Title(None, None, yanked=False))
+separator = -(lit(" - ") | lit(" — "))
+yanked = maybe(lit(" [YANKED]")) >> (lambda y: y is not None)
+numbered = -lit("[") + version + -lit("]") + separator + day + yanked >> (lambda p: Title(*p))
 release_title = (unreleased | numbered) + -finished
 
 change_kind = (
-    text.lit("Added")
-    | text.lit("Changed")
-    | text.lit("Deprecated")
-    | text.lit("Removed")
-    | text.lit("Fixed")
-    | text.lit("Security")
+    lit("Added")
+    | lit("Changed")
+    | lit("Deprecated")
+    | lit("Removed")
+    | lit("Fixed")
+    | lit("Security")
 ) + -finished
 # --8<-- [end:headings]
 

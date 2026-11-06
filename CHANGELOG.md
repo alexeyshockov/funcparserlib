@@ -13,8 +13,8 @@ working and parse to the same values; error messages are more precise.
   value, and `ParseErrors` holds them all
 - **Compiled grammars**: `Parser.compile()` is several times faster on valid input, with the same values and errors,
   and `try_parse()` skips making the error
-- **Parsing without tokens**: `funcparserlib.text`, and `funcparserlib.binary` for binary formats, with
-  `prefixed()`, `counted()` and `switch()`
+- **Parsing without tokens**: `lit()`, `regex()` and `Text`, and the experimental `funcparserlib.binary` for binary
+  formats, with `prefixed()`, `counted()` and `switch()`
 - **Types**: what `p1 + p2`, `-p`, `many()` and the other combinators infer in mypy, pyright and ty
 - New combinators and helpers: `longest()`, `when()`, `but_not()`, `~p`, `starmap()`, `expand_tuple_args()`, `parser()`,
   and `make_tokenizer(skip=...)`

@@ -17,6 +17,7 @@ from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
+    Text,
     _Undecided,
     a,
     commit,
@@ -33,7 +34,6 @@ from funcparserlib.parser import (
     tok,
 )
 from funcparserlib.parser import longest as typed_longest
-from funcparserlib.text import Text
 from tests.rules import breakages, conversions, kept
 
 type P = Parser[Any, Any]

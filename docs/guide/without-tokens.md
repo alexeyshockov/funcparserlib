@@ -13,13 +13,12 @@ and combine with the same operators.
 
 ## A First Text Grammar
 
-Let's make the parsers with [`Text`](../api/text.md): `regex()` for a regex and `lit()` for a fixed string. `skip`
-is a regex for what may sit between two tokens, such as whitespace. Every parser skips it after what it reads, and the
-text may also start with it:
+Let's make the parsers with [`Text`](../api/parser.md#reading-text): `regex()` for a regex and `lit()` for a fixed
+string. `skip` is a regex for what may sit between two tokens, such as whitespace. Every parser skips it after what it
+reads, and the text may also start with it:
 
 ```pycon
->>> from funcparserlib.parser import many
->>> from funcparserlib.text import Text
+>>> from funcparserlib.parser import Text, many
 >>> spaced = Text(skip=r"\s+")
 >>> number = (spaced.regex(r"\d+") >> int).named("number")
 >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
@@ -31,7 +30,7 @@ text may also start with it:
 `Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what `skip` matches, and
 `named()` gives a parser the name its errors use.
 
-The functions `text.regex()` and `text.lit()` skip nothing, which is what a token that has whitespace
+The functions `regex()` and `lit()` of `funcparserlib.parser` skip nothing, which is what a token that has whitespace
 inside needs. Such a grammar ends with `finished`, as a token grammar does. The first `skip` found in the grammar is still
 read before parsing starts, so that a document can start with whitespace, even before a first parser that skips nothing:
 whitespace at the very start of the text never reaches a parser. Use the `Text` for the grammar, and the functions for the
@@ -39,9 +38,9 @@ inside of a token. Open the string with a function, so that the whitespace after
 close it with the `Text`, so that the whitespace after the string is skipped:
 
 ```pycon
->>> from funcparserlib import text
->>> chars = many(text.regex(r'[^"\\\n]+') | text.regex(r"\\."))
->>> string = -text.lit('"') + chars + -spaced.lit('"') >> "".join
+>>> from funcparserlib.parser import lit, regex
+>>> chars = many(regex(r'[^"\\\n]+') | regex(r"\\."))
+>>> string = -lit('"') + chars + -spaced.lit('"') >> "".join
 >>> (string + string + -spaced.end).parse_text('"a  b"   "c"  ')
 ('a  b', 'c')
 
@@ -113,12 +112,12 @@ only count to a fixed depth:
 >>> from funcparserlib.parser import finished, forward_decl
 >>> comment = forward_decl()
 >>> comment.define(
-...     text.lit("/*")
-...     + many(text.regex(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
-...     + text.lit("*/")
+...     lit("/*")
+...     + many(regex(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
+...     + lit("*/")
 ... )
->>> gap = many(text.regex(r"\s+") | comment)
->>> words = many(-gap + text.regex(r"\w+")) + -gap + -finished
+>>> gap = many(regex(r"\s+") | comment)
+>>> words = many(-gap + regex(r"\w+")) + -gap + -finished
 >>> words.parse_text("a /* b /* c */ d */ e")
 ['a', 'e']
 
@@ -129,7 +128,7 @@ level is indented by two spaces more, are the lines of a deeper `item()` after a
 
 ```pycon
 >>> def item(depth):
-...     line = text.regex(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
+...     line = regex(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
 ...     return line.bind(lambda l: many(item(depth + 1)) >> (lambda kids: (l.strip(), kids)))
 >>> (many(item(0)) + -finished).parse_text("a\n  b\n    c\n  d\ne\n")
 [('a', [('b', [('c', [])]), ('d', [])]), ('e', [])]
@@ -153,7 +152,7 @@ See [Performance](performance.md) for what compiling costs, and for `try_parse()
 
 ## Reading Bytes
 
-Bytes are read the same way. [`funcparserlib.binary`](../api/binary.md) has the parsers of a byte grammar,
+Bytes are read the same way. The experimental [`funcparserlib.binary`](../api/binary.md) has the parsers of a byte grammar,
 `Parser.parse_bytes()` runs it, and `prefixed()`, `counted()` and `switch()` read what depends on a number just read: a
 length, a count, a type. A grammar of them compiles as a text grammar does. For a whole format, see
 [Parsing MessagePack](../recipes/msgpack.md).

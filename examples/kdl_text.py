@@ -32,51 +32,52 @@ from examples.kdl import (
     unescape,
     without_space_escapes,
 )
-from funcparserlib import text
 from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
     Parser,
     finished,
     forward_decl,
+    lit,
     longest,
     many,
     maybe,
     oneplus,
+    regex,
 )
 
 # --8<-- [start:whitespace]
 # KDL keeps its whitespace significant, so these parsers skip nothing.
-spaces = text.regex(rf"[{SPACE}]+")
-line_comment = text.regex(LINE_COMMENT)
-newline_char = text.regex(NL)
+spaces = regex(rf"[{SPACE}]+")
+line_comment = regex(LINE_COMMENT)
+newline_char = regex(NL)
 
 # A comment holds comments, which a regex cannot count and a rule can.
 block_comment: ForwardDeclParser[str, Any] = forward_decl().named("comment")
 block_comment.define(
-    text.lit("/*")
-    + many(text.regex(r"(?:[^*/]|\*(?!/)|/(?!\*))+").named("comment text") | block_comment)
-    + text.lit("*/")
+    lit("/*")
+    + many(regex(r"(?:[^*/]|\*(?!/)|/(?!\*))+").named("comment text") | block_comment)
+    + lit("*/")
 )
 
 # A backslash continues the line, and so does a comment before the newline.
-esc_line = text.lit("\\") + many(spaces | block_comment) + (line_comment | newline_char | finished)
+esc_line = lit("\\") + many(spaces | block_comment) + (line_comment | newline_char | finished)
 
 ws = oneplus(spaces | block_comment | esc_line).named("whitespace")
 newline = (newline_char | line_comment).named("newline")
 # --8<-- [end:whitespace]
 
 # --8<-- [start:strings]
-plain = text.regex(rf'[^"\\{NEWLINE}{DISALLOWED}]+').named("text")
-escape = text.regex(rf"\\(?:[{SPACE}{NEWLINE}]+|.)", re.DOTALL).named("escape")
+plain = regex(rf'[^"\\{NEWLINE}{DISALLOWED}]+').named("text")
+escape = regex(rf"\\(?:[{SPACE}{NEWLINE}]+|.)", re.DOTALL).named("escape")
 # Between the quotes come text and escapes in any order; a missing quote fails there.
-quoted_body = (-text.lit('"') + many(plain | escape) + -text.lit('"')).context("string")
+quoted_body = (-lit('"') + many(plain | escape) + -lit('"')).context("string")
 
 quoted = quoted_body >> "".join
-multiline = text.regex(rf'"""{NL}(?:[^\\{DISALLOWED}]|\\[^{DISALLOWED}])*?"""')
-raw = text.regex(rf'(#+)"(?!"")[^{NEWLINE}{DISALLOWED}]*?"\1')
-raw_multiline = text.regex(rf'(#+)"""{NL}[^{DISALLOWED}]*?"""\1')
-bare = text.regex(rf"(?![+-]?\.?[0-9]){IDENT_CHAR}+").when(lambda s: s not in KEYWORD_NAMES)
+multiline = regex(rf'"""{NL}(?:[^\\{DISALLOWED}]|\\[^{DISALLOWED}])*?"""')
+raw = regex(rf'(#+)"(?!"")[^{NEWLINE}{DISALLOWED}]*?"\1')
+raw_multiline = regex(rf'(#+)"""{NL}[^{DISALLOWED}]*?"""\1')
+bare = regex(rf"(?![+-]?\.?[0-9]){IDENT_CHAR}+").when(lambda s: s not in KEYWORD_NAMES)
 
 # `quoted` reads the `""` that opens a `"""` string, and `longest()` takes the longer match.
 string = longest(
@@ -89,15 +90,15 @@ string = longest(
 # --8<-- [end:strings]
 
 # --8<-- [start:grammar]
-numeric = text.regex(
+numeric = regex(
     r"[+-]?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0o[0-7][0-7_]*|0b[01][01_]*"
     rf"|[0-9][0-9_]*(?:\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?){END}"
 ).named("number")
-keyword = text.regex(rf"#(?:true|false|null|inf|-inf|nan){END}").named("keyword")
+keyword = regex(rf"#(?:true|false|null|inf|-inf|nan){END}").named("keyword")
 
 space = -maybe(ws)
 line_space = -many(ws | newline)
-slashdash = -text.lit("/-") + line_space
+slashdash = -lit("/-") + line_space
 
 
 def dropped(p: Parser[str, Any]) -> Parser[str, None]:
@@ -110,17 +111,17 @@ def separated[B](p: Parser[str, B], end: Parser[str, Any]) -> Parser[str, list[B
     return maybe(p + many(-end + p) + -maybe(end)) >> (lambda r: [] if r is None else [r[0], *r[1]])
 
 
-annotation = -text.lit("(") + space + string + space + -text.lit(")")
+annotation = -lit("(") + space + string + space + -lit(")")
 literal = string | numeric >> number | keyword >> KEYWORDS.__getitem__
 value = maybe(annotation) + space + literal >> (lambda r: Value(r[1], r[0]))
-prop_value = space + -text.lit("=") + space + value
+prop_value = space + -lit("=") + space + value
 string_entry = string + maybe(prop_value) >> (
     lambda r: Value(r[0]) if r[1] is None else Prop(r[0], r[1])
 )
 entry = string_entry | value
 
 nodes: ForwardDeclParser[str, list[Node]] = forward_decl().named("nodes")
-children = -text.lit("{") + nodes + -text.lit("}")
+children = -lit("{") + nodes + -lit("}")
 entries = many(-ws + entry | space + dropped(entry))
 dropped_children = -many(space + dropped(children))
 
@@ -134,7 +135,7 @@ body = (
     + space
 ) >> make_node
 node = dropped(body) | body
-terminator = (newline | text.lit(";")) + line_space
+terminator = (newline | lit(";")) + line_space
 nodes.define(
     line_space + separated(node, terminator) >> (lambda ns: [n for n in ns if n is not None])
 )

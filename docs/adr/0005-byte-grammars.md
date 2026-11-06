@@ -21,11 +21,10 @@ has a C parser and a parser in pure Python to measure against. A grammar for it 
 
 ## Decision
 
-`funcparserlib.binary` has parsers of bytes, as `funcparserlib.text` has parsers of text, and they
-read the buffer at the position: `regex()` and `lit()` as in text, `byte()`, `fixed()` for what the
-`struct` module reads, and `previous()` for the byte just read, where a tag holds a value. A grammar
-ends with `finished`.
-`Parser.parse_bytes()` runs them, and errors give the byte in hexadecimal and its offset.
+`funcparserlib.binary` has parsers of bytes, as `lit()` and `regex()` read text, and they read the
+buffer at the position: `regex()` and `lit()` as in text, `byte()`, `fixed()` for what the `struct`
+module reads, and `previous()` for the byte just read, where a tag holds a value. A grammar ends with
+`finished`. `Parser.parse_bytes()` runs them, and errors give the byte in hexadecimal and its offset.
 
 Three combinators replace `bind()` for what binary formats do, and they work over text and tokens too:
 
@@ -59,6 +58,9 @@ Rejected:
 
 ## Consequences
 
+- `funcparserlib.binary` and `Parser.parse_bytes()` are experimental: reading bytes is an uncommon use of
+  the library, so they are outside its compatibility, and can change or go in any release. `prefixed()`,
+  `counted()` and `switch()` read text and tokens too, and are not.
 - A grammar of bytes compiles as one of text does, and `try_parse()` takes bytes.
 - `previous()` depends on what ran before it, so it belongs right after what read the byte. It fails at
   the start of the input.

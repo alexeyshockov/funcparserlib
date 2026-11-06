@@ -9,7 +9,7 @@ import 'release.just'
 conventions:
     @just tools::conventions
 
-[doc("Mutation testing of the lexer, text grammars and generated code: over an hour on one core, in no gate; `just mutants 'funcparserlib.text*'` narrows it")]
+[doc("Mutation testing of the lexer, byte grammars and generated code: over an hour on one core, in no gate; `just mutants 'funcparserlib.binary*'` narrows it")]
 mutants *MUTANTS:
     uv run --group mutation mutmut run --max-children 1 {{MUTANTS}}
     uv run --group mutation mutmut results | grep -v 'not checked'

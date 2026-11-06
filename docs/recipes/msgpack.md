@@ -22,8 +22,8 @@ a row, with nothing to infer from a schema. A format whose layout comes from a s
 Buffers message, has the layout in the schema, and its parser is generated from there.
 
 What sets a binary format apart from text is that what comes next depends on a number just read: a length, a count, a
-type. [`funcparserlib.binary`](../api/binary.md) has the parsers of a **byte grammar**, which read the bytes at the
-position the parsing has reached, and three combinators take such a number:
+type. The experimental [`funcparserlib.binary`](../api/binary.md) has the parsers of a **byte grammar**, which read the
+bytes at the position the parsing has reached, and three combinators take such a number:
 
 * `prefixed(length)` reads as many bytes as `length` parses;
 * `counted(count, item)` reads as many `item`s;

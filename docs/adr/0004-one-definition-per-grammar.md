@@ -32,7 +32,7 @@ A grammar has one definition of its language, and there are two kinds.
 
 - A **token grammar** is what the library has today: global tokens define it, and a 1.0 grammar stays
   one. Its fast path reads the same tokens, so the two cannot disagree.
-- A **text grammar** is made of the parsers of `funcparserlib.text`, which read text at the
+- A **text grammar** is made of `lit()`, `regex()` and the parsers of a `Text`, which read text at the
   position the parser has reached, and that defines it. Only the tokens that make sense at a position
   are tried, so specs have no global order, and context is recursion and `bind()`. A `Text` holds what
   to `skip`: each of its parsers reads what `skip` matches after it, and the first `skip` of the grammar
@@ -117,6 +117,8 @@ Rejected:
 - **A check that specs cannot overlap.** It held for no real grammar here.
 - **A check at run time that one spec matches at each token.** No disagreement passed it, but it took
   0.51 s on the 2 MB document, more than the whole fast path, and it rejects harmless overlaps.
+- **A module of their own for the text parsers.** Types keep them from `tok()` wherever they live, and they
+  combine with `a()` and `some()`, so a module would separate nothing.
 - **Lexer states.** The position in a text grammar is the state already.
 - **Combinators for the tokens themselves, as the main direction.** Defining atoms is not one of the
   three problems.

@@ -3,8 +3,7 @@
 Funcparserlib consists of the following modules:
 
 * [`funcparserlib.lexer` — Regex-based tokenizer](lexer.md)
-* [`funcparserlib.text` — Parsers that read text](text.md)
-* [`funcparserlib.binary` — Parsers that read bytes](binary.md)
+* [`funcparserlib.binary` — Parsers that read bytes, experimental](binary.md)
 * [`funcparserlib.parser` — Functional parsing combinators](parser.md)
 * [`funcparserlib.util` — Various utilities](util.md)
 

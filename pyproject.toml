@@ -85,7 +85,6 @@ filterwarnings = ["error"]
 [tool.mutmut]
 paths_to_mutate = [
     "funcparserlib/lexer.py",
-    "funcparserlib/text.py",
     "funcparserlib/binary.py",
     "funcparserlib/_compile.py",
 ]

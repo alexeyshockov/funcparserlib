@@ -1400,7 +1400,7 @@ def write_source(filename: str | None, *sources: str | None) -> None:
 
 
 def reads_text(root: Parser[Any, Any]) -> bool:
-    """Whether the grammar reads text or bytes, through `funcparserlib.text` or
+    """Whether the grammar reads text or bytes, through `lit()`, `regex()`, a `Text` or
     `funcparserlib.binary`.
     """
     seen: set[int] = set()
@@ -1419,7 +1419,7 @@ def reads_text(root: Parser[Any, Any]) -> bool:
 
 
 def leading_skip(root: Parser[Any, Any]) -> Pattern[str] | None:
-    """The first `skip` of a `funcparserlib.text.Text` in the grammar, which text may start with."""
+    """The first `skip` of a `Text` in the grammar, which text may start with."""
     seen: set[int] = set()
     stack = [root]
     try:

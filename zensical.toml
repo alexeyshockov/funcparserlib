@@ -46,8 +46,7 @@ nav = [
     { "API Reference" = [
         { "API Overview" = "api/index.md" },
         { "Lexer" = "api/lexer.md" },
-        { "Text" = "api/text.md" },
-        { "Binary" = "api/binary.md" },
+        { "Binary (experimental)" = "api/binary.md" },
         { "Parser" = "api/parser.md" },
         { "Utilities" = "api/util.md" },
     ] },

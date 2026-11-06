@@ -7,7 +7,6 @@ from collections.abc import Callable, Sequence
 from typing import Any, assert_type
 
 from funcparserlib import binary as b
-from funcparserlib import text
 from funcparserlib.lexer import Token, make_tokenizer
 from funcparserlib.parser import (
     CompiledParser,
@@ -17,6 +16,7 @@ from funcparserlib.parser import (
     ParsingResult,
     ParsingSuccess,
     State,
+    Text,
     Tuple2Parser,
     Tuple3Parser,
     Tuple4Parser,
@@ -25,16 +25,17 @@ from funcparserlib.parser import (
     counted,
     finished,
     forward_decl,
+    lit,
     longest,
     many,
     maybe,
     oneplus,
     prefixed,
+    regex,
     skip,
     switch,
     tok,
 )
-from funcparserlib.text import Text
 from funcparserlib.util import expand_tuple_args
 
 x = a("x")
@@ -121,9 +122,9 @@ _ = assert_type(spaced.end, Parser[str, None])
 _ = assert_type(spaced.regex("a") + -spaced.end, Parser[str, str])
 _ = assert_type(spaced.regex("a") + spaced.lit("b"), Tuple2Parser[str, str, str])
 _ = assert_type(spaced.regex("a") >> len, Parser[str, int])
-_ = assert_type(text.regex("a"), Parser[str, str])
-_ = assert_type(text.lit("a"), Parser[str, str])
-_ = assert_type(text.regex("a") + -finished, Parser[str, str])
+_ = assert_type(regex("a"), Parser[str, str])
+_ = assert_type(lit("a"), Parser[str, str])
+_ = assert_type(regex("a") + -finished, Parser[str, str])
 
 # `longest()` keeps the type of its parsers.
 _ = assert_type(longest(x, x), Parser[str, str])

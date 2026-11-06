@@ -179,7 +179,7 @@ error.
 ## Without a tokenizer
 
 `examples/kdl_text.py` parses the same language with no tokenizer: the grammar reads the text through the
-[`funcparserlib.text`](../api/text.md) parsers, and the tree, the string functions and the number functions are the ones
+[text parsers](../api/parser.md#reading-text), and the tree, the string functions and the number functions are the ones
 above. The sections of [Parsing Without Tokens](../guide/without-tokens.md) explain each tool; here is what changes.
 
 Whitespace and comments become rules. KDL keeps its whitespace significant, so its parsers skip nothing. A `/* */`

@@ -8,7 +8,6 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from funcparserlib import parser as parser_module
-from funcparserlib import text
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     Invalid,
@@ -30,6 +29,7 @@ from funcparserlib.parser import (
     parser,
     prefixed,
     pure,
+    regex,
     some,
     switch,
     tok,
@@ -709,6 +709,6 @@ def test_a_parsing_function_can_tell_a_rejected_part() -> None:
 
 
 def test_try_parse_gives_none_for_a_rejected_value() -> None:
-    p = text.regex(r"\d").validated(odd).compile()
+    p = regex(r"\d").validated(odd).compile()
     assert p.try_parse("3") == 3
     assert p.try_parse("2") is None

@@ -7,8 +7,7 @@ that the comparison measures the parsing.
 from typing import Any
 
 from benchmarks._json_other import NUMBER, STRING, number, unescape
-from funcparserlib.parser import ForwardDeclParser, Parser, forward_decl, many, maybe
-from funcparserlib.text import Text
+from funcparserlib.parser import ForwardDeclParser, Parser, Text, forward_decl, many, maybe
 
 spaced = Text(skip=r"[ \t\r\n]+")
 

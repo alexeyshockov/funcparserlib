@@ -1,4 +1,4 @@
-# `funcparserlib.binary` — Parsers that read bytes
+# `funcparserlib.binary` — Parsers that read bytes, experimental
 
 ::: funcparserlib.binary
     options:

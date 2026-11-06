@@ -26,6 +26,7 @@ from funcparserlib.parser import (
     ParsingFailure,
     ParsingSuccess,
     State,
+    Text,
     a,
     commit,
     finished,
@@ -37,7 +38,6 @@ from funcparserlib.parser import (
     some,
     tok,
 )
-from funcparserlib.text import Text
 from tests.rules import breakages, conversions, kept
 from tests.test_binary import grammars as byte_grammars
 from tests.test_text import grammars as text_grammars

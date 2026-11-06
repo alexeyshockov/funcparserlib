@@ -11,6 +11,7 @@ The structure of the language:
     * It defines the main `Parser.parse(tokens)` method
 * Primitive parsers
     * `tok(type, value)`, `a(value)`, `some(pred)`, `forward_decl()`, `finished`
+    * `lit(value)`, `regex(pattern)` and `Text(skip)` read text, without tokens
 * Parser combinators
     * `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `maybe(p)`, `many(p)`, `oneplus(p)`, `skip(p)`
 * Abstraction
@@ -42,6 +43,9 @@ __all__ = [
     "forward_decl",
     "anything_but",
     "tok",
+    "lit",
+    "regex",
+    "Text",
     "Parser",
     "CompiledParser",
     "longest",
@@ -596,7 +600,7 @@ class Parser[A, B]:
 
     @staticmethod
     def _made_leaf(name: str, run: Any, form: tuple[Any, ...]) -> Parser[Any, Any]:
-        """A parser of `funcparserlib.text` or `funcparserlib.binary`: a function and its form."""
+        """A parser of text or of `funcparserlib.binary`: a function and its form."""
         p: Parser[Any, Any] = Parser(run).named(name)
         p._leaf = True
         p._form = form
@@ -781,9 +785,9 @@ class Parser[A, B]:
     def parse_text(self, text: str) -> B:
         """Parse the text, with the line and column of the text in errors.
 
-        It is for a grammar that reads text: the parsers of `funcparserlib.text`, and `a()` and
-        `some()` of a character. A grammar of `tok()` reads tokens: give those to `Parser.parse()`,
-        or a tokenizer to `Parser.compile()`.
+        It is for a grammar that reads text: `lit()`, `regex()`, the parsers of a `Text`, and `a()`
+        and `some()` of a character. A grammar of `tok()` reads tokens: give those to
+        `Parser.parse()`, or a tokenizer to `Parser.compile()`.
 
         It raises what `Parser.parse()` raises, and `TypeError` for anything but a `str`.
         """
@@ -800,7 +804,7 @@ class Parser[A, B]:
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
 
-        It is for a grammar of the parsers of `funcparserlib.binary`, and raises what
+        It is experimental, as `funcparserlib.binary` is, whose grammars it runs. It raises what
         `Parser.parse()` raises, and `TypeError` for anything but `bytes` or a `bytearray`. Parsers
         read `bytes` methods and slices, so to parse a `memoryview`, make the copy with
         `bytes(view)`.
@@ -843,8 +847,8 @@ class Parser[A, B]:
         `many()` of a parser that matches no tokens.
 
         Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
-        in less memory still. A grammar that reads no `tok()`, such as one of `funcparserlib.text`
-        or `funcparserlib.binary`, needs no tokenizer.
+        in less memory still. A grammar that reads no `tok()`, such as one of `lit()` and `regex()`
+        or of `funcparserlib.binary`, needs no tokenizer.
 
         Given a `source_file`, the Python source of the generated functions is written there, and
         their frames report that file, so tracebacks, `pdb` and an IDE can show them. Given a
@@ -1708,7 +1712,7 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
     It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
     parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
     length that is negative or runs past the input fails where those bytes start. What `skip` of a
-    `funcparserlib.text` matches before `body` is not read for it.
+    `Text` matches before `body` is not read for it.
 
     Examples:
         ```pycon
@@ -2840,6 +2844,158 @@ def forward_decl() -> ForwardDeclParser[Any, Any]:
             ```
     """
     return ForwardDeclParser()
+
+
+@final
+class Text:
+    """Makes parsers of text, each skipping what `skip` matches after what it reads.
+
+    `skip` is a regex for what may sit between tokens, such as whitespace and comments, and it
+    matches as many times as it can. The text may start with it, for any first parser of the
+    grammar:
+    the first `skip` found in the grammar is read before parsing starts. Inside a token, such as a
+    string written as a grammar, use `regex()` and `lit()`, which skip nothing.
+
+    Raises `ValueError` for a `skip` that matches the empty string or cannot repeat.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.parser import Text, many
+        >>> spaced = Text(skip=r"\\s+")
+        >>> number = (spaced.regex(r"\\d+") >> int).named("number")
+        >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
+        >>> total.parse_text(" 1 + 2 ")
+        (1, [2])
+        >>> total.parse_text("1 +\\n  x")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: 2,3-2,3: got unexpected token: 'x', expected: number
+
+        ```
+    """
+
+    __slots__ = ("_skip",)
+
+    def __init__(self, skip: str | None = None, flags: int = 0) -> None:
+        """Make parsers that skip what the regex `skip`, with its `flags`, matches."""
+        self._skip: re.Pattern[str] | None = None
+        if skip is not None:
+            regex = re.compile(skip, flags)
+            if regex.match(""):
+                raise with_hint(
+                    ValueError(f"skip pattern {skip!r} matches the empty string"),
+                    "A skip pattern consumes at least one character: repeat with `+`.",
+                )
+            end = "\n" if regex.flags & re.VERBOSE else ""
+            try:
+                self._skip = re.compile(f"(?:{skip}{end})+", flags)
+            except re.error as e:
+                raise with_hint(
+                    ValueError(f"skip pattern {skip!r} cannot repeat: {e}"),
+                    "Pass a global flag such as `(?i)` as `flags` instead.",
+                ) from e
+
+    def _after_skip(self, text: str, pos: int) -> int:
+        if self._skip is not None and (m := self._skip.match(text, pos)):
+            return m.end()
+        return pos
+
+    def _reading(
+        self, name: str, read: Any, regex: re.Pattern[str] | None, value: str | None
+    ) -> Parser[str, str]:
+        def run(text: Any, s: State) -> ParsingResult[str]:
+            end = read(text, s.pos)
+            if end is None:
+                return ParsingFailure(s.expect(p))
+            return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
+
+        form = ("text", regex.match if regex else None, value, self._skip)
+        p: Parser[Any, str] = Parser._made_leaf(name, run, form)
+        return p
+
+    def regex(self, pattern: str, flags: int = 0) -> Parser[str, str]:
+        """A parser of the text the regex `pattern`, with its `flags`, matches.
+
+        Give it a name with `Parser.named()` for its errors. Raises `ValueError` for a pattern that
+        matches the empty string.
+        """
+        compiled = re.compile(pattern, flags)
+        if compiled.match(""):
+            raise with_hint(
+                ValueError(f"pattern {pattern!r} matches the empty string"),
+                "A match consumes at least one character: repeat with `+` rather than `*`.",
+            )
+
+        def read(text: str, start: int) -> int | None:
+            m = compiled.match(text, start)
+            return m.end() if m is not None and m.end() > start else None
+
+        return self._reading(f"/{pattern}/", read, compiled, None)
+
+    def lit(self, value: str) -> Parser[str, str]:
+        """A parser of the text `value`, which it reads where a longer word starts with it too.
+
+        To read a keyword, end the regex with a word boundary: `regex(r"if\\b")`. Raises
+        `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
+        """
+        if not isinstance(value, str):
+            raise with_hint(
+                TypeError(f"literal value must be a str, not {type(value).__name__}"),
+                "Pass the text to read, as `lit('if')`.",
+            )
+        if not value:
+            raise with_hint(
+                ValueError("literal value is empty"), "A literal consumes at least one character."
+            )
+
+        def read(text: str, start: int) -> int | None:
+            return start + len(value) if text.startswith(value, start) else None
+
+        return self._reading(repr(value), read, None, value)
+
+    @property
+    def end(self) -> Parser[str, None]:
+        """A parser that succeeds at the end of the text, past what `skip` matches."""
+
+        def run(text: Any, s: State) -> ParsingResult[None]:
+            start = self._after_skip(text, s.pos)
+            if start >= len(text):
+                return ParsingSuccess(None, s.reset_pos(start))
+            return ParsingFailure(s.expect(p))
+
+        p: Parser[Any, None] = Parser._made_leaf("end of input", run, ("text_end", self._skip))
+        return p
+
+
+_plain = Text()
+
+
+def regex(pattern: str, flags: int = 0) -> Parser[str, str]:
+    """A parser of the text the regex `pattern`, with its `flags`, matches, skipping nothing.
+
+    It gives the whole match. Give it a name with `Parser.named()` for its errors. Raises
+    `ValueError` for a pattern that matches the empty string.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.parser import finished, lit, regex
+        >>> number = regex(r"\\d+").named("number") >> int
+        >>> (number + -lit(".") + number + -finished).parse_text("1.25")
+        (1, 25)
+
+        ```
+    """
+    return _plain.regex(pattern, flags)
+
+
+def lit(value: str) -> Parser[str, str]:
+    """A parser of the text `value`, skipping nothing, which reads where a longer word starts with
+    it.
+
+    To read a keyword, end the regex with a word boundary: `regex(r"if\\b")`. Raises `ValueError`
+    for an empty `value`, and `TypeError` for anything but a `str`.
+    """
+    return _plain.lit(value)
 
 
 if __name__ == "__main__":

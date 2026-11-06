@@ -11,27 +11,28 @@ import pytest
 from hypothesis import assume, event, given, settings
 from hypothesis import strategies as st
 
-from funcparserlib import text as text_module
 from funcparserlib.lexer import LexerError, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
     ParsingSuccess,
+    Text,
     _Undecided,
     a,
     commit,
     finished,
     forward_decl,
+    lit,
     many,
     maybe,
     oneplus,
     pure,
+    regex,
     some,
     tok,
 )
 from funcparserlib.parser import longest as typed_longest
-from funcparserlib.text import Text
 from tests.rules import breakages, conversions, kept
 
 type P = Parser[Any, Any]
@@ -1063,7 +1064,7 @@ def test_the_skip_of_the_grammar_comes_before_a_first_parser_that_reads_space() 
 
 
 def test_the_module_functions_read_what_they_are_given_and_skip_nothing() -> None:
-    grammar = text_module.regex(r"\d+") + text_module.lit(";") + -finished
+    grammar = regex(r"\d+") + lit(";") + -finished
     assert grammar.parse_text("12;") == ("12", ";")
     assert grammar.compile().parse_text("12;") == ("12", ";")
     with pytest.raises(NoParseError, match="expected: ';'"):
@@ -1072,13 +1073,13 @@ def test_the_module_functions_read_what_they_are_given_and_skip_nothing() -> Non
 
 def test_the_module_functions_refuse_what_a_text_refuses() -> None:
     with pytest.raises(ValueError, match="matches the empty string"):
-        text_module.regex(r"\d*")
+        regex(r"\d*")
     with pytest.raises(ValueError, match="literal value is empty"):
-        text_module.lit("")
+        lit("")
 
 
 def test_only_a_text_with_skip_reads_past_what_it_skips_at_the_end() -> None:
-    word = text_module.regex(r"\w+")
+    word = regex(r"\w+")
     assert (word + -skipping.end).parse_text("a  ") == "a"
     with pytest.raises(NoParseError, match="expected: end of input"):
         (word + -finished).parse_text("a  ")

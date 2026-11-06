@@ -11,24 +11,24 @@ from typing import Any
 
 import pytest
 
-from funcparserlib import text
 from funcparserlib.parser import (
     Parser,
     ParsingFailure,
     ParsingResult,
     ParsingSuccess,
     State,
+    Text,
     a,
     commit,
     finished,
     forward_decl,
+    lit,
     many,
     maybe,
     oneplus,
     pure,
     some,
 )
-from funcparserlib.text import Text
 from tests.rules import kept, rejected
 from tests.test_text import outcome, shape
 
@@ -84,8 +84,8 @@ def without_tok(first: object, second: object) -> list[Callable[[], P]]:
 
 LEAVES: list[Callable[[], P]] = [
     lambda: skipping.regex("a"),
-    lambda: text.lit("b"),
-    lambda: -text.lit("a"),
+    lambda: lit("b"),
+    lambda: -lit("a"),
     *without_tok("a", "b"),
 ]
 BYTE_LEAVES = without_tok(ord("a"), ord("b"))
