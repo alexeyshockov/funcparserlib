@@ -889,13 +889,14 @@ class Parser[A, B]:
             write_source(path, source)
             return CompiledParser(self, None, None, fast_text, reads_tokens=False)
         fast_text, text_source = None, None
+        tokens_read = reads_tokens(self)
         if tokenizer is not None and tokenizer._pattern is not None:
             fast_text, text_source = compile_text(self, internals, tokenizer._scan, path)
-        elif tokenizer is None and not reads_tokens(self):
+        elif tokenizer is None and not tokens_read:
             fast_text, text_source = compile_text(self, internals, None, path)
         fast, source = compile_grammar(self, internals, path, line_after(text_source))
         write_source(path, text_source, source)
-        return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))
+        return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=tokens_read)
 
     @overload
     def recover(self, until: Parser[A, Any] | None = None) -> Parser[A, B | None]: ...
@@ -2853,24 +2854,34 @@ class Skipping:
 
     __slots__ = ("_skip",)
 
-    def __init__(self, pattern: str | None, flags: int = 0) -> None:
+    def __init__(self, pattern: str, flags: int = 0) -> None:
         """Make parsers that skip what the regex `pattern`, with its `flags`, matches."""
-        self._skip: re.Pattern[str] | None = None
-        if pattern is not None:
-            compiled = re.compile(pattern, flags)
-            if compiled.match(""):
-                raise with_hint(
-                    ValueError(f"skip pattern {pattern!r} matches the empty string"),
-                    "A skip pattern consumes at least one character: repeat with `+`.",
-                )
-            end = "\n" if compiled.flags & re.VERBOSE else ""
-            try:
-                self._skip = re.compile(f"(?:{pattern}{end})+", flags)
-            except re.error as e:
-                raise with_hint(
-                    ValueError(f"skip pattern {pattern!r} cannot repeat: {e}"),
-                    "Pass a global flag such as `(?i)` as `flags` instead.",
-                ) from e
+        if not isinstance(pattern, str):
+            raise with_hint(
+                TypeError(f"skip pattern must be a str, not {type(pattern).__name__}"),
+                "To skip nothing, use `regex()` and `lit()`.",
+            )
+        compiled = re.compile(pattern, flags)
+        if compiled.match(""):
+            raise with_hint(
+                ValueError(f"skip pattern {pattern!r} matches the empty string"),
+                "A skip pattern consumes at least one character: repeat with `+`.",
+            )
+        end = "\n" if compiled.flags & re.VERBOSE else ""
+        try:
+            self._skip: re.Pattern[str] | None = re.compile(f"(?:{pattern}{end})+", flags)
+        except re.error as e:
+            raise with_hint(
+                ValueError(f"skip pattern {pattern!r} cannot repeat: {e}"),
+                "Pass a global flag such as `(?i)` as `flags` instead.",
+            ) from e
+
+    @classmethod
+    def _nothing(cls) -> Skipping:
+        """The parsers of `regex()` and `lit()`, which skip nothing."""
+        plain = cls.__new__(cls)
+        plain._skip = None
+        return plain
 
     def _after_skip(self, text: str, pos: int) -> int:
         if self._skip is not None and (m := self._skip.match(text, pos)):
@@ -2953,7 +2964,8 @@ def skipping(pattern: str, flags: int = 0) -> Skipping:
     starts. Inside a token, such as a string written as a grammar, use `regex()` and `lit()`, which
     skip nothing.
 
-    Raises `ValueError` for a `pattern` that matches the empty string or cannot repeat.
+    Raises `ValueError` for a `pattern` that matches the empty string or cannot repeat, and
+    `TypeError` for anything but a `str`.
 
     Examples:
         ```pycon
@@ -2973,7 +2985,7 @@ def skipping(pattern: str, flags: int = 0) -> Skipping:
     return Skipping(pattern, flags)
 
 
-_plain = Skipping(None)
+_plain = Skipping._nothing()
 
 
 def regex(pattern: str, flags: int = 0) -> Parser[str, str]:

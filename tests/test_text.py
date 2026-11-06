@@ -1083,3 +1083,9 @@ def test_only_a_text_with_skip_reads_past_what_it_skips_at_the_end() -> None:
 def test_regex_and_a_skipping_regex_take_the_flags_of_the_regex() -> None:
     assert regex("a", re.IGNORECASE).parse_text("A") == "A"
     assert spaced.regex("a", re.IGNORECASE).parse_text("A") == "A"
+
+
+@pytest.mark.parametrize("pattern", [None, 1, b"x"])
+def test_a_skip_pattern_is_a_str(pattern: object) -> None:
+    with pytest.raises(TypeError, match="skip pattern must be a str"):
+        skipping(loose(pattern))

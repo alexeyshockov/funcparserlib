@@ -61,7 +61,7 @@ Measured on Python 3.12 on an arm64 laptop, CPU time, on 2 MB of the KDL benchma
 `examples/kdl.py` and `examples/kdl_text.py`, which has strings as grammar and `longest()` over five
 alternatives:
 
-| Run | Token grammar | Without a tokenizer |
+| Run | With a tokenizer | Without a tokenizer |
 | --- | ---: | ---: |
 | Interpreted | 3.09 s | 7.46 s |
 | `parse_text()`, compiled | 0.36 s | 0.54 s |
@@ -128,7 +128,7 @@ Rejected:
 - Nothing changes for existing grammars unless they opt in.
 - The library has two kinds of grammar to explain and test, and generated code for both.
 - Interpreted, a grammar without a tokenizer is slow, as its parsers cannot be fused as token tests are, and a failed
-  parse pays for it: such a grammar that often fails on large input wants `try_parse()`.
+  parse pays for it: a grammar that often fails on large input wants `try_parse()`.
 - `longest()` runs every alternative that can start with the character at the position, in generated code
   too.
 - A `skipping()` skips after what it reads, so the parser after one that skips nothing does not skip what
