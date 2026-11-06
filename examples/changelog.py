@@ -1,5 +1,8 @@
 """A Keep a Changelog parser that enforces the format's rules.
 
+Goal: fail a build when a changelog breaks a rule of the format, reporting every broken rule in one
+run.
+
 markdown-it-py tokenizes the Markdown, and a grammar reads its tokens: which headings there are, and
 in which order. What a heading says has a grammar of its own, of a version, a date and a kind of
 change, with no tokenizer. What sits under a heading is kept as text. `Parser.validated()` rejects

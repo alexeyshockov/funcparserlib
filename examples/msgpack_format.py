@@ -1,5 +1,7 @@
 """A MessagePack parser, written from the format specification.
 
+Goal: read a binary format from its specification alone, and give what its reference library gives.
+
 MessagePack is a binary format: every value starts with a byte that says its type, and often holds a
 length or a count that says what follows. The grammar is a table of those bytes. `b.fixed()` reads a
 number, `prefixed()` reads as many bytes as a length says, `counted()` as many values as a count

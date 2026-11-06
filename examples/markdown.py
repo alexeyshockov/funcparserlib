@@ -1,5 +1,8 @@
 """A Markdown parser: markdown-it-py tokenizes, funcparserlib builds a typed syntax tree.
 
+Goal: a typed tree on top of a tokenizer another library owns, which rejects what the tree does not
+cover.
+
 markdown-it-py turns Markdown into a flat stream of tokens, where a block is an `*_open` token, its
 contents and a matching `*_close` token, and each `inline` token carries the stream of its text as
 `children`. Those two streams are what the two grammars below read: the block grammar parses the

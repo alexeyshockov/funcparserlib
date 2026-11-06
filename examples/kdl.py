@@ -1,5 +1,7 @@
 """A KDL 2.0 parser: a regex tokenizer, and a grammar that follows the spec rule by rule.
 
+Goal: implement a whole language from its specification, with a tokenizer.
+
 The tokenizer keeps whitespace, because KDL needs it: a newline ends a node, and two arguments must
 have whitespace between them. The grammar reads those tokens and builds a tree of `Node`. Strings
 and numbers get their values in the `>>` functions of the grammar.

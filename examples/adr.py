@@ -1,5 +1,8 @@
 """A parser of architecture decision records in Nygard's format, and the rules across them.
 
+Goal: check that the decision records of a repository follow the format and each other, and report
+every problem in one run.
+
 markdown-it-py tokenizes the Markdown, and a grammar reads its tokens. Nygard's post names the parts
 of a record and leaves their Markdown open, so the grammar reads the ways records write them: a
 title as `0001 — Title`, `1. Title` or `ADR 1: Title`, and the status and the date as a list or as

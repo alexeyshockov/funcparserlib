@@ -1,4 +1,7 @@
-"""An arithmetic calculator: `+ - * /` over numbers, with parentheses."""
+"""An arithmetic calculator: `+ - * /` over numbers, with parentheses.
+
+Goal: the smallest whole program, from text to a value, with precedence in the grammar.
+"""
 
 from collections.abc import Callable
 from functools import reduce

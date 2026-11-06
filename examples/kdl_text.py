@@ -1,5 +1,8 @@
 """A KDL 2.0 parser that reads the text itself, without a tokenizer.
 
+Goal: show what leaving the tokenizer out changes for the same language: comments that nest, and
+errors with a place in any text.
+
 The grammar is `examples/kdl.py` with its lexical part written as parsers of the text: whitespace,
 comments and strings are rules, and what is not lexical (the tree, the values of strings and
 numbers) is imported from there. A `/* */` comment is a recursive rule, so it nests as deep as the

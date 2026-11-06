@@ -1,5 +1,8 @@
 """A YAML subset parser: ruamel.yaml scans, funcparserlib parses, a second pass resolves.
 
+Goal: keep the part of a format a grammar is bad at in the library that does it well, and write the
+rest as a grammar of its tokens.
+
 ruamel.yaml's scanner does the context-sensitive part of YAML: it turns indentation into block start
 and end tokens, reads every scalar style and marks each implicit key with a `KeyToken`. The grammar
 below reads that stream and builds a tree. `resolve()` then walks the tree in document order, which
