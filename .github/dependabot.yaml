@@ -9,3 +9,7 @@ updates:
     # dependabot-cooldown).
     cooldown:
       default-days: 7
+    # Every action bump of a run lands in one PR.
+    groups:
+      actions:
+        patterns: ["*"]

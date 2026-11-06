@@ -19,7 +19,7 @@ has beyond the shared ones below, and it is the authority where the two disagree
 
 | Channel | Pinned in | Bumped by |
 | --- | --- | --- |
-| GitHub Actions | `uses:` refs in `.github/workflows/` | Dependabot, monthly (7-day cooldown) |
+| GitHub Actions | `uses:` refs in `.github/workflows/` | Dependabot, monthly (7-day cooldown), one PR |
 | Linters/formatters | `rev:` in `.pre-commit-config.yaml` | maintained upstream; do not bump them here; `just frozen-revs` checks them |
 | Project deps (deptry, slotscheck in `lint`) | `uv.lock` | `just venv-upgrade` |
 | Dev tools | `tools/uv.lock`, constrained by `tools/pyproject.toml` | `just tools-upgrade` — `just pins` only *reports* |

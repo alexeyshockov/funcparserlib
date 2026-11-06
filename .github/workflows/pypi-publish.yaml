@@ -22,10 +22,10 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: astral-sh/setup-uv@v10.2.0
+      - uses: astral-sh/setup-uv@v10.3.3
         with:
           # No cache on the path to a release: a cache a lower-privileged PR run wrote must not
           # reach the artifacts (zizmor cache-poisoning). setup-uv defaults to "auto", so off.
@@ -42,7 +42,7 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
       - run: uv build --all-packages --no-sources
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -60,7 +60,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
