@@ -7,10 +7,10 @@ The `msgpack` group reads a MessagePack document with the `msgpack` package, as 
 as its Python fallback, and with the grammar of `examples/msgpack_format.py`, interpreted and
 compiled.
 
-funcparserlib runs the grammar four ways: a token grammar tokenizes and then parses, a text grammar
-reads the text directly, as parsy and pyparsing do, and each of the two also compiled. Each grammar
-is built once, before the timing. The `json` group compares the whole job; `bench_json_parse` in
-bench_grammars.py is funcparserlib's parsing half alone.
+funcparserlib runs the grammar four ways: a token grammar tokenizes and then parses, a grammar
+without a tokenizer reads the text directly, as parsy and pyparsing do, and each of the two also
+compiled. Each grammar is built once, before the timing. The `json` group compares the whole job;
+`bench_json_parse` in bench_grammars.py is funcparserlib's parsing half alone.
 """
 
 import json

@@ -1,4 +1,5 @@
-"""The JSON grammar of `tests/json.py` as a text grammar, for the comparison in bench_comparison.py.
+"""The JSON grammar of `tests/json.py` without a tokenizer, for the comparison in
+bench_comparison.py.
 
 `NUMBER`, `STRING`, `unescape()` and `number()` are those the parsy and pyparsing grammars use, so
 that the comparison measures the parsing.
@@ -7,9 +8,9 @@ that the comparison measures the parsing.
 from typing import Any
 
 from benchmarks._json_other import NUMBER, STRING, number, unescape
-from funcparserlib.parser import ForwardDeclParser, Parser, Text, forward_decl, many, maybe
+from funcparserlib.parser import ForwardDeclParser, Parser, forward_decl, many, maybe, skipping
 
-spaced = Text(skip=r"[ \t\r\n]+")
+spaced = skipping(r"[ \t\r\n]+")
 
 
 def _array(values: tuple[Any, list[Any]] | None) -> list[Any]:

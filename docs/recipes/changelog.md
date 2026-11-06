@@ -27,8 +27,8 @@ library is checked with it. The whole program is `examples/changelog.py`; every 
 ## Why a grammar
 
 markdown-it-py gives the Markdown: which lines are headings. The format is in what those headings say and in how they
-follow each other. So there are two grammars here. One reads the tokens of markdown-it-py, and a text grammar reads the
-text of a heading, because a version has a grammar of its own.
+follow each other. So there are two grammars here. One reads the tokens of markdown-it-py, and a grammar without a
+tokenizer reads the text of a heading, because a version has a grammar of its own.
 
 ## The tree
 
@@ -65,10 +65,10 @@ alternatives. Each grammar ends with `finished`, so a heading has to be all of i
 
 ## Reading the tokens
 
-`describe()` gives a token its line in the file, and `reading()` joins the two grammars: `Parser.validated()` runs a `Text`
-grammar on the text of an `inline` token. When that grammar fails the token is rejected, so an error is on the line of the
-file, `label` says what the heading should have been, and parsing goes on. `heading()` reads the source text, because
-`[1.0.0]` is a link when the file has a reference for it and plain text when it does not.
+`describe()` gives a token its line in the file, and `reading()` joins the two grammars: `Parser.validated()` runs a
+grammar without a tokenizer on the text of an `inline` token. When that grammar fails the token is rejected, so an error
+is on the line of the file, `label` says what the heading should have been, and parsing goes on. `heading()` reads the
+source text, because `[1.0.0]` is a link when the file has a reference for it and plain text when it does not.
 
 The grammar has no use for the Markdown under a heading, so `text_under()` takes every token up to the next heading it
 cares about, an image or a table included, and `####` under a kind of change stays text:

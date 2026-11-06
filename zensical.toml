@@ -26,7 +26,7 @@ nav = [
     { "Guides" = [
         { "Error Handling" = "guide/errors.md" },
         { "Performance" = "guide/performance.md" },
-        { "Parsing Without Tokens" = "guide/without-tokens.md" },
+        { "Parsing Without a Tokenizer" = "guide/without-a-tokenizer.md" },
     ] },
     { "Recipes" = [
         { "Overview" = "recipes/index.md" },

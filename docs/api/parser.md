@@ -69,29 +69,29 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 
 ```
 
-## Reading Text
+## Parsing Without a Tokenizer
 
-These parsers read text at the position the parsing has reached, without a list of tokens. A grammar of them asks for
+These parsers read text at the position the parsing has reached, with no tokenizer before them. A grammar of them asks for
 what makes sense where it is, so there is no list of token specs to keep in order, and what a piece of text means can
 depend on where it is. Its errors come from the grammar: they say what was expected, with the line and column of the
 text. Run it with `Parser.parse_text()`.
 
-`regex()` and `lit()` read exactly what they are given. A `Text` makes the same parsers, and each of them also skips what
-may sit between tokens, such as whitespace and comments.
+`regex()` and `lit()` read exactly what they are given. `skipping()` makes the same parsers, and each of them also skips
+what may sit between tokens, such as whitespace and comments.
 
 ::: funcparserlib.parser.regex
 
 ::: funcparserlib.parser.lit
 
-::: funcparserlib.parser.Text
+::: funcparserlib.parser.skipping
 
-::: funcparserlib.parser.Text.__init__
+::: funcparserlib.parser.Skipping
 
-::: funcparserlib.parser.Text.regex
+::: funcparserlib.parser.Skipping.regex
 
-::: funcparserlib.parser.Text.lit
+::: funcparserlib.parser.Skipping.lit
 
-::: funcparserlib.parser.Text.end
+::: funcparserlib.parser.Skipping.end
 
 ## Parser Combinators
 

@@ -1,4 +1,4 @@
-# Parsing Without Tokens
+# Parsing Without a Tokenizer
 
 In [Getting Started](../getting-started/index.md) we split the input into tokens and then parsed the tokens. This works
 well when a token is the same thing wherever it appears. Sometimes it isn't:
@@ -8,18 +8,18 @@ well when a token is the same thing wherever it appears. Sometimes it isn't:
 * You want an error inside a token, where a regex can only fail at its start
 
 For these cases you can leave the tokenizer out. The parsers read the text themselves, at the position the parsing has
-reached. We call this a **text grammar**, and a grammar that reads tokens a **token grammar**. Both are `Parser` objects
-and combine with the same operators.
+reached. This is a **grammar without a tokenizer**, and a grammar that reads tokens is a **token grammar**. Both are
+`Parser` objects and combine with the same operators.
 
-## A First Text Grammar
+## A First Grammar Without a Tokenizer
 
-Let's make the parsers with [`Text`](../api/parser.md#reading-text): `regex()` for a regex and `lit()` for a fixed
-string. `skip` is a regex for what may sit between two tokens, such as whitespace. Every parser skips it after what it
-reads, and the text may also start with it:
+Let's make the parsers with [`skipping()`](../api/parser.md#parsing-without-a-tokenizer): its pattern is a regex for what
+may sit between two tokens, such as whitespace. `regex()` reads a regex and `lit()` a fixed string, each parser skips the
+pattern after what it reads, and the text may also start with it:
 
 ```pycon
->>> from funcparserlib.parser import Text, many
->>> spaced = Text(skip=r"\s+")
+>>> from funcparserlib.parser import many, skipping
+>>> spaced = skipping(r"\s+")
 >>> number = (spaced.regex(r"\d+") >> int).named("number")
 >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
 >>> total.parse_text(" 1 + 2 + 3 ")
@@ -27,15 +27,15 @@ reads, and the text may also start with it:
 
 ```
 
-`Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what `skip` matches, and
+`Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what it skips, and
 `named()` gives a parser the name its errors use.
 
 The functions `regex()` and `lit()` of `funcparserlib.parser` skip nothing, which is what a token that has whitespace
-inside needs. Such a grammar ends with `finished`, as a token grammar does. The first `skip` found in the grammar is still
-read before parsing starts, so that a document can start with whitespace, even before a first parser that skips nothing:
-whitespace at the very start of the text never reaches a parser. Use the `Text` for the grammar, and the functions for the
-inside of a token. Open the string with a function, so that the whitespace after the quote belongs to the string, and
-close it with the `Text`, so that the whitespace after the string is skipped:
+inside needs. Such a grammar ends with `finished`, as a token grammar does. The first skip pattern found in the grammar
+is still read before parsing starts, so that a document can start with whitespace, even before a first parser that skips
+nothing: whitespace at the very start of the text never reaches a parser. Use `spaced` for the grammar, and the
+functions for the inside of a token. Open the string with a function, so that the whitespace after the quote belongs to
+the string, and close it with `spaced`, so that the whitespace after the string is skipped:
 
 ```pycon
 >>> from funcparserlib.parser import lit, regex
@@ -75,7 +75,8 @@ The functions after `>>` of every alternative run, so an alternative that has si
 
 ## Errors Inside a Token
 
-A text grammar says what it expected, with the line and column of the text. This is the failure of the grammar above:
+A grammar without a tokenizer says what it expected, with the line and column of the text. This is the failure of the
+grammar above:
 
 ```pycon
 >>> from funcparserlib.parser import NoParseError
@@ -135,10 +136,10 @@ level is indented by two spaces more, are the lines of a deeper `item()` after a
 
 ```
 
-## Compiling a Text Grammar
+## Compiling a Grammar Without a Tokenizer
 
-An interpreted text grammar is slower than a token grammar. Compiled, the two are close. A compiled grammar gives the
-same value and the same errors:
+Interpreted, a grammar without a tokenizer is slower than a token grammar. Compiled, the two are close. A compiled
+grammar gives the same value and the same errors:
 
 ```pycon
 >>> compiled = total.compile()
@@ -154,5 +155,5 @@ See [Performance](performance.md) for what compiling costs, and for `try_parse()
 
 Bytes are read the same way. The experimental [`funcparserlib.binary`](../api/binary.md) has the parsers of a byte grammar,
 `Parser.parse_bytes()` runs it, and `prefixed()`, `counted()` and `switch()` read what depends on a number just read: a
-length, a count, a type. A grammar of them compiles as a text grammar does. For a whole format, see
+length, a count, a type. A grammar of them compiles as a grammar of text does. For a whole format, see
 [Parsing MessagePack](../recipes/msgpack.md).

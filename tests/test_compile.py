@@ -26,15 +26,16 @@ from funcparserlib.parser import (
     ParsingFailure,
     ParsingSuccess,
     State,
-    Text,
     a,
     commit,
     finished,
     forward_decl,
+    lit,
     many,
     maybe,
     oneplus,
     pure,
+    skipping,
     some,
     tok,
 )
@@ -501,7 +502,7 @@ def test_a_source_file_holds_what_parse_runs_without_functions_for_text(tmp_path
 
 def test_a_source_file_holds_a_grammar_of_text(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
-    many(Text().lit("a")).compile(source_file=path)
+    many(lit("a")).compile(source_file=path)
     assert "T.startswith('a'" in source_of(path)
 
 
@@ -1094,7 +1095,7 @@ def test_a_match_of_a_regex_starts_with_one_of_its_first_characters(
 
 
 def test_a_repeated_parser_that_matches_nothing_raises_as_the_interpreted_parser_does() -> None:
-    spaced = Text(skip=r"\s+")
+    spaced = skipping(r"\s+")
     grammar: ForwardDeclParser[str, Any] = forward_decl()
     grammar.define(spaced.regex("a") + maybe(many(many(spaced.regex("a"))) + grammar))
     with pytest.raises(ValueError, match="matched no tokens inside many"):

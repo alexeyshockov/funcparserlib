@@ -44,7 +44,7 @@ with `until` it also takes a failure past the first token. A grammar that wants 
 says what that value is, with a type of its own if it wants, so `int | Broken` admits what it holds.
 
 A `NoParseError` or `ParseErrors` from `f` rejects the value too, so `f` can run another grammar on a value:
-a text grammar on the text of a markdown-it token, a token grammar on the children of one. `expected` is
+a grammar without a tokenizer on the text of a markdown-it token, a token grammar on the children of one. `expected` is
 then the label of the error, which is on the position of the outer grammar, and the inner error is its
 `__cause__`.
 

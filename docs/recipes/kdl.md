@@ -178,9 +178,10 @@ error.
 
 ## Without a tokenizer
 
-`examples/kdl_text.py` parses the same language with no tokenizer: the grammar reads the text through the
-[text parsers](../api/parser.md#reading-text), and the tree, the string functions and the number functions are the ones
-above. The sections of [Parsing Without Tokens](../guide/without-tokens.md) explain each tool; here is what changes.
+`examples/kdl_text.py` parses the same language with no tokenizer: the grammar reads the text through the [parsers for
+that](../api/parser.md#parsing-without-a-tokenizer), and the tree, the string functions and the number functions are the
+ones above. The sections of [Parsing Without a Tokenizer](../guide/without-a-tokenizer.md) explain each tool; here is
+what changes.
 
 Whitespace and comments become rules. KDL keeps its whitespace significant, so its parsers skip nothing. A `/* */`
 comment is a recursive rule, so the limit of 8 levels is gone:
@@ -204,8 +205,8 @@ and `multiline` are alternatives of `longest()`, which keeps the longer match, s
 --8<-- "examples/kdl_text.py:strings"
 ```
 
-The rest of the grammar is the grammar above with text parsers for the `ws`, `nl` and `op` tokens. A parser that takes
-text takes a `str`, so `dropped()` and `separated()` are typed for that:
+The rest of the grammar is the grammar above with parsers of the text for the `ws`, `nl` and `op` tokens. A parser that
+takes text takes a `str`, so `dropped()` and `separated()` are typed for that:
 
 ```python
 --8<-- "examples/kdl_text.py:grammar"

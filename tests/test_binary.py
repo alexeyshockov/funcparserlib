@@ -17,18 +17,20 @@ from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
-    Text,
     _Undecided,
     a,
     commit,
     counted,
     finished,
     forward_decl,
+    lit,
     many,
     maybe,
     oneplus,
     prefixed,
     pure,
+    regex,
+    skipping,
     some,
     switch,
     tok,
@@ -45,8 +47,7 @@ def longest(*parsers: P) -> P:
     return typed_longest(*parsers)
 
 
-plain = Text()
-skipping = Text(skip=r"\s+")
+spaced = skipping(r"\s+")
 
 
 class Mask(IntFlag):
@@ -838,17 +839,17 @@ def test_a_region_recovers_with_the_rest_of_the_input(run: Runner) -> None:
     assert all(str(e).endswith("expected: b'x'") for e in errors)
 
 
-# prefixed(), counted() and switch() over Text and tokens
+# prefixed(), counted() and switch() over text and tokens
 
 
-number = plain.regex(r"\d+") >> int
+number = regex(r"\d+") >> int
 
 
 def test_prefixed_over_text_reads_as_many_characters() -> None:
     assert plain_run(prefixed(number), "3abcd") == "abc"
-    assert plain_run(prefixed(number, plain.regex(r"\w+")), "3abcd") == "abc"
+    assert plain_run(prefixed(number, regex(r"\w+")), "3abcd") == "abc"
     assert plain_run(prefixed(number), "0abcd") == ""
-    assert plain_run(prefixed(number, many(plain.regex("[a-z]"))), "3abcd") == ["a", "b", "c"]
+    assert plain_run(prefixed(number, many(regex("[a-z]"))), "3abcd") == ["a", "b", "c"]
 
 
 def plain_run(grammar: P, text: str) -> Any:
@@ -893,20 +894,17 @@ def fast_text(grammar: P, text: str, tokenizer: Any = None) -> tuple[Any, int]:
 
 
 def test_generated_code_parses_prefixed_counted_and_switch_over_text() -> None:
-    letters = plain.regex("[a-z]")
+    letters = regex("[a-z]")
     assert fast_text(prefixed(number), "3abcd") == ("abc", 4)
-    assert fast_text(prefixed(number, plain.regex(r"\w+")), "3abcd") == ("abc", 4)
+    assert fast_text(prefixed(number, regex(r"\w+")), "3abcd") == ("abc", 4)
     assert fast_text(prefixed(number, many(letters)), "3abcd") == (["a", "b", "c"], 4)
     assert fast_text(counted(number, letters), "3abcd") == (["a", "b", "c"], 4)
-    assert fast_text(switch(letters, {"a": plain.regex("1"), "b": plain.regex("2")}), "b2") == (
-        "2",
-        2,
-    )
+    assert fast_text(switch(letters, {"a": regex("1"), "b": regex("2")}), "b2") == ("2", 2)
     assert fast_text(switch(number, {range(1, 3): letters}), "2a") == ("a", 2)
 
 
 def test_generated_code_rejects_prefixed_counted_and_switch_over_text() -> None:
-    letters = plain.regex("[a-z]")
+    letters = regex("[a-z]")
     for grammar, text in (
         (prefixed(number), "9abc"),
         (prefixed(number, letters), "3abcd"),
@@ -933,34 +931,31 @@ def test_a_prefixed_over_tokens_stays_with_the_tokens_of_a_tokenizer() -> None:
 
 
 def test_a_body_over_text_sees_the_region_as_its_whole_input() -> None:
-    message = text_message(prefixed(number, plain.regex("[a-z]")), "3abcd")
+    message = text_message(prefixed(number, regex("[a-z]")), "3abcd")
     assert message.startswith("1,3-1,3: bytes left in the region: ")
-    assert plain_run(prefixed(number, plain.regex("[a-z]+") + plain.end), "3abcd") == ("abc", None)
+    assert plain_run(prefixed(number, regex("[a-z]+") + finished), "3abcd") == ("abc", None)
 
 
 def test_text_in_a_region_does_not_match_past_it() -> None:
-    assert plain_run(prefixed(number, plain.regex(r"a+")), "2aaaa") == "aa"
-    assert plain_run(prefixed(number, plain.regex(r"a+")) + plain.regex("a+"), "2aaaa") == (
-        "aa",
-        "aa",
-    )
+    assert plain_run(prefixed(number, regex(r"a+")), "2aaaa") == "aa"
+    assert plain_run(prefixed(number, regex(r"a+")) + regex("a+"), "2aaaa") == ("aa", "aa")
 
 
 def test_a_text_with_skip_in_a_region() -> None:
-    grammar = prefixed(skipping.regex(r"\d+") >> int, many(skipping.regex("[a-z]")))
+    grammar = prefixed(spaced.regex(r"\d+") >> int, many(spaced.regex("[a-z]")))
     assert plain_run(grammar, "5 a b c d") == ["a", "b", "c"]
 
 
 def test_counted_over_text() -> None:
-    assert plain_run(counted(number, plain.regex("[a-z]")), "3abcd") == ["a", "b", "c"]
-    assert plain_run(counted(number, plain.regex("[a-z]")), "0abcd") == []
-    assert text_message(counted(number, plain.regex("[a-z]")), "3ab1") == (
+    assert plain_run(counted(number, regex("[a-z]")), "3abcd") == ["a", "b", "c"]
+    assert plain_run(counted(number, regex("[a-z]")), "0abcd") == []
+    assert text_message(counted(number, regex("[a-z]")), "3ab1") == (
         "1,4-1,4: got unexpected token: '1', expected: /[a-z]/"
     )
 
 
 def test_switch_over_text_with_keys_of_strings() -> None:
-    grammar = switch(plain.regex("[a-z]"), {"a": plain.regex("1"), "b": plain.regex("2")})
+    grammar = switch(regex("[a-z]"), {"a": regex("1"), "b": regex("2")})
     assert plain_run(grammar, "a1") == "1"
     assert plain_run(grammar, "b2") == "2"
     assert text_message(grammar, "c2") == (
@@ -970,7 +965,7 @@ def test_switch_over_text_with_keys_of_strings() -> None:
 
 
 def test_switch_over_text_with_a_range_of_values_read_as_numbers() -> None:
-    grammar = switch(number, {range(1, 3): plain.regex("a"), 5: plain.regex("b")})
+    grammar = switch(number, {range(1, 3): regex("a"), 5: regex("b")})
     assert plain_run(grammar, "2a") == "a"
     assert plain_run(grammar, "5b") == "b"
     assert text_message(grammar, "3a").startswith("1,1-1,1: got unexpected token")
@@ -982,15 +977,13 @@ class Letter(StrEnum):
 
 
 def test_switch_with_a_str_enum_key_is_found_by_its_value() -> None:
-    grammar = switch(plain.regex("[a-z]"), {Letter.A: plain.regex("1"), Letter.B: plain.regex("2")})
+    grammar = switch(regex("[a-z]"), {Letter.A: regex("1"), Letter.B: regex("2")})
     assert plain_run(grammar, "a1") == "1"
     assert plain_run(grammar, "b2") == "2"
 
 
 def test_switch_with_a_str_enum_value_gives_the_enum_member_a_str_key_matches() -> None:
-    members = switch(
-        plain.regex("[a-z]") >> Letter, loose({"a": plain.regex("1"), Letter.B: plain.regex("2")})
-    )
+    members = switch(regex("[a-z]") >> Letter, loose({"a": regex("1"), Letter.B: regex("2")}))
     assert plain_run(members, "a1") == "1"
     assert plain_run(members, "b2") == "2"
 
@@ -1819,7 +1812,7 @@ def test_recover_gives_up_where_until_is_never_found(run: Runner) -> None:
 
 
 def test_text_parsers_on_bytes_raise_what_re_raises() -> None:
-    for grammar in (plain.regex("a"), plain.lit("a"), plain.regex("a") + plain.end):
+    for grammar in (regex("a"), lit("a"), regex("a") + finished):
         for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
             with pytest.raises(TypeError):
                 parse(b"a")

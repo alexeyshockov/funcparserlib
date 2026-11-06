@@ -17,7 +17,6 @@ from funcparserlib.parser import (
     ParsingResult,
     ParsingSuccess,
     State,
-    Text,
     a,
     commit,
     finished,
@@ -27,6 +26,7 @@ from funcparserlib.parser import (
     maybe,
     oneplus,
     pure,
+    skipping,
     some,
 )
 from tests.rules import kept, rejected
@@ -34,7 +34,7 @@ from tests.test_text import outcome, shape
 
 P = Parser[Any, Any]
 
-skipping = Text(skip=r"\s+")
+spaced = skipping(r"\s+")
 # The walk in parts, for the workers of a parallel run.
 SHARDS = 8
 TEXTS = ["".join(chars) for size in range(4) for chars in product("ab", repeat=size)]
@@ -54,7 +54,7 @@ def short(value: object) -> bool:
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
-    declared.define(skipping.regex("a") + maybe(body + declared))
+    declared.define(spaced.regex("a") + maybe(body + declared))
     return declared
 
 
@@ -83,7 +83,7 @@ def without_tok(first: object, second: object) -> list[Callable[[], P]]:
 
 
 LEAVES: list[Callable[[], P]] = [
-    lambda: skipping.regex("a"),
+    lambda: spaced.regex("a"),
     lambda: lit("b"),
     lambda: -lit("a"),
     *without_tok("a", "b"),

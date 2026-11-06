@@ -15,8 +15,8 @@ from funcparserlib.parser import (
     Parser,
     ParsingResult,
     ParsingSuccess,
+    Skipping,
     State,
-    Text,
     Tuple2Parser,
     Tuple3Parser,
     Tuple4Parser,
@@ -33,6 +33,7 @@ from funcparserlib.parser import (
     prefixed,
     regex,
     skip,
+    skipping,
     switch,
     tok,
 )
@@ -114,10 +115,11 @@ _ = assert_type(-x + -finished, IgnoredParser[str])
 _ = assert_type(-finished + x, Parser[str, str])
 _ = assert_type(x + finished, Tuple2Parser[str, str, None])
 
-# Text parsers read `str` and give the text they matched; `end` gives nothing.
-spaced = Text(skip=r"\s+")
+# Parsers of text read `str` and give the text they matched; `end` gives nothing.
+spaced = skipping(r"\s+")
 _ = assert_type(spaced.regex("a"), Parser[str, str])
 _ = assert_type(spaced.lit("a"), Parser[str, str])
+_ = assert_type(skipping(r"\s+"), Skipping)
 _ = assert_type(spaced.end, Parser[str, None])
 _ = assert_type(spaced.regex("a") + -spaced.end, Parser[str, str])
 _ = assert_type(spaced.regex("a") + spaced.lit("b"), Tuple2Parser[str, str, str])

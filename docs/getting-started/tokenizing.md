@@ -103,4 +103,4 @@ We have tokenized a numeric expression string into a list of tokens.
 In [the next chapter](parsing.md) you will learn how to parse these tokens by defining a grammar for our numeric
 expressions language.
 
-A grammar can also read the text itself, with no tokenizer: see [Parsing Without Tokens](../guide/without-tokens.md).
+A grammar can also read the text itself, with no tokenizer: see [Parsing Without a Tokenizer](../guide/without-a-tokenizer.md).

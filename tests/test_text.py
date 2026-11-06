@@ -1,5 +1,5 @@
-"""`Text` grammars, `longest()` and `CompiledParser.try_parse()`: compiled code parses as the
-parser.
+"""Grammars without a tokenizer, `longest()` and `CompiledParser.try_parse()`: compiled code parses
+as the parser.
 """
 
 import re
@@ -11,13 +11,13 @@ import pytest
 from hypothesis import assume, event, given, settings
 from hypothesis import strategies as st
 
+from funcparserlib import parser as parser_module
 from funcparserlib.lexer import LexerError, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
     ParsingSuccess,
-    Text,
     _Undecided,
     a,
     commit,
@@ -29,6 +29,7 @@ from funcparserlib.parser import (
     oneplus,
     pure,
     regex,
+    skipping,
     some,
     tok,
 )
@@ -44,9 +45,8 @@ def longest(*parsers: P) -> P:
     return typed_longest(*parsers)
 
 
-skipping = Text(skip=r"\s+")
-plain = Text()
-comments = Text(skip=r"(?:\s|#[^\n]*)+")
+spaced = skipping(r"\s+")
+comments = skipping(r"(?:\s|#[^\n]*)+")
 
 
 def interpreted(grammar: P, text: str) -> Any:
@@ -96,7 +96,7 @@ def outcome(parse: Callable[[str], Any], text: str) -> tuple[object, ...]:
         return (type(e), str(e))
 
 
-# The grammars of the property: Text parsers that skip, Text parsers that do not, in one grammar.
+# The grammars of the property: parsers that skip and parsers that do not, in one grammar.
 
 
 def same(value: object) -> object:
@@ -117,29 +117,29 @@ def short(value: object) -> bool:
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
-    declared.define(skipping.regex("a") + maybe(body + declared))
+    declared.define(spaced.regex("a") + maybe(body + declared))
     return declared
 
 
 leaves: st.SearchStrategy[P] = st.sampled_from(
     [
-        skipping.regex("a"),
-        skipping.regex("a+"),
-        skipping.regex("[ab]"),
-        skipping.lit("ab"),
-        skipping.regex("a|(?=b)"),
-        skipping.lit("b"),
-        plain.regex("[ab]"),
-        plain.regex(" +"),
-        plain.regex("[^a]+"),
-        plain.regex("(?i:A)b?"),
-        plain.regex(r"\w+"),
-        plain.lit("a"),
-        plain.lit("\n"),
-        skipping.end,
-        plain.end,
-        -skipping.regex("b"),
-        skipping.regex("a") >> str.upper,
+        spaced.regex("a"),
+        spaced.regex("a+"),
+        spaced.regex("[ab]"),
+        spaced.lit("ab"),
+        spaced.regex("a|(?=b)"),
+        spaced.lit("b"),
+        regex("[ab]"),
+        regex(" +"),
+        regex("[^a]+"),
+        regex("(?i:A)b?"),
+        regex(r"\w+"),
+        lit("a"),
+        lit("\n"),
+        spaced.end,
+        finished,
+        -spaced.regex("b"),
+        spaced.regex("a") >> str.upper,
         pure("p"),
     ]
 )
@@ -165,7 +165,7 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(lambda k: k.context("label")),
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
-        kids.map(lambda k: k + -skipping.end),
+        kids.map(lambda k: k + -spaced.end),
         *conversions(kids, wrap),
     )
 
@@ -248,32 +248,32 @@ def test_try_parse_gives_the_value_or_none_where_parse_text_raises(
 
 
 def test_longest_keeps_the_longest_match(run: Runner) -> None:
-    grammar = longest(skipping.lit("a"), skipping.lit("ab"), skipping.lit("abc"))
-    assert run(grammar + -skipping.end, "ab") == "ab"
+    grammar = longest(spaced.lit("a"), spaced.lit("ab"), spaced.lit("abc"))
+    assert run(grammar + -spaced.end, "ab") == "ab"
     assert run(grammar, "abc") == "abc"
 
 
 def test_longest_keeps_the_first_of_matches_that_tie(run: Runner) -> None:
-    first = skipping.regex("a+") >> (lambda s: ("first", s))
-    second = skipping.lit("aa") >> (lambda s: ("second", s))
+    first = spaced.regex("a+") >> (lambda s: ("first", s))
+    second = spaced.lit("aa") >> (lambda s: ("second", s))
     assert run(longest(first, second), "aa") == ("first", "aa")
     assert run(longest(second, first), "aa") == ("second", "aa")
 
 
 @pytest.mark.parametrize("flip", [False, True])
 def test_longest_does_not_depend_on_the_order_of_its_parsers(run: Runner, flip: bool) -> None:
-    parsers = [skipping.lit("x"), skipping.lit("x") + skipping.lit("y")]
+    parsers = [spaced.lit("x"), spaced.lit("x") + spaced.lit("y")]
     grammar = longest(*reversed(parsers) if flip else parsers)
     assert run(grammar, "x y") == ("x", "y")
 
 
 def test_longest_ends_after_what_the_longest_skips(run: Runner) -> None:
-    grammar = longest(skipping.lit("a"), skipping.lit("a") + skipping.lit("b"))
-    assert run(grammar + skipping.end, "a b  ") == ("a", "b", None)
+    grammar = longest(spaced.lit("a"), spaced.lit("a") + spaced.lit("b"))
+    assert run(grammar + spaced.end, "a b  ") == ("a", "b", None)
 
 
 def test_a_failed_longest_names_every_alternative(run: Runner) -> None:
-    grammar = longest(skipping.lit("a"), skipping.lit("b"), skipping.regex("c+").named("cs"))
+    grammar = longest(spaced.lit("a"), spaced.lit("b"), spaced.regex("c+").named("cs"))
     assert (
         message(run, grammar, " d")
         == "1,2-1,2: got unexpected token: 'd', expected: 'a' or 'b' or cs"
@@ -283,31 +283,31 @@ def test_a_failed_longest_names_every_alternative(run: Runner) -> None:
 def test_a_failed_longest_names_what_the_alternative_that_got_furthest_expected(
     run: Runner,
 ) -> None:
-    grammar = longest(skipping.lit("a") + skipping.lit("b"), skipping.lit("c"))
+    grammar = longest(spaced.lit("a") + spaced.lit("b"), spaced.lit("c"))
     assert message(run, grammar, "ax") == "1,2-1,2: got unexpected token: 'x', expected: 'b'"
 
 
 def test_a_committed_failure_in_longest_is_final(run: Runner) -> None:
-    grammar = longest(commit(skipping.lit("a") + skipping.lit("b")), skipping.lit("a"))
+    grammar = longest(commit(spaced.lit("a") + spaced.lit("b")), spaced.lit("a"))
     assert message(run, grammar, "ac") == "1,2-1,2: got unexpected token: 'c', expected: 'b'"
     assert run(grammar, "ab") == ("a", "b")
 
 
 def test_a_committed_failure_after_a_longest_is_final(run: Runner) -> None:
-    grammar = longest(skipping.lit("a"), skipping.lit("a") + skipping.lit("b"))
-    grammar = commit(grammar + skipping.lit("c")) | skipping.lit("a")
+    grammar = longest(spaced.lit("a"), spaced.lit("a") + spaced.lit("b"))
+    grammar = commit(grammar + spaced.lit("c")) | spaced.lit("a")
     assert message(run, grammar, "abx") == "1,3-1,3: got unexpected token: 'x', expected: 'c'"
 
 
 def test_a_rule_on_an_alternative_that_lost_is_forgotten(run: Runner) -> None:
-    lost = skipping.regex("a").validated(kept(lambda _: False, "lost"))
-    assert run(longest(lost, skipping.regex("ab")), "ab") == "ab"
-    assert run(longest(skipping.regex("ab"), lost), "ab") == "ab"
+    lost = spaced.regex("a").validated(kept(lambda _: False, "lost"))
+    assert run(longest(lost, spaced.regex("ab")), "ab") == "ab"
+    assert run(longest(spaced.regex("ab"), lost), "ab") == "ab"
 
 
 def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
-    won = skipping.regex("ab").validated(kept(lambda _: False, "won"))
-    lost = skipping.regex("a").validated(kept(lambda _: False, "lost"))
+    won = spaced.regex("ab").validated(kept(lambda _: False, "won"))
+    lost = spaced.regex("a").validated(kept(lambda _: False, "lost"))
     assert message(run, longest(lost, won), "ab") == "1,1-1,2: won"
 
 
@@ -315,8 +315,8 @@ def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
 def test_the_function_after_arrows_of_each_alternative_runs() -> None:
     seen: list[str] = []
     grammar = longest(
-        skipping.lit("a") >> (lambda s: seen.append("short") or s),
-        skipping.lit("ab") >> (lambda s: seen.append("long") or s),
+        spaced.lit("a") >> (lambda s: seen.append("short") or s),
+        spaced.lit("ab") >> (lambda s: seen.append("long") or s),
     )
     assert grammar.parse_text("ab") == "ab"
     assert seen == ["short", "long"]
@@ -328,7 +328,7 @@ def test_the_function_after_arrows_of_each_alternative_runs() -> None:
 @pytest.mark.parametrize("count", [0, 1])
 def test_longest_of_fewer_than_two_parsers_raises(count: int) -> None:
     with pytest.raises(ValueError, match="at least two parsers"):
-        longest(*[skipping.lit("a")][:count])
+        longest(*[spaced.lit("a")][:count])
 
 
 def test_longest_of_tokens_keeps_the_longest_match() -> None:
@@ -358,21 +358,21 @@ def test_longest_of_tokens_names_every_alternative() -> None:
 
 
 def test_leading_and_trailing_skip_is_read(run: Runner) -> None:
-    grammar = skipping.regex(r"\d+") + -skipping.end
+    grammar = spaced.regex(r"\d+") + -spaced.end
     assert run(grammar, " \n 12 \t\n") == "12"
 
 
 def test_text_of_only_skip_is_the_end_of_input(run: Runner) -> None:
-    assert run(skipping.end, " \n\t ") is None
-    assert run(skipping.end, "") is None
-    assert message(run, skipping.regex("a"), " \n ") == (
+    assert run(spaced.end, " \n\t ") is None
+    assert run(spaced.end, "") is None
+    assert message(run, spaced.regex("a"), " \n ") == (
         "1,1-1,1: got unexpected end of input, expected: /a/"
     )
 
 
 def test_skip_before_end_of_input_is_read(run: Runner) -> None:
-    assert run(skipping.lit("a") + skipping.end, "a   \n") == ("a", None)
-    assert message(run, skipping.lit("a") + skipping.end, "a   b") == (
+    assert run(spaced.lit("a") + spaced.end, "a   \n") == ("a", None)
+    assert message(run, spaced.lit("a") + spaced.end, "a   b") == (
         "1,5-1,5: got unexpected token: 'b', expected: end of input"
     )
 
@@ -384,51 +384,49 @@ def test_a_skip_that_matches_comments_skips_them_between_tokens(run: Runner) -> 
 
 
 def test_skip_matches_as_many_times_as_it_can(run: Runner) -> None:
-    repeated = Text(skip=r"\s|#[^\n]*")
+    repeated = skipping(r"\s|#[^\n]*")
     grammar = repeated.regex("a") + repeated.regex("b")
     assert run(grammar, "a b") == ("a", "b")
     assert run(grammar, "a  # c\n  b") == ("a", "b")
 
 
 def test_skip_of_a_verbose_pattern_ending_in_a_comment_repeats(run: Runner) -> None:
-    verbose = Text(skip=r"\s  # whitespace", flags=re.VERBOSE)
+    verbose = skipping(r"\s  # whitespace", flags=re.VERBOSE)
     assert run(verbose.regex("a") + verbose.regex("b"), "a  \n b") == ("a", "b")
 
 
 def test_a_text_without_skip_reads_whitespace_as_text(run: Runner) -> None:
-    assert message(run, plain.regex("a") + plain.regex("b"), "a b") == (
+    assert message(run, regex("a") + regex("b"), "a b") == (
         "1,2-1,2: got unexpected token: ' ', expected: /b/"
     )
-    assert (
-        message(run, plain.regex("a"), " a") == "1,1-1,1: got unexpected token: ' ', expected: /a/"
-    )
-    assert run(plain.regex("a") + plain.regex(" ") + plain.end, "a ") == ("a", " ", None)
+    assert message(run, regex("a"), " a") == "1,1-1,1: got unexpected token: ' ', expected: /a/"
+    assert run(regex("a") + regex(" ") + finished, "a ") == ("a", " ", None)
 
 
-def quoted(text: Text) -> P:
+def quoted(text: Any) -> P:
     """A string written as a grammar: a quote, characters, a quote."""
     chars = many(text.regex(r'[^"\\]+') | text.regex(r"\\."))
     return (-text.lit('"') + chars + -text.lit('"')) >> "".join
 
 
 def test_a_string_grammar_of_a_text_without_skip_keeps_its_whitespace(run: Runner) -> None:
-    assert run(quoted(plain), '" a  b\\n\\" "') == ' a  b\\n\\" '
+    assert run(quoted(parser_module), '" a  b\\n\\" "') == ' a  b\\n\\" '
 
 
 def test_a_string_grammar_of_a_skipping_text_loses_the_whitespace_after_its_quote(
     run: Runner,
 ) -> None:
-    assert run(quoted(skipping), '"  a  b "') == "a  b "
+    assert run(quoted(spaced), '"  a  b "') == "a  b "
 
 
 def test_the_end_skips_what_a_text_without_skip_left(run: Runner) -> None:
-    string = -plain.lit('"') + plain.regex('[^"]+') + -plain.lit('"') + -skipping.end
+    string = -lit('"') + regex('[^"]+') + -lit('"') + -spaced.end
     assert run(string, '"a b"') == "a b"
     assert run(string, '"a b"  ') == "a b"
 
 
 def test_an_error_inside_a_string_grammar_names_what_it_expected(run: Runner) -> None:
-    grammar = quoted(plain).named("string") + -plain.end
+    grammar = quoted(parser_module).named("string") + -finished
     assert message(run, grammar, '"ab') == (
         "1,4-1,4: got unexpected end of input, expected: /[^\"\\\\]+/ or /\\\\./ or '\"'"
     )
@@ -437,28 +435,28 @@ def test_an_error_inside_a_string_grammar_names_what_it_expected(run: Runner) ->
 @pytest.mark.parametrize("pattern", [r"\s*", r"", r"(?:)", r"x?"])
 def test_a_skip_that_matches_the_empty_string_raises(pattern: str) -> None:
     with pytest.raises(ValueError, match="matches the empty string"):
-        Text(skip=pattern)
+        skipping(pattern)
 
 
 @pytest.mark.parametrize("pattern", [r"a*", r"", r"x?"])
 def test_a_token_that_matches_the_empty_string_raises(pattern: str) -> None:
     with pytest.raises(ValueError, match="matches the empty string"):
-        skipping.regex(pattern)
+        spaced.regex(pattern)
 
 
 def test_an_empty_literal_raises() -> None:
     with pytest.raises(ValueError, match="literal value is empty"):
-        skipping.lit("")
+        spaced.lit("")
 
 
 def test_a_literal_is_text() -> None:
     with pytest.raises(TypeError, match="literal value must be a str, not int") as caught:
-        skipping.lit(loose(5))
+        spaced.lit(loose(5))
     assert caught.value.__notes__
 
 
 def test_flags_apply_to_the_skip_and_to_a_token() -> None:
-    loud = Text(skip=r"x+", flags=re.IGNORECASE)
+    loud = skipping(r"x+", flags=re.IGNORECASE)
     grammar = loud.regex("a", re.IGNORECASE) + loud.regex("b")
     assert grammar.parse_text("XxAXXb") == ("A", "b")
     assert grammar.compile().parse_text("XxAXXb") == ("A", "b")
@@ -467,14 +465,14 @@ def test_flags_apply_to_the_skip_and_to_a_token() -> None:
 def test_a_token_pattern_that_matches_the_empty_string_at_a_position_fails_there(
     run: Runner,
 ) -> None:
-    grammar = skipping.regex(r"a|(?=b)")
+    grammar = spaced.regex(r"a|(?=b)")
     assert run(grammar, "a") == "a"
     assert message(run, grammar, "b") == "1,1-1,1: got unexpected token: 'b', expected: /a|(?=b)/"
 
 
 def test_what_the_alternatives_of_longest_expected_is_in_the_error_after_it(run: Runner) -> None:
-    grammar = longest(skipping.lit("a"), skipping.lit("a") + skipping.lit("b"))
-    assert message(run, grammar + skipping.lit("c"), "ax") == (
+    grammar = longest(spaced.lit("a"), spaced.lit("a") + spaced.lit("b"))
+    assert message(run, grammar + spaced.lit("c"), "ax") == (
         "1,2-1,2: got unexpected token: 'x', expected: 'b' or 'c'"
     )
 
@@ -482,14 +480,14 @@ def test_what_the_alternatives_of_longest_expected_is_in_the_error_after_it(run:
 @pytest.mark.parametrize(
     ("grammar", "text", "value"),
     [
-        (skipping.end, "", None),
-        (skipping.end, " \n ", None),
-        (many(skipping.regex("a")) + -skipping.end, "  ", []),
-        (many(skipping.regex("a")) + -skipping.end, "", []),
-        (maybe(skipping.regex("a")) + -skipping.end, "\n", None),
-        (skipping.regex("a") + -skipping.end, " a \n", "a"),
-        (skipping.regex("a") + skipping.end, "a", ("a", None)),
-        (skipping.regex("a") | skipping.end, "  ", None),
+        (spaced.end, "", None),
+        (spaced.end, " \n ", None),
+        (many(spaced.regex("a")) + -spaced.end, "  ", []),
+        (many(spaced.regex("a")) + -spaced.end, "", []),
+        (maybe(spaced.regex("a")) + -spaced.end, "\n", None),
+        (spaced.regex("a") + -spaced.end, " a \n", "a"),
+        (spaced.regex("a") + spaced.end, "a", ("a", None)),
+        (spaced.regex("a") | spaced.end, "  ", None),
     ],
 )
 def test_the_generated_code_accepts_what_the_parser_accepts(
@@ -507,9 +505,9 @@ def test_the_generated_code_accepts_what_the_parser_accepts(
 
 def pair() -> P:
     return (
-        skipping.regex(r"\d+").named("number")
-        + skipping.lit("+")
-        + skipping.regex(r"\d+").named("number")
+        spaced.regex(r"\d+").named("number")
+        + spaced.lit("+")
+        + spaced.regex(r"\d+").named("number")
     )
 
 
@@ -528,7 +526,7 @@ def test_an_error_has_the_line_and_the_column_of_the_text(
     run: Runner, text: str, where: str
 ) -> None:
     assert (
-        message(run, pair() + -skipping.end, text)
+        message(run, pair() + -spaced.end, text)
         == f"{where}: got unexpected token: 'x', expected: number"
     )
 
@@ -572,9 +570,9 @@ def test_an_error_renders_a_line_that_ends_with_a_carriage_return(run: Runner) -
 
 
 def test_parse_errors_render_each_error(run: Runner) -> None:
-    digit = plain.regex(r"\d").validated(kept(lambda v: int(v) < 5, "too big")) + -plain.lit(",")
+    digit = regex(r"\d").validated(kept(lambda v: int(v) < 5, "too big")) + -lit(",")
     source = "9,1,\n7,"
-    grammar = many(digit | -plain.lit("\n")) + -plain.end
+    grammar = many(digit | -lit("\n")) + -finished
     with pytest.raises(ParseErrors) as caught:
         run(grammar, source)
     assert caught.value.render(source) == "\n".join(
@@ -584,14 +582,13 @@ def test_parse_errors_render_each_error(run: Runner) -> None:
 
 def test_a_broken_rule_names_the_position_of_its_token(run: Runner) -> None:
     grammar = (
-        many(skipping.regex(r"\d+").validated(kept(lambda v: int(v) < 5, "too big")))
-        + -skipping.end
+        many(spaced.regex(r"\d+").validated(kept(lambda v: int(v) < 5, "too big"))) + -spaced.end
     )
     assert message(run, grammar, "1 2 \n 9 3  7") == "2,2-2,2: too big\n2,7-2,7: too big"
 
 
 def test_a_broken_rule_spans_the_token_without_the_text_skipped_after_it(run: Runner) -> None:
-    grammar = skipping.regex(r"[a-z]+").validated(kept(lambda _: False, "bad")) + -skipping.end
+    grammar = spaced.regex(r"[a-z]+").validated(kept(lambda _: False, "bad")) + -spaced.end
     with pytest.raises(ParseErrors) as caught:
         run(grammar, "ab   ")
     (error,) = caught.value.exceptions
@@ -600,7 +597,7 @@ def test_a_broken_rule_spans_the_token_without_the_text_skipped_after_it(run: Ru
 
 
 def test_a_broken_rule_names_the_token_it_checked(run: Runner) -> None:
-    grammar = skipping.regex(r"[a-z]+").validated(kept(lambda _: False, "bad")) + skipping.lit("+")
+    grammar = spaced.regex(r"[a-z]+").validated(kept(lambda _: False, "bad")) + spaced.lit("+")
     with pytest.raises(ParseErrors) as caught:
         run(grammar, "ab+cd")
     (error,) = caught.value.exceptions
@@ -610,8 +607,7 @@ def test_a_broken_rule_names_the_token_it_checked(run: Runner) -> None:
 
 def test_a_rule_error_and_the_error_of_the_parse_come_together(run: Runner) -> None:
     grammar = (
-        many(skipping.regex(r"\d+").validated(kept(lambda v: int(v) < 5, "too big")))
-        + -skipping.end
+        many(spaced.regex(r"\d+").validated(kept(lambda v: int(v) < 5, "too big"))) + -spaced.end
     )
     assert (
         message(run, grammar, "9 x")
@@ -620,25 +616,24 @@ def test_a_rule_error_and_the_error_of_the_parse_come_together(run: Runner) -> N
 
 
 def test_a_label_replaces_what_a_parser_expected(run: Runner) -> None:
-    named = skipping.regex(r"\d+").named("number")
+    named = spaced.regex(r"\d+").named("number")
     assert message(run, named, "x") == "1,1-1,1: got unexpected token: 'x', expected: number"
     assert (
-        message(run, skipping.regex(r"\d+"), "x")
+        message(run, spaced.regex(r"\d+"), "x")
         == "1,1-1,1: got unexpected token: 'x', expected: /\\d+/"
     )
     assert (
-        message(run, skipping.lit("if"), "x")
-        == "1,1-1,1: got unexpected token: 'x', expected: 'if'"
+        message(run, spaced.lit("if"), "x") == "1,1-1,1: got unexpected token: 'x', expected: 'if'"
     )
     assert (
-        message(run, skipping.end, "x")
+        message(run, spaced.end, "x")
         == "1,1-1,1: got unexpected token: 'x', expected: end of input"
     )
 
 
 def test_a_context_names_where_the_parser_was(run: Runner) -> None:
-    named = skipping.regex(r"\d+").named("number")
-    grammar = (skipping.lit("(") + named + skipping.lit(")")).context("group")
+    named = spaced.regex(r"\d+").named("number")
+    grammar = (spaced.lit("(") + named + spaced.lit(")")).context("group")
     assert (
         message(run, grammar, "( x")
         == "1,3-1,3: got unexpected token: 'x', expected: number in group"
@@ -646,25 +641,25 @@ def test_a_context_names_where_the_parser_was(run: Runner) -> None:
 
 
 def test_an_error_names_everything_expected_where_the_parsing_stopped(run: Runner) -> None:
-    grammar = skipping.lit("a") | skipping.lit("b").named("bee") | skipping.end
+    grammar = spaced.lit("a") | spaced.lit("b").named("bee") | spaced.end
     assert message(run, grammar, " \n c") == (
         "2,2-2,2: got unexpected token: 'c', expected: 'a' or bee or end of input"
     )
 
 
 def test_an_error_from_a_nested_parse_is_unchanged(run: Runner) -> None:
-    inner = skipping.regex("a") + skipping.regex("b")
+    inner = spaced.regex("a") + spaced.regex("b")
 
     def run_inner(text: Any, s: Any) -> Any:
         return inner.run(text, s)
 
-    grammar = Parser(run_inner) + skipping.end
+    grammar = Parser(run_inner) + spaced.end
     assert message(run, grammar, "a\nc") == message(run, inner, "a\nc")
 
 
 def test_a_broken_rule_on_a_branch_that_was_backtracked_from_is_forgotten(run: Runner) -> None:
-    bad = skipping.regex("a").validated(kept(lambda _: False, "bad")) + skipping.regex("b")
-    assert run(bad | skipping.regex("a") + skipping.regex("c"), "a c") == ("a", "c")
+    bad = spaced.regex("a").validated(kept(lambda _: False, "bad")) + spaced.regex("b")
+    assert run(bad | spaced.regex("a") + spaced.regex("c"), "a c") == ("a", "c")
 
 
 # Token grammars compiled
@@ -785,7 +780,7 @@ def test_try_parse_of_a_commit_around_a_parsing_function(tokenize: Any) -> None:
 
 def test_try_parse_gives_none_for_nesting_too_deep_for_the_parser() -> None:
     nested: P = forward_decl()
-    nested.define(skipping.lit("(") + maybe(nested) + skipping.lit(")"))
+    nested.define(spaced.lit("(") + maybe(nested) + spaced.lit(")"))
     code = nested.compile()
     deep = "(" * 5000 + ")" * 5000
     assert code.try_parse(deep) is None
@@ -805,12 +800,12 @@ def test_parse_text_without_a_tokenizer_raises_for_a_grammar_of_tokens() -> None
 
 
 def test_a_text_grammar_needs_no_tokenizer() -> None:
-    code = (skipping.regex(r"\d+") >> int).compile()
+    code = (spaced.regex(r"\d+") >> int).compile()
     assert code.parse_text(" 12 ") == 12
     assert code.try_parse("x") is None
 
 
-# Characters and Text in one grammar
+# Characters and these parsers in one grammar
 
 
 def test_a_grammar_of_characters_parses_text(run: Runner) -> None:
@@ -825,19 +820,19 @@ def test_a_grammar_of_characters_reports_where_it_stopped() -> None:
 
 
 def test_characters_and_a_text_in_one_grammar_agree_when_compiled(run: Runner) -> None:
-    grammar = some(lambda c: c == "a") + skipping.lit("b") + skipping.end
+    grammar = some(lambda c: c == "a") + spaced.lit("b") + spaced.end
     assert run(grammar, "ab ") == ("a", "b", None)
     assert message(run, grammar, "ax") == "1,2-1,2: got unexpected token: 'x', expected: 'b'"
 
 
 def test_a_character_is_not_skipped_over_by_a_text(run: Runner) -> None:
-    grammar = a("x") + a(" ") + skipping.lit("b")
+    grammar = a("x") + a(" ") + spaced.lit("b")
     assert run(grammar, "x b") == ("x", " ", "b")
-    assert run(skipping.lit("b") + a("c"), "b c") == ("b", "c")
+    assert run(spaced.lit("b") + a("c"), "b c") == ("b", "c")
 
 
 def test_a_text_and_tok_in_one_grammar_cannot_read_the_text(run: Runner) -> None:
-    read_text: P = skipping.regex("a")
+    read_text: P = spaced.regex("a")
     with pytest.raises(AttributeError, match="has no attribute 'type'"):
         run(read_text + tok("b"), "ab")
 
@@ -848,12 +843,12 @@ def test_a_text_and_tok_in_one_grammar_cannot_read_the_text(run: Runner) -> None
 @pytest.mark.parametrize(
     ("grammar", "text", "value"),
     [
-        (plain.regex("a+"), "aa", "aa"),
-        (plain.lit("ab"), "ab", "ab"),
-        (skipping.regex("a") + skipping.lit("b") + -skipping.end, " a b ", ("a", "b")),
-        (longest(plain.lit("a"), plain.regex("a+")), "aa", "aa"),
-        (commit(plain.lit("a")) | plain.lit("b"), "b", "b"),
-        (a("x") + plain.lit("y"), "xy", ("x", "y")),
+        (regex("a+"), "aa", "aa"),
+        (lit("ab"), "ab", "ab"),
+        (spaced.regex("a") + spaced.lit("b") + -spaced.end, " a b ", ("a", "b")),
+        (longest(lit("a"), regex("a+")), "aa", "aa"),
+        (commit(lit("a")) | lit("b"), "b", "b"),
+        (a("x") + lit("y"), "xy", ("x", "y")),
     ],
 )
 def test_the_generated_code_decides_what_it_can(grammar: P, text: str, value: object) -> None:
@@ -865,33 +860,33 @@ def test_the_generated_code_decides_what_it_can(grammar: P, text: str, value: ob
 
 
 def test_the_generated_code_rejects_without_the_parser() -> None:
-    fast = (plain.lit("a") + plain.regex("b")).compile()._fast_text
+    fast = (lit("a") + regex("b")).compile()._fast_text
     assert fast is not None
     assert fast("ac") is None
 
 
 def test_text_may_start_with_skip_before_a_first_parser_without_it(run: Runner) -> None:
-    grammar = plain.lit("a") + skipping.lit("b")
+    grammar = lit("a") + spaced.lit("b")
     assert run(grammar, "  ab") == ("a", "b")
 
 
 def test_leading_skip_is_no_token_a_commit_read(run: Runner) -> None:
-    grammar = commit(skipping.lit("a")) | skipping.lit("b")
+    grammar = commit(spaced.lit("a")) | spaced.lit("b")
     assert run(grammar, " b") == "b"
 
 
 def test_a_label_applies_past_leading_skip(run: Runner) -> None:
-    named = (skipping.lit("(") | skipping.lit("[")).named("expr")
+    named = (spaced.lit("(") | spaced.lit("[")).named("expr")
     assert message(run, named, " ?") == "1,2-1,2: got unexpected token: '?', expected: expr"
 
 
 def test_a_failed_when_is_at_the_token_past_leading_skip(run: Runner) -> None:
-    name = skipping.regex(r"\w+").when(lambda s: s != "if").named("name")
+    name = spaced.regex(r"\w+").when(lambda s: s != "if").named("name")
     assert message(run, name, "\n\n  if") == "3,3-3,3: got unexpected token: 'if', expected: name"
 
 
 def test_a_commit_of_the_end_is_no_token_read(run: Runner) -> None:
-    grammar = plain.lit("a") + (commit(skipping.end) | plain.lit(" b"))
+    grammar = lit("a") + (commit(spaced.end) | lit(" b"))
     assert run(grammar, "a b") == ("a", " b")
 
 
@@ -901,37 +896,37 @@ def test_a_broken_rule_spans_no_comment_after_the_token(run: Runner) -> None:
 
 
 def test_a_broken_rule_at_the_end_of_the_text_has_a_position(run: Runner) -> None:
-    grammar = many(skipping.lit("a")).validated(kept(bool, "at least one")) + -skipping.end
+    grammar = many(spaced.lit("a")).validated(kept(bool, "at least one")) + -spaced.end
     assert message(run, grammar, "") == "1,1-1,1: at least one"
 
 
 def test_a_failed_parse_gives_the_character_as_its_token() -> None:
     with pytest.raises(NoParseError) as caught:
-        skipping.lit("a").parse_text("?x")
+        spaced.lit("a").parse_text("?x")
     assert caught.value.token == "?x"  # noqa: S105 — a parsed word
 
 
 @pytest.mark.interpreted_only
 def test_try_parse_runs_a_conversion_in_two_passes_at_most() -> None:
     seen: list[str] = []
-    grammar = (plain.regex(r"\d") >> seen.append).validated(kept(lambda _: False, "bad"))
+    grammar = (regex(r"\d") >> seen.append).validated(kept(lambda _: False, "bad"))
     assert grammar.compile().try_parse("0") is None
     assert len(seen) == 2
 
 
 def test_a_skip_with_a_global_flag_raises_with_a_hint() -> None:
     with pytest.raises(ValueError, match="cannot repeat"):
-        Text(skip=r"(?i)x+")
+        skipping(r"(?i)x+")
 
 
 def test_a_commit_past_a_skipping_end_is_final(run: Runner) -> None:
-    grammar = many(commit(skipping.end + plain.lit("aa")) | plain.lit("a"))
+    grammar = many(commit(spaced.end + lit("aa")) | lit("a"))
     assert message(run, grammar, "a\n") == "1,2-1,2: got unexpected end of input, expected: 'aa'"
 
 
 # `Parser.recover()`: every error of a document in one run.
 
-blank = Text(skip=r"[ \t]+")
+blank = skipping(r"[ \t]+")
 line_end = blank.regex(r"\n+").named("newline")
 setting = (
     blank.regex("[a-z]+").named("key")
@@ -958,8 +953,8 @@ def test_recover_reports_a_failure_at_the_end_of_the_text(run: Runner) -> None:
 
 def test_recover_gives_its_default_for_what_it_skipped() -> None:
     grammar = many(
-        (skipping.lit("a") + skipping.lit("b")).recover(skipping.lit(";"), default=("?", "?"))
-        + -skipping.lit(";")
+        (spaced.lit("a") + spaced.lit("b")).recover(spaced.lit(";"), default=("?", "?"))
+        + -spaced.lit(";")
     )
     with pytest.raises(ParseErrors) as caught:
         grammar.parse_text("a b; a c;")
@@ -1011,15 +1006,15 @@ def test_recover_in_try_parse_rejects() -> None:
 @pytest.mark.parametrize(
     ("grammar", "text", "value"),
     [
-        pytest.param(plain.regex("a+") | plain.regex("[ab]+"), "ab", "a", id="overlap, first"),
-        pytest.param(plain.regex("b+") | plain.regex("[ab]+"), "ab", "ab", id="overlap, second"),
-        pytest.param(longest(plain.regex("a+"), plain.regex("[ab]+")), "ab", "ab", id="longest"),
-        pytest.param(plain.regex("(?i:a)") | pure("x"), "A", "A", id="scoped flag"),
-        pytest.param(plain.regex("a", re.IGNORECASE) | pure("x"), "A", "A", id="flag"),
-        pytest.param(plain.regex("[^a]+") | pure("x"), "", "x", id="negated class, end of text"),
-        pytest.param(plain.regex("[^a]+") | pure("x"), "a", "x", id="negated class, excluded"),
-        pytest.param(plain.regex("[^a]+") | pure("x"), "b", "b", id="negated class, included"),
-        pytest.param(maybe(plain.regex("a")) + plain.regex("b"), "b", (None, "b"), id="nullable"),
+        pytest.param(regex("a+") | regex("[ab]+"), "ab", "a", id="overlap, first"),
+        pytest.param(regex("b+") | regex("[ab]+"), "ab", "ab", id="overlap, second"),
+        pytest.param(longest(regex("a+"), regex("[ab]+")), "ab", "ab", id="longest"),
+        pytest.param(regex("(?i:a)") | pure("x"), "A", "A", id="scoped flag"),
+        pytest.param(regex("a", re.IGNORECASE) | pure("x"), "A", "A", id="flag"),
+        pytest.param(regex("[^a]+") | pure("x"), "", "x", id="negated class, end of text"),
+        pytest.param(regex("[^a]+") | pure("x"), "a", "x", id="negated class, excluded"),
+        pytest.param(regex("[^a]+") | pure("x"), "b", "b", id="negated class, included"),
+        pytest.param(maybe(regex("a")) + regex("b"), "b", (None, "b"), id="nullable"),
     ],
 )
 def test_a_first_character_test_keeps_what_the_alternatives_match(
@@ -1030,7 +1025,7 @@ def test_a_first_character_test_keeps_what_the_alternatives_match(
 
 
 def test_bytes_given_to_a_grammar_of_text_raise_as_in_its_parser() -> None:
-    grammar = plain.regex("a") | pure("x")
+    grammar = regex("a") | pure("x")
     with pytest.raises(TypeError, match="string pattern"):
         grammar.parse_bytes(b"a")
     with pytest.raises(TypeError, match="string pattern"):
@@ -1054,12 +1049,12 @@ def test_try_parse_refuses_what_is_neither_text_nor_bytes(value: object) -> None
 
 def test_alternatives_read_the_first_character_once(tmp_path: Path) -> None:
     source = tmp_path / "generated.py"
-    (plain.regex("a") | plain.regex("b") | plain.regex("c")).compile(source_file=source)
+    (regex("a") | regex("b") | regex("c")).compile(source_file=source)
     assert source.read_text().count("T[p0:p0 + 1]") == 1
 
 
 def test_the_skip_of_the_grammar_comes_before_a_first_parser_that_reads_space() -> None:
-    grammar = plain.regex(r" *\w+") + skipping.lit(";")
+    grammar = regex(r" *\w+") + spaced.lit(";")
     assert grammar.parse_text(" x;") == ("x", ";")
 
 
@@ -1080,6 +1075,11 @@ def test_the_module_functions_refuse_what_a_text_refuses() -> None:
 
 def test_only_a_text_with_skip_reads_past_what_it_skips_at_the_end() -> None:
     word = regex(r"\w+")
-    assert (word + -skipping.end).parse_text("a  ") == "a"
+    assert (word + -spaced.end).parse_text("a  ") == "a"
     with pytest.raises(NoParseError, match="expected: end of input"):
         (word + -finished).parse_text("a  ")
+
+
+def test_regex_and_a_skipping_regex_take_the_flags_of_the_regex() -> None:
+    assert regex("a", re.IGNORECASE).parse_text("A") == "A"
+    assert spaced.regex("a", re.IGNORECASE).parse_text("A") == "A"

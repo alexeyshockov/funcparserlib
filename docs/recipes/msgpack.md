@@ -29,7 +29,7 @@ bytes at the position the parsing has reached, and three combinators take such a
 * `counted(count, item)` reads as many `item`s;
 * `switch(key, cases)` reads `key` and runs the parser that `cases` holds for its value.
 
-Each is a form the compiler reads, so the grammar compiles, as a text grammar does.
+Each is a form the compiler reads, so the grammar compiles, as a grammar of text does.
 
 ## The tree
 

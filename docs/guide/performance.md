@@ -200,10 +200,10 @@ A 50 KB JSON document, the median of `benchmarks/bench_comparison.py`, where two
 | --- | ---: |
 | orjson | 0.11 ms |
 | stdlib `json` | 0.27 ms |
-| funcparserlib, text grammar, compiled | 5.0 ms |
+| funcparserlib, no tokenizer, compiled | 5.0 ms |
 | funcparserlib, token grammar, compiled | 6.1 ms |
 | funcparserlib, token grammar | 16.6 ms |
-| funcparserlib, text grammar | 22.3 ms |
+| funcparserlib, no tokenizer | 22.3 ms |
 | parsy | 53.5 ms |
 | pyparsing | 65.6 ms |
 

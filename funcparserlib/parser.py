@@ -11,7 +11,7 @@ The structure of the language:
     * It defines the main `Parser.parse(tokens)` method
 * Primitive parsers
     * `tok(type, value)`, `a(value)`, `some(pred)`, `forward_decl()`, `finished`
-    * `lit(value)`, `regex(pattern)` and `Text(skip)` read text, without tokens
+    * `lit(value)`, `regex(pattern)` and `skipping(pattern)` read text, with no tokenizer
 * Parser combinators
     * `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `maybe(p)`, `many(p)`, `oneplus(p)`, `skip(p)`
 * Abstraction
@@ -45,7 +45,8 @@ __all__ = [
     "tok",
     "lit",
     "regex",
-    "Text",
+    "skipping",
+    "Skipping",
     "Parser",
     "CompiledParser",
     "longest",
@@ -785,8 +786,8 @@ class Parser[A, B]:
     def parse_text(self, text: str) -> B:
         """Parse the text, with the line and column of the text in errors.
 
-        It is for a grammar that reads text: `lit()`, `regex()`, the parsers of a `Text`, and `a()`
-        and `some()` of a character. A grammar of `tok()` reads tokens: give those to
+        It is for a grammar that reads text: `lit()`, `regex()`, the parsers of `skipping()`, and
+        `a()` and `some()` of a character. A grammar of `tok()` reads tokens: give those to
         `Parser.parse()`, or a tokenizer to `Parser.compile()`.
 
         It raises what `Parser.parse()` raises, and `TypeError` for anything but a `str`.
@@ -1711,8 +1712,8 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
 
     It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
     parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
-    length that is negative or runs past the input fails where those bytes start. What `skip` of a
-    `Text` matches before `body` is not read for it.
+    length that is negative or runs past the input fails where those bytes start. What a
+    `skipping()` skips before `body` is not read for it.
 
     Examples:
         ```pycon
@@ -2847,51 +2848,27 @@ def forward_decl() -> ForwardDeclParser[Any, Any]:
 
 
 @final
-class Text:
-    """Makes parsers of text, each skipping what `skip` matches after what it reads.
-
-    `skip` is a regex for what may sit between tokens, such as whitespace and comments, and it
-    matches as many times as it can. The text may start with it, for any first parser of the
-    grammar:
-    the first `skip` found in the grammar is read before parsing starts. Inside a token, such as a
-    string written as a grammar, use `regex()` and `lit()`, which skip nothing.
-
-    Raises `ValueError` for a `skip` that matches the empty string or cannot repeat.
-
-    Examples:
-        ```pycon
-        >>> from funcparserlib.parser import Text, many
-        >>> spaced = Text(skip=r"\\s+")
-        >>> number = (spaced.regex(r"\\d+") >> int).named("number")
-        >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
-        >>> total.parse_text(" 1 + 2 ")
-        (1, [2])
-        >>> total.parse_text("1 +\\n  x")
-        Traceback (most recent call last):
-            ...
-        funcparserlib.parser.NoParseError: 2,3-2,3: got unexpected token: 'x', expected: number
-
-        ```
-    """
+class Skipping:
+    """The type of `skipping()`: it makes parsers of text that skip what its pattern matches."""
 
     __slots__ = ("_skip",)
 
-    def __init__(self, skip: str | None = None, flags: int = 0) -> None:
-        """Make parsers that skip what the regex `skip`, with its `flags`, matches."""
+    def __init__(self, pattern: str | None, flags: int = 0) -> None:
+        """Make parsers that skip what the regex `pattern`, with its `flags`, matches."""
         self._skip: re.Pattern[str] | None = None
-        if skip is not None:
-            regex = re.compile(skip, flags)
-            if regex.match(""):
+        if pattern is not None:
+            compiled = re.compile(pattern, flags)
+            if compiled.match(""):
                 raise with_hint(
-                    ValueError(f"skip pattern {skip!r} matches the empty string"),
+                    ValueError(f"skip pattern {pattern!r} matches the empty string"),
                     "A skip pattern consumes at least one character: repeat with `+`.",
                 )
-            end = "\n" if regex.flags & re.VERBOSE else ""
+            end = "\n" if compiled.flags & re.VERBOSE else ""
             try:
-                self._skip = re.compile(f"(?:{skip}{end})+", flags)
+                self._skip = re.compile(f"(?:{pattern}{end})+", flags)
             except re.error as e:
                 raise with_hint(
-                    ValueError(f"skip pattern {skip!r} cannot repeat: {e}"),
+                    ValueError(f"skip pattern {pattern!r} cannot repeat: {e}"),
                     "Pass a global flag such as `(?i)` as `flags` instead.",
                 ) from e
 
@@ -2955,7 +2932,7 @@ class Text:
 
     @property
     def end(self) -> Parser[str, None]:
-        """A parser that succeeds at the end of the text, past what `skip` matches."""
+        """A parser that succeeds at the end of the text, past what it skips."""
 
         def run(text: Any, s: State) -> ParsingResult[None]:
             start = self._after_skip(text, s.pos)
@@ -2967,7 +2944,36 @@ class Text:
         return p
 
 
-_plain = Text()
+def skipping(pattern: str, flags: int = 0) -> Skipping:
+    """Parsers of text that each skip what the regex `pattern` matches after what they read.
+
+    `pattern`, with its `flags`, is for what may sit between tokens, such as whitespace and
+    comments, and it matches as many times as it can. The text may start with it, for any first
+    parser of the grammar: the first skip pattern found in the grammar is read before parsing
+    starts. Inside a token, such as a string written as a grammar, use `regex()` and `lit()`, which
+    skip nothing.
+
+    Raises `ValueError` for a `pattern` that matches the empty string or cannot repeat.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.parser import many, skipping
+        >>> spaced = skipping(r"\\s+")
+        >>> number = (spaced.regex(r"\\d+") >> int).named("number")
+        >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
+        >>> total.parse_text(" 1 + 2 ")
+        (1, [2])
+        >>> total.parse_text("1 +\\n  x")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: 2,3-2,3: got unexpected token: 'x', expected: number
+
+        ```
+    """
+    return Skipping(pattern, flags)
+
+
+_plain = Skipping(None)
 
 
 def regex(pattern: str, flags: int = 0) -> Parser[str, str]:

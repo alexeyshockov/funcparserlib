@@ -32,11 +32,11 @@ A grammar has one definition of its language, and there are two kinds.
 
 - A **token grammar** is what the library has today: global tokens define it, and a 1.0 grammar stays
   one. Its fast path reads the same tokens, so the two cannot disagree.
-- A **text grammar** is made of `lit()`, `regex()` and the parsers of a `Text`, which read text at the
+- A **grammar without a tokenizer** is made of `lit()`, `regex()` and the parsers of `skipping()`, which read text at the
   position the parser has reached, and that defines it. Only the tokens that make sense at a position
-  are tried, so specs have no global order, and context is recursion and `bind()`. A `Text` holds what
-  to `skip`: each of its parsers reads what `skip` matches after it, and the first `skip` of the grammar
-  is read before parsing starts, so a failed attempt moves nothing. Its generated code reads the text
+  are tried, so specs have no global order, and context is recursion and `bind()`. A `skipping()`
+  holds a pattern: each of its parsers reads what it matches after itself, and the first skip pattern of
+  the grammar is read before parsing starts, so a failed attempt moves nothing. Its generated code reads the text
   directly.
 
 The two ways of reading never share a grammar, so they cannot disagree on what is accepted. When
@@ -48,20 +48,20 @@ Runners sit on top of one grammar, and a program picks one by what it wants from
 `CompiledParser.parse_text()` is fast and gives the full error, and `CompiledParser.try_parse()` gives
 `None` without making one. Others are added when they earn it.
 
-Text grammars come with two tools that earn their concepts. `longest()` removes the order of
+Grammars without a tokenizer come with two tools that earn their concepts. `longest()` removes the order of
 alternatives: KDL passes 338 of 338 with `string`'s alternatives in the order that fails 16 cases under
 `|`. A token written as grammar gives errors inside it:
 `a "abc` fails at the end of the text with `expected: text or escape or '"' in string`, where the token
 grammar fails at the quote.
 
-Positions in a text grammar are worked out from the offset when an error happens, so a parse that
+Positions in a grammar without a tokenizer are worked out from the offset when an error happens, so a parse that
 succeeds pays nothing for them.
 
 Measured on Python 3.12 on an arm64 laptop, CPU time, on 2 MB of the KDL benchmark, with
 `examples/kdl.py` and `examples/kdl_text.py`, which has strings as grammar and `longest()` over five
 alternatives:
 
-| Run | Token grammar | Text grammar |
+| Run | Token grammar | Without a tokenizer |
 | --- | ---: | ---: |
 | Interpreted | 3.09 s | 7.46 s |
 | `parse_text()`, compiled | 0.36 s | 0.54 s |
@@ -69,8 +69,8 @@ alternatives:
 | `try_parse()`, failing at the first token | 0.14 s | under 0.01 s |
 | `parse_text()`, failing at the last token | 3.40 s | 8.07 s |
 
-The 21 MB benchmark takes 6.89 s as a compiled text grammar, against 4.82 s, wall clock. 823 KB of JSON
-written as a text grammar takes 0.120 s compiled and 2.06 s interpreted, against 0.15 s for
+The 21 MB benchmark takes 6.89 s as a compiled grammar without a tokenizer, against 4.82 s, wall clock. 823 KB of JSON
+written without a tokenizer takes 0.120 s compiled and 2.06 s interpreted, against 0.15 s for
 `parse_text()` of the token grammar in the tests.
 
 Where both ways of reading rejected a document, they named the same place for nearly all grammar errors
@@ -96,7 +96,7 @@ Measured with `just bench::micro`, Python 3.15 on an arm64 laptop, minimum:
 | JSON text, 50 KB | 5.48 ms | 5.06 ms |
 | JSON tokens, 50 KB | 3.20 ms | 3.13 ms |
 
-Generating the KDL text grammar takes 13 ms against 6 ms, most of it the character sets.
+Generating the KDL grammar without a tokenizer takes 13 ms against 6 ms, most of it the character sets.
 
 Rejected:
 
@@ -117,9 +117,9 @@ Rejected:
 - **A check that specs cannot overlap.** It held for no real grammar here.
 - **A check at run time that one spec matches at each token.** No disagreement passed it, but it took
   0.51 s on the 2 MB document, more than the whole fast path, and it rejects harmless overlaps.
-- **A module of their own for the text parsers.** Types keep them from `tok()` wherever they live, and they
+- **A module of their own for `lit()` and `regex()`.** Types keep them from `tok()` wherever they live, and they
   combine with `a()` and `some()`, so a module would separate nothing.
-- **Lexer states.** The position in a text grammar is the state already.
+- **Lexer states.** The position in a grammar without a tokenizer is the state already.
 - **Combinators for the tokens themselves, as the main direction.** Defining atoms is not one of the
   three problems.
 
@@ -127,13 +127,13 @@ Rejected:
 
 - Nothing changes for existing grammars unless they opt in.
 - The library has two kinds of grammar to explain and test, and generated code for both.
-- An interpreted text grammar is slow, as its parsers cannot be fused as token tests are, and a failed
-  parse pays for it: a text grammar that often fails on large input wants `try_parse()`.
+- Interpreted, a grammar without a tokenizer is slow, as its parsers cannot be fused as token tests are, and a failed
+  parse pays for it: such a grammar that often fails on large input wants `try_parse()`.
 - `longest()` runs every alternative that can start with the character at the position, in generated code
   too.
-- A `Text` skips after what it reads, so the parser after one that skips nothing does not skip what
-  comes before it, but for `Text.end`.
-- `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`.
+- A `skipping()` skips after what it reads, so the parser after one that skips nothing does not skip what
+  comes before it, but for `Skipping.end`.
+- `bytes` are not supported: `regex()` takes `str` patterns, and positions count `"\n"`.
 - `Parser.recover()` gives one parse every error of a document, through the errors `State` collects.
   A failure it catches leaves the generated code, so such a document takes the time of the interpreted
   parser.

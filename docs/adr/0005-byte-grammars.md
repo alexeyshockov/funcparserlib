@@ -52,8 +52,8 @@ Rejected:
 
 - **A `switch` case as a function of the key.** It reads plainly, and hides the parser from generated
   code as `bind()` does. `previous()` reads the same byte, and the case stays a parser.
-- **A class of parsers, as `Text`.** It would hold nothing: a `Text` exists to hold `skip`.
-- **Bytes through `Text`.** A `Text` skips and counts lines, which bytes have no use for.
+- **A class of parsers, as `Skipping`.** It would hold nothing: a `Skipping` exists to hold its pattern.
+- **Bytes through `skipping()`.** It skips and counts lines, which bytes have no use for.
 - **Readers for Protobuf or any one format in the library.** A varint is a `token()` and a function.
 
 ## Consequences

@@ -1,10 +1,10 @@
 """A Keep a Changelog parser that enforces the format's rules.
 
 markdown-it-py tokenizes the Markdown, and a grammar reads its tokens: which headings there are, and
-in which order. What a heading says has a grammar of its own, a text grammar of a version, a date
-and a kind of change. What sits under a heading is kept as text. `Parser.validated()` rejects what
-is wrong and parsing goes on, so one run reports all of it, and `Parser.recover()` leaves a broken
-release out of the result.
+in which order. What a heading says has a grammar of its own, of a version, a date and a kind of
+change, with no tokenizer. What sits under a heading is kept as text. `Parser.validated()` rejects
+what is wrong and parsing goes on, so one run reports all of it, and `Parser.recover()` leaves a
+broken release out of the result.
 
 Versions follow PEP 440, such as `1.0`, `2.0.0b1` and `1.2.post3.dev4`.
 

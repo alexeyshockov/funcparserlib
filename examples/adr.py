@@ -3,7 +3,7 @@
 markdown-it-py tokenizes the Markdown, and a grammar reads its tokens. Nygard's post names the parts
 of a record and leaves their Markdown open, so the grammar reads the ways records write them: a
 title as `0001 — Title`, `1. Title` or `ADR 1: Title`, and the status and the date as a list or as
-adr-tools writes them. Each of those has a text grammar of its own: a status is a closed set, and
+adr-tools writes them. Each of those has a small grammar of its own: a status is a closed set, and
 one that supersedes gives the number it names. What is wrong is rejected and parsing goes on, so one
 run reports every field. The rules that span records, such as a gap in the numbers, are no part of
 any one parse: `check()` is a plain function over the parsed records.
