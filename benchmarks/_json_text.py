@@ -1,8 +1,8 @@
 """The JSON grammar of `tests/json.py` without a tokenizer, for the comparison in
 bench_comparison.py.
 
-`NUMBER`, `STRING`, `unescape()` and `number()` are those the parsy and pyparsing grammars use, so
-that the comparison measures the parsing.
+`NUMBER`, `STRING`, `unescape()` and `number()` are those the parsy, pyparsing and lark grammars
+use, so that the comparison measures the parsing.
 """
 
 from typing import Any

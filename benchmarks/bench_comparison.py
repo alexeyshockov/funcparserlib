@@ -1,4 +1,4 @@
-"""funcparserlib against parsy and pyparsing: the same JSON document, text in, Python values out.
+"""funcparserlib against parsy, pyparsing and lark: the same JSON document, text in, values out.
 
 The stdlib `json` and orjson are there for scale: they are what parses JSON in practice, written in
 C and Rust for this one format.
@@ -9,8 +9,9 @@ compiled.
 
 funcparserlib runs the grammar four ways: a token grammar tokenizes and then parses, a grammar
 without a tokenizer reads the text directly, as parsy and pyparsing do, and each of the two also
-compiled. Each grammar is built once, before the timing. The `json` group compares the whole job;
-`bench_json_parse` in bench_grammars.py is funcparserlib's parsing half alone.
+compiled. lark runs as LALR(1), a table-driven parser with its own lexer. Each grammar is built
+once, before the timing. The `json` group compares the whole job; `bench_json_parse` in
+bench_grammars.py is funcparserlib's parsing half alone.
 """
 
 import json
@@ -22,7 +23,7 @@ import msgpack.fallback
 import orjson
 import pytest
 
-from benchmarks._json_other import parsy_loads, pyparsing_loads
+from benchmarks._json_other import lark_loads, parsy_loads, pyparsing_loads
 from benchmarks._json_text import COMPILED, GRAMMAR
 from benchmarks.bench_grammars import JSON_TEXT
 from examples import msgpack_format
@@ -70,6 +71,11 @@ def bench_parsy_json(benchmark: Any) -> None:
 @pytest.mark.benchmark(group="json")
 def bench_pyparsing_json(benchmark: Any) -> None:
     assert benchmark(pyparsing_loads, JSON_TEXT) == EXPECTED
+
+
+@pytest.mark.benchmark(group="json")
+def bench_lark_json(benchmark: Any) -> None:
+    assert benchmark(lark_loads, JSON_TEXT) == EXPECTED
 
 
 def _records(count: int) -> list[dict[str, Any]]:

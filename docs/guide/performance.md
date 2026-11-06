@@ -198,17 +198,18 @@ A 50 KB JSON document, the median of `benchmarks/bench_comparison.py`, where two
 
 | Parser | Time |
 | --- | ---: |
-| orjson | 0.11 ms |
-| stdlib `json` | 0.27 ms |
-| funcparserlib, no tokenizer, compiled | 5.0 ms |
-| funcparserlib, token grammar, compiled | 6.1 ms |
-| funcparserlib, token grammar | 16.6 ms |
-| funcparserlib, no tokenizer | 22.3 ms |
-| parsy | 53.5 ms |
-| pyparsing | 65.6 ms |
+| orjson | 0.12 ms |
+| stdlib `json` | 0.29 ms |
+| funcparserlib, no tokenizer, compiled | 5.8 ms |
+| funcparserlib, token grammar, compiled | 6.9 ms |
+| funcparserlib, token grammar | 18.5 ms |
+| lark, LALR | 23.8 ms |
+| funcparserlib, no tokenizer | 25.1 ms |
+| parsy | 57.2 ms |
+| pyparsing | 72.8 ms |
 
 A parser written for one format in C or Rust is out of reach for any grammar in Python. Among parser libraries, a compiled
-grammar is about ten times faster than pyparsing here.
+grammar is about four times faster than lark's LALR parser and more than twelve times faster than pyparsing here.
 
 A 461 KB MessagePack document, from the same benchmark:
 

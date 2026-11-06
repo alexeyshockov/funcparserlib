@@ -1,12 +1,14 @@
-"""The JSON grammar of `tests/json.py`, written with parsy and with pyparsing, for comparison.
+"""The JSON grammar of `tests/json.py`, written with parsy, pyparsing and lark, for comparison.
 
 Each follows its library's own JSON example. `unescape()` decodes strings as `tests/json.py` does,
-so that the comparison measures the parsing, and each returns what `json.loads()` returns.
+so that the comparison measures the parsing, and each returns what `json.loads()` returns. The lark
+grammar runs as LALR(1), with its contextual lexer and the transformer applied during the parse.
 """
 
 import re
 from typing import Any
 
+import lark
 import parsy
 import pyparsing as pp
 
@@ -84,8 +86,53 @@ def _pyparsing_grammar() -> Any:
     return value
 
 
+class _LarkValues(lark.Transformer[Any, Any]):
+    array = list
+    pair = tuple
+    object = dict
+
+    def string(self, children: list[str]) -> str:
+        return unescape(children[0])
+
+    def number(self, children: list[str]) -> int | float:
+        return number(children[0])
+
+    def true(self, _: list[Any]) -> bool:
+        return True
+
+    def false(self, _: list[Any]) -> bool:
+        return False
+
+    def null(self, _: list[Any]) -> None:
+        return None
+
+
+def _lark_grammar() -> lark.Lark:
+    # A `/` ends a regular expression in a lark grammar.
+    string = STRING.replace("/", r"\/")
+    grammar = rf"""
+        ?start: value
+        ?value: object
+              | array
+              | string
+              | NUMBER -> number
+              | "true" -> true
+              | "false" -> false
+              | "null" -> null
+        array: "[" (value ("," value)*)? "]"
+        object: "{{" (pair ("," pair)*)? "}}"
+        pair: string ":" value
+        string: STRING
+        NUMBER: /{NUMBER}/
+        STRING: /{string}/
+        %ignore /[ \t\r\n]+/
+    """
+    return lark.Lark(grammar, parser="lalr", transformer=_LarkValues())
+
+
 PARSY = _parsy_grammar()
 PYPARSING = _pyparsing_grammar()
+LARK = _lark_grammar()
 
 
 def parsy_loads(text: str) -> object:
@@ -96,3 +143,8 @@ def parsy_loads(text: str) -> object:
 def pyparsing_loads(text: str) -> object:
     """`text` parsed by the pyparsing grammar."""
     return PYPARSING.parse_string(text, parse_all=True)[0]
+
+
+def lark_loads(text: str) -> object:
+    """`text` parsed by the lark grammar."""
+    return LARK.parse(text)

@@ -12,10 +12,10 @@ and 3.15 it varies by about 1 ms.
 - `bench_grammars.py`: whole grammars over a generated document, the JSON and DOT grammars of `tests/`, and the
   calculator and the KDL grammar without a tokenizer of `examples/`.
 - `bench_combinators.py`: one combinator each, over a long input, so a regression points at its combinator.
-- `bench_comparison.py`: the JSON grammar against the same grammar in parsy and pyparsing (`_json_other.py`), text
-  in, values out, with funcparserlib as a token grammar and without a tokenizer (`_json_text.py`), each interpreted and
-  compiled; each case asserts it returns what `json.loads()` does. The stdlib `json` and orjson show the scale of a
-  parser written for this one format.
+- `bench_comparison.py`: the JSON grammar against the same grammar in parsy, pyparsing and lark as LALR(1)
+  (`_json_other.py`), text in, values out, with funcparserlib as a token grammar and without a tokenizer
+  (`_json_text.py`), each interpreted and compiled; each case asserts it returns what `json.loads()` does. The stdlib
+  `json` and orjson show the scale of a parser written for this one format.
   The `msgpack` group reads a MessagePack document of nested records, about 450 KB, built with a fixed seed in the
   module: the `msgpack` package as its C extension and as its pure Python fallback, and the grammar of
   `examples/msgpack_format.py` interpreted and compiled. Each case asserts the value `msgpack.unpackb()` gives.
