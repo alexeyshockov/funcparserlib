@@ -841,8 +841,8 @@ class Parser[A, B]:
         `many()` of a parser that matches no tokens.
 
         Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
-        in less memory still. A grammar of `funcparserlib.text` or `funcparserlib.binary` needs no
-        tokenizer.
+        in less memory still. A grammar that reads no `tok()`, such as one of `funcparserlib.text`
+        or `funcparserlib.binary`, needs no tokenizer.
 
         Given a `source_file`, the Python source of the generated functions is written there, and
         their frames report that file, so tracebacks, `pdb` and an IDE can show them. Given a
@@ -884,6 +884,8 @@ class Parser[A, B]:
         fast_text, text_source = None, None
         if tokenizer is not None and tokenizer._pattern is not None:
             fast_text, text_source = compile_text(self, internals, tokenizer._scan, path)
+        elif tokenizer is None and not reads_tokens(self):
+            fast_text, text_source = compile_text(self, internals, None, path)
         fast, source = compile_grammar(self, internals, path, line_after(text_source))
         write_source(path, text_source, source)
         return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))

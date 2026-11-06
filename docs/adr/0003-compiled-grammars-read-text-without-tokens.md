@@ -25,6 +25,10 @@ A grammar that reads a token any other way, with `some()`, `a()` or a parsing fu
 objects, and so do specs that do not join into one regexp. `parse_text()` then tokenizes and calls
 `CompiledParser.parse()`.
 
+Compiled without a tokenizer, a grammar that reads no `tok()` gets those functions too, reading what
+`parse_text()` or `parse_bytes()` is given. A grammar of `some()`, `a()` and `finished` cannot say what
+it reads, so it is the call that says.
+
 The types to leave out, usually whitespace and comments, have to be known without a wrapper around the
 tokenizer, so they are an argument of the tokenizer: `make_tokenizer(specs, skip=...)`. It returns a
 `Tokenizer`, the object `compile()` reads the regexp from.

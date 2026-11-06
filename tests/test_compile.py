@@ -1140,3 +1140,28 @@ def test_the_random_grammars_reach_every_form_of_generated_code() -> None:
         has_them_all,
         settings=settings(max_examples=5000, database=None, derandomize=True, deadline=None),
     )
+
+
+def test_a_grammar_of_some_and_finished_reads_text_and_bytes_in_generated_code() -> None:
+    digits = (many(some(str.isdigit)) + -finished).compile()
+    assert digits._fast_text is not None
+    assert digits.parse_text("12") == ["1", "2"]
+    assert digits.try_parse("1x") is None
+    with pytest.raises(NoParseError, match="got unexpected token: 'x'"):
+        digits.parse_text("1x")
+    ones = (many(a(1)) + -finished).compile()
+    assert ones._fast_text is not None
+    assert ones.parse_bytes(b"\x01\x01") == [1, 1]
+    with pytest.raises(NoParseError, match="got unexpected token: 0x02 at offset 0x1"):
+        ones.parse_bytes(b"\x01\x02")
+
+
+def test_such_a_grammar_still_reads_a_list_of_tokens() -> None:
+    assert (many(a("x")) + -finished).compile().parse(["x", "x"]) == ["x", "x"]
+
+
+def test_a_grammar_of_tok_without_a_tokenizer_generates_nothing_for_text() -> None:
+    code = (tok("word") + -finished).compile()
+    assert code._fast_text is None
+    with pytest.raises(ValueError, match="without a tokenizer"):
+        code.parse_text("a")
