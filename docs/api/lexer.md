@@ -13,3 +13,5 @@
 ::: funcparserlib.lexer.LexerError
 
 ::: funcparserlib.lexer.LexerError.render
+
+::: funcparserlib.lexer.Place

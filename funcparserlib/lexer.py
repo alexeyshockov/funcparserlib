@@ -11,10 +11,13 @@ from typing import Any, final
 from ._commons import valueclass, with_hint
 
 type Place = tuple[int, int]
-"""A position in the text: (_line_, _column_), both counted from 1."""
+"""A position in the text: (_line_, _column_), both counted from 1.
+
+The end of a token that ends with a newline is column 0 of the next line.
+"""
 
 type Spec = tuple[str, tuple[Any, ...]]
-"""A legacy token spec: (_type_, _args_), where _args_ are the arguments of `re.compile()`."""
+"""A token spec as a tuple: (_type_, _args_), where _args_ are the arguments of `re.compile()`."""
 
 _CompiledSpec = tuple[str, Pattern[str]]
 
@@ -289,7 +292,7 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec], *, skip: Collection[str] =
 
     !!! Note
 
-        For legacy reasons, a token spec may also be a tuple of (_type_, _args_), where
+        A token spec may also be a tuple of (_type_, _args_), where
         _type_ sets the value of `Token.type` for the token, and _args_ are the
         positional arguments for `re.compile()`: either just (_pattern_,) or
         (_pattern_, _flags_).

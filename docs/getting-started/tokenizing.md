@@ -98,7 +98,7 @@ The `str()` form of the token shows its position in the input text, also availab
 
 ## Next
 
-We have tokenized an numeric expression string into a list of tokens.
+We have tokenized a numeric expression string into a list of tokens.
 
 In [the next chapter](parsing.md) you will learn how to parse these tokens by defining a grammar for our numeric
 expressions language.

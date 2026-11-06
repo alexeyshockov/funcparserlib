@@ -1046,3 +1046,8 @@ def test_alternatives_read_the_first_character_once(tmp_path: Path) -> None:
     source = tmp_path / "generated.py"
     (plain.token("a") | plain.token("b") | plain.token("c")).compile(source_file=source)
     assert source.read_text().count("T[p0:p0 + 1]") == 1
+
+
+def test_the_skip_of_the_grammar_comes_before_a_first_parser_that_reads_space() -> None:
+    grammar = plain.token(r" *\w+") + skipping.literal(";")
+    assert grammar.parse_text(" x;") == ("x", ";")

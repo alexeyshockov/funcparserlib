@@ -127,6 +127,8 @@ parser has read a token, `Parser.context()` names the part of the grammar an err
 
 ::: funcparserlib.parser.TokenDescription
 
+::: funcparserlib.parser.Problem
+
 ::: funcparserlib.parser.commit
 
 ::: funcparserlib.parser.Parser.context
@@ -136,6 +138,25 @@ parser has read a token, `Parser.context()` names the part of the grammar an err
 ::: funcparserlib.parser.Invalid
 
 ::: funcparserlib.parser.Parser.recover
+
+## Writing a Parsing Function
+
+`Parser(f)` and `parser()` make a parser of a function of the tokens and a `State`, which returns a `ParsingResult`.
+Such a function calls other parsers through `Parser.run`, and asks `State.rejected_since()` before it reads a value.
+
+::: funcparserlib.parser.ParserFn
+
+::: funcparserlib.parser.State
+
+::: funcparserlib.parser.State.rejected_since
+
+::: funcparserlib.parser.ParsingResult
+
+::: funcparserlib.parser.ParsingSuccess
+
+::: funcparserlib.parser.ParsingFailure
+
+::: funcparserlib.parser.debug
 
 ## Extra: Parser Monad
 
@@ -152,7 +173,7 @@ class Parser:
         return self.bind(lambda x: other.bind(lambda y: pure((x, y))))
 
     def __rshift__(self, other):
-        return self.bind(lambda x: pure(x))
+        return self.bind(lambda x: pure(other(x)))
 ```
 
 ::: funcparserlib.parser.Parser.bind

@@ -29,7 +29,7 @@ tokens first.
 
 ## Parsers
 
-**parser**: an object that reads a sequence of tokens and returns a value or fails. `Parser` implements it;
+**parser**: an object that reads its input, tokens, text or bytes, and returns a value or fails. `Parser` implements it;
 `Parser.parse()` runs it over a whole sequence.
 
 **primitive parser**: a parser that is not made of other parsers: `tok()`, `a()`, `some()`, `finished`.

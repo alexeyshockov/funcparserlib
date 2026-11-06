@@ -129,12 +129,12 @@ Parse the longest alternative first:
 
 ## Watch Out for Left Recursion
 
-There are certain kinds grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion in
-their leftmost parts. These rules lead to infinite recursion during parsing, that results in a `RecursionError`
+There are certain kinds of grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion
+in their leftmost parts. These rules lead to infinite recursion during parsing, that results in a `RecursionError`
 exception.
 
 For example, we want to define an expression `expr` either a multiplication operator `mul` or a `number`. We also want
-an expression to be a sequence of an expression `expr`, followed by an operator `"**"`, followed by another expression
+an expression to be a sequence of an expression `expr`, followed by an operator `"*"`, followed by another expression
 `expr`:
 
 ```pycon
@@ -146,7 +146,7 @@ an expression to be a sequence of an expression `expr`, followed by an operator 
 
 This looks reasonable at the first glance, but it contains left recursion. In order to parse the first token for `expr`,
 we need to parse the first token for `mul`, for that we need to parse the first token for `expr`, and so on. This left
-recursion in your grammar results in a stack overflow exception:
+recursion in your grammar results in a `RecursionError`:
 
 ```pycon
 >>> expr.parse(tokenize("1 * 2"))
@@ -161,7 +161,7 @@ operators we really want a number, followed by zero or more pairs of `*` and num
 
 ```pycon
 >>> expr = forward_decl()
->>> mul = number + many(op("**") + number)
+>>> mul = number + many(op("*") + number)
 >>> expr.define(mul)
 
 ```
@@ -169,8 +169,8 @@ operators we really want a number, followed by zero or more pairs of `*` and num
 Test it:
 
 ```pycon
->>> expr.parse(tokenize("1 ** 2"))
-(1, [('**', 2)])
+>>> expr.parse(tokenize("1 * 2"))
+(1, [('*', 2)])
 
 
 >>> expr.parse(tokenize("3"))

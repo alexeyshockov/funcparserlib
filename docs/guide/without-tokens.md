@@ -31,7 +31,9 @@ text may also start with it:
 `Parser.parse_text()` takes the text itself. `text.end` succeeds at the end of the text, as `finished` does for tokens,
 and `named()` gives a parser the name its errors use.
 
-A `Text` without `skip` skips nothing, which is what a token that has whitespace inside needs. Keep two of them: the one
+A `Text` without `skip` skips nothing, which is what a token that has whitespace inside needs. The first `skip` found in
+the grammar is still read before parsing starts, so that a document can start with whitespace, even before a first parser
+without `skip`: whitespace at the very start of the text never reaches a parser. Keep two of them: the one
 with `skip` for the grammar, and one without for the inside of a token. Open the string with the second, so that the
 whitespace after the quote belongs to the string, and close it with the first, so that the whitespace after the string
 is skipped:

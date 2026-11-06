@@ -78,7 +78,7 @@ grammar rules of the language you want to parse:
 ```
 
 You get a new [`Parser`](../api/parser.md#funcparserlib.parser.Parser) object each time you apply a parser combinator to
-your parsers. Therefore, the set of all parsers it closed under the operations defined by parser combinators.
+your parsers. Therefore, the set of all parsers is closed under the operations defined by parser combinators.
 
 Parsers are regular Python objects of type [`Parser`](../api/parser.md#funcparserlib.parser.Parser). It means that you
 can write arbitrary Python code that builds parser objects: assign parsers to variables, pass parsers as call arguments,
