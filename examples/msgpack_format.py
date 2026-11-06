@@ -1,7 +1,7 @@
 """A MessagePack parser, written from the format specification.
 
 MessagePack is a binary format: every value starts with a byte that says its type, and often holds a
-length or a count that says what follows. The grammar is a table of those bytes. `fixed()` reads a
+length or a count that says what follows. The grammar is a table of those bytes. `b.fixed()` reads a
 number, `prefixed()` reads as many bytes as a length says, `counted()` as many values as a count
 says, and `switch()` chooses what to read by the type byte, so the grammar compiles. `parse()` gives
 what `msgpack.unpackb(data, raw=False, strict_map_key=False, timestamp=0)` gives: `None`, `bool`,
@@ -84,7 +84,7 @@ def table(length: Parser[int, int]) -> Parser[int, dict[Any, Value]]:
 
 
 # --8<-- [start:tags]
-# A type byte holds a number in its low bits, and `previous()` reads it back under a mask.
+# A type byte holds a number in its low bits, and `b.previous()` reads it back under a mask.
 low4, low5, low7 = b.previous(0x0F), b.previous(0x1F), b.previous(0x7F)
 
 

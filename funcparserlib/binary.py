@@ -92,7 +92,7 @@ def fixed(fmt: str) -> Parser[int, Any]:
     if layout.size == 0 or len(layout.unpack(bytes(layout.size))) != 1:
         raise with_hint(
             ValueError(f"struct format {fmt!r} reads no single value"),
-            "Read each value with a `fixed()` of its own, and join them with `+`.",
+            "Read each value with a `binary.fixed()` of its own, and join them with `+`.",
         )
     unpack, size = layout.unpack_from, layout.size
 
@@ -121,7 +121,7 @@ def previous(mask: int = 0xFF) -> Parser[int, int]:
     """A parser of the byte just read, under `mask`, which reads nothing.
 
     It is for a tag that holds a value, in a case of `switch()`:
-    `counted(previous(0x0F), item)`. It fails at the start of the input.
+    `counted(b.previous(0x0F), item)`. It fails at the start of the input.
     """
 
     def run(data: Any, s: State) -> ParsingResult[int]:

@@ -1,11 +1,11 @@
 """A KDL 2.0 parser that reads the text itself, without a tokenizer.
 
-The grammar is `examples/kdl.py` with its lexical part written as parsers of `Text`: whitespace,
-comments and strings are rules, and what is not lexical (the tree, the values of strings and
-numbers) is imported from there. A `/* */` comment is a recursive rule, so it nests as deep as the
-stack allows, and a rule asks only for the tokens that make sense where it is, so the alternatives
-of a string need no order. Every failure is a `NoParseError` or a `ParseErrors` with the line and
-column of the text, including text a tokenizer would not read.
+The grammar is `examples/kdl.py` with its lexical part written as text parsers: whitespace, comments
+and strings are rules, and what is not lexical (the tree, the values of strings and numbers) is
+imported from there. A `/* */` comment is a recursive rule, so it nests as deep as the stack allows,
+and a rule asks only for the tokens that make sense where it is, so the alternatives of a string
+need no order. Every failure is a `NoParseError` or a `ParseErrors` with the line and column of the
+text, including text a tokenizer would not read.
 """
 
 from __future__ import annotations

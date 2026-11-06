@@ -31,7 +31,7 @@ text may also start with it:
 `Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what `skip` matches, and
 `named()` gives a parser the name its errors use.
 
-The functions `match()` and `literal()` of `funcparserlib.text` skip nothing, which is what a token that has whitespace
+The functions `text.match()` and `text.literal()` skip nothing, which is what a token that has whitespace
 inside needs. Such a grammar ends with `finished`, as a token grammar does. The first `skip` found in the grammar is still
 read before parsing starts, so that a document can start with whitespace, even before a first parser that skips nothing:
 whitespace at the very start of the text never reaches a parser. Use the `Text` for the grammar, and the functions for the

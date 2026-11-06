@@ -1441,7 +1441,7 @@ def test_fixed_of_a_format_that_does_not_read_one_value_raises(fmt: str) -> None
     with pytest.raises(ValueError, match="reads no single value") as caught:
         b.fixed(fmt)
     assert repr(fmt) in str(caught.value)
-    assert "`fixed()`" in "\n".join(getattr(caught.value, "__notes__", []))
+    assert "`binary.fixed()`" in "\n".join(getattr(caught.value, "__notes__", []))
 
 
 @pytest.mark.parametrize("fmt", ["z", "<z", ">Hz", "2", "5"])

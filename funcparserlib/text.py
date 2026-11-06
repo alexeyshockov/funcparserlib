@@ -5,8 +5,8 @@ to keep in order, and what a piece of text means can depend on where it is. Its 
 grammar: they say what was expected, with the line and column of the text. See `Parser.parse_text()`
 and `Parser.compile()`.
 
-`match()` and `literal()` read exactly what they are given. A `Text` makes the same parsers, and
-each of them also skips what may sit between tokens, such as whitespace and comments.
+`text.match()` and `text.literal()` read exactly what they are given. A `Text` makes the same
+parsers, and each of them also skips what may sit between tokens, such as whitespace and comments.
 """
 
 __all__ = ["Text", "literal", "match"]
@@ -27,7 +27,7 @@ class Text:
     matches as many times as it can. The text may start with it, for any first parser of the
     grammar:
     the first `skip` found in the grammar is read before parsing starts. Inside a token, such as a
-    string written as a grammar, use `match()` and `literal()`, which skip nothing.
+    string written as a grammar, use `text.match()` and `text.literal()`, which skip nothing.
 
     Raises `ValueError` for a `skip` that matches the empty string or cannot repeat.
 
@@ -109,7 +109,7 @@ class Text:
     def literal(self, value: str) -> Parser[str, str]:
         """A parser of the text `value`, which it reads where a longer word starts with it too.
 
-        To read a keyword, end a `match()` with a word boundary: `text.match(r"if\\b")`. Raises
+        To read a keyword, end the regexp with a word boundary: `text.match(r"if\\b")`. Raises
         `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
         """
         if not isinstance(value, str):
@@ -167,7 +167,7 @@ def literal(value: str) -> Parser[str, str]:
     """A parser of the text `value`, skipping nothing, which reads where a longer word starts with
     it.
 
-    To read a keyword, end a `match()` with a word boundary: `text.match(r"if\\b")`. Raises
+    To read a keyword, end the regexp with a word boundary: `text.match(r"if\\b")`. Raises
     `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
     """
     return _plain.literal(value)

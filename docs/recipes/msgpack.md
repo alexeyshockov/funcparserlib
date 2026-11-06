@@ -43,7 +43,7 @@ the application gives a meaning to, and one type is the specification's own, num
 
 ## Numbers
 
-The numbers are `struct` formats, big-endian as the specification says. `fixed()` reads one value of a format,
+The numbers are `struct` formats, big-endian as the specification says. `b.fixed()` reads one value of a format,
 and `named()` gives each the name its errors use:
 
 ```python
@@ -76,7 +76,7 @@ an array. A map is a count of pairs, so it is `counted()` of a key and a value, 
 
 The short forms put the length, or the value itself, in the low bits of the type byte: `0xA5` is a string of 5 bytes,
 `0x93` an array of 3, `0x07` the number 7 and `0xFF` the number -1. A `switch()` reads the type byte and runs a case
-after it, so the case has to read that byte again without moving on. `previous(mask)` is that: the byte just read,
+after it, so the case has to read that byte again without moving on. `b.previous(mask)` is that: the byte just read,
 under a mask, with nothing consumed.
 
 ```python
@@ -84,7 +84,7 @@ under a mask, with nothing consumed.
 ```
 
 `text(low5)` is `prefixed()` of a length that is the low 5 bits of the tag, so `0xA5` reads 5 bytes. A number is a
-`previous()` too, and the negative ones add a function of the byte, as 8-bit two's complement is not a `struct` format
+`b.previous()` too, and the negative ones add a function of the byte, as 8-bit two's complement is not a `struct` format
 of its own.
 
 ## Extensions and `bind()`

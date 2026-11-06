@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from funcparserlib import text
 from funcparserlib.parser import Parser, commit, forward_decl, many, maybe, oneplus, pure
 from funcparserlib.text import Text
 from tests.rules import kept, rejected
@@ -18,7 +19,6 @@ from tests.test_text import outcome
 
 P = Parser[Any, Any]
 
-text = Text()
 skipping = Text(skip=r"\s+")
 # The walk in parts, for the workers of a parallel run.
 SHARDS = 8

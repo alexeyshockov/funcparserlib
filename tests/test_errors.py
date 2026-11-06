@@ -8,6 +8,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from funcparserlib import parser as parser_module
+from funcparserlib import text
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     Invalid,
@@ -33,7 +34,6 @@ from funcparserlib.parser import (
     switch,
     tok,
 )
-from funcparserlib.text import Text
 from tests.rules import kept
 
 x, y, z = a("x"), a("y"), a("z")
@@ -195,9 +195,9 @@ def test_a_rule_on_a_branch_backtracked_from_is_forgotten() -> None:
 
 def test_except_star_handles_broken_rules_and_a_single_error_alike() -> None:
     caught: list[str] = []
-    for text in ("9", "x"):
+    for source in ("9", "x"):
         try:
-            (SMALL + -finished).parse(text)
+            (SMALL + -finished).parse(source)
         except* NoParseError as group:
             caught.extend(str(e) for e in group.exceptions)
     assert caught == ["too big", "got unexpected token: 'x', expected: some(...)"]
@@ -709,7 +709,6 @@ def test_a_parsing_function_can_tell_a_rejected_part() -> None:
 
 
 def test_try_parse_gives_none_for_a_rejected_value() -> None:
-    text = Text()
     p = text.match(r"\d").validated(odd).compile()
     assert p.try_parse("3") == 3
     assert p.try_parse("2") is None

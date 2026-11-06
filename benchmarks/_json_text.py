@@ -10,7 +10,7 @@ from benchmarks._json_other import NUMBER, STRING, number, unescape
 from funcparserlib.parser import ForwardDeclParser, Parser, forward_decl, many, maybe
 from funcparserlib.text import Text
 
-text = Text(skip=r"[ \t\r\n]+")
+spaced = Text(skip=r"[ \t\r\n]+")
 
 
 def _array(values: tuple[Any, list[Any]] | None) -> list[Any]:
@@ -18,26 +18,26 @@ def _array(values: tuple[Any, list[Any]] | None) -> list[Any]:
 
 
 def _keyword(word: str, value: object) -> Parser[str, Any]:
-    return text.match(rf"{word}\b") >> (lambda _: value)
+    return spaced.match(rf"{word}\b") >> (lambda _: value)
 
 
 def _punctuation(symbol: str) -> Parser[str, Any]:
-    return -text.literal(symbol)
+    return -spaced.literal(symbol)
 
 
 value: ForwardDeclParser[str, Any] = forward_decl()
-string = text.match(STRING) >> unescape
+string = spaced.match(STRING) >> unescape
 member = string + _punctuation(":") + value >> tuple
 members = maybe(member + many(_punctuation(",") + member)) >> _array
 values = maybe(value + many(_punctuation(",") + value)) >> _array
 value.define(
     string
-    | text.match(NUMBER) >> number
+    | spaced.match(NUMBER) >> number
     | _punctuation("{") + members + _punctuation("}") >> dict
     | _punctuation("[") + values + _punctuation("]")
     | _keyword("true", True)
     | _keyword("false", False)
     | _keyword("null", None)
 )
-GRAMMAR = value + -text.end
+GRAMMAR = value + -spaced.end
 COMPILED = GRAMMAR.compile()
