@@ -225,12 +225,16 @@ type Expectation = tuple[Parser[Any, Any], tuple[str, ...]]
 class CheckFailure:
     """A failed `Parser.check()`: its message, the tokens it covers (`start` to `end`, exclusive)
     and the `Parser.context()` labels around it.
+
+    With `unexpected`, the error starts by naming the token at `start` as `Parser.parse()` was told
+    to describe it, and `message` is what comes after that.
     """
 
     message: str
     start: int
     end: int
     context: tuple[str, ...]
+    unexpected: bool = False
 
 
 @final
@@ -873,11 +877,13 @@ class Parser[A, B]:
             if st.max == s.pos:
                 return res._replace_state(_merged(st, s))
             names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
+            expected = f", expected: {' or '.join(names)}" if names else ""
+            # Only `Parser.parse()` knows how to describe a token that is no character or byte.
+            unexpected = st.max < len(tokens) and not isinstance(tokens, str | bytes)
             found = "got unexpected end of input"
             if st.max < len(tokens):
-                found = f"got unexpected token: {_shown(tokens, st.max)}"
-            message = found + (f", expected: {' or '.join(names)}" if names else "")
-            problem = CheckFailure(message, st.max, st.max + 1, st.context)
+                found = "" if unexpected else f"got unexpected token: {_shown(tokens, st.max)}"
+            problem = CheckFailure(found + expected, st.max, st.max + 1, st.context, unexpected)
             pos = st.max
             while (
                 pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingFailure
@@ -1485,7 +1491,8 @@ def _merged(st: State, s: State) -> State:
 def _moved(s: State, offset: int) -> State:
     """`s` of a region that starts at `offset`, in the input around it."""
     problems = tuple(
-        CheckFailure(p.message, p.start + offset, p.end + offset, p.context) for p in s.problems
+        CheckFailure(p.message, p.start + offset, p.end + offset, p.context, p.unexpected)
+        for p in s.problems
     )
     return State(s.pos + offset, s.max + offset, s.expected, s.context, problems)
 
@@ -1898,6 +1905,9 @@ def _problem_error[A](
         first = describe(tokens[problem.start])
         last = describe(tokens[max(problem.start, problem.end - 1)])
         description = TokenDescription(first.text, first.start, last.end)
+        if problem.unexpected:
+            message = f"got unexpected token: {first.text}{problem.message}"
+            problem = CheckFailure(message, problem.start, problem.end, problem.context)
     else:
         description = _after(tokens, describe)
     context = tuple(reversed(problem.context))

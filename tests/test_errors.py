@@ -458,3 +458,13 @@ def test_a_chain_of_alternatives_builds_one_dispatch_table(monkeypatch: pytest.M
     assert calls == []
     assert [p.parse("h"), p.parse("a")] == ["h", "a"]
     assert len(calls) == 1
+
+
+def test_a_recovered_error_shows_a_token_as_describe_says() -> None:
+    line = (a("x") + a("=") + a("1")).recover(until=a(";"))
+    grammar = many(line + -a(";")) + -finished
+    with pytest.raises(ParseErrors) as e:
+        grammar.parse(list("x=?;"), describe=lambda t: TokenDescription(f"<{t}>"))
+    assert [error.msg for error in e.value.exceptions] == [
+        "got unexpected token: <?>, expected: '1'"
+    ]
