@@ -21,8 +21,9 @@ messages name what was expected more precisely; see Changed.
   that are not `funcparserlib.lexer.Token`
 - `commit(p)`: once `p` has read a token, its failure is final, and `|`, `many` and `maybe` do not backtrack from it
 - `Parser.context(label)`: errors inside the parser end with `in label`
-- `Parser.check(pred, message)`: a non-fatal error; `parse()` raises every recorded one together as `ParseErrors`,
-  an `ExceptionGroup` of `NoParseError`
+- `Parser.validated(f, expected=None)`: `f` makes the value or raises `Invalid`, and parsing goes on without a value for
+  what it rejects; `parse()` raises every error together as `ParseErrors`, an `ExceptionGroup` of `NoParseError`.
+  `State.rejected_since()` tells a parsing function about a rejected part
 - Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
 - `Parser.compile()`: a grammar as generated Python functions, several times faster for the parses that succeed. A
   `CompiledParser` gives the values and the errors of the parser it comes from
@@ -36,7 +37,8 @@ messages name what was expected more precisely; see Changed.
 - `funcparserlib.text.Text`: parsers that read text at the position parsing has reached, with no list of tokens, and
   `Parser.parse_text(text)`, whose errors give the line and column
 - `longest(p1, p2, ...)`: the longest match of the parsers, whatever their order
-- `Parser.recover(until)`: record a failure and go on from where `until` matches, so one parse reports every error
+- `Parser.recover(until=None, default=None)`: give a broken part `default`; with `until`, also record a failure and go
+  on from where `until` matches, so one parse reports every error
 - `CompiledParser.try_parse(text)`: the value, or `None` without making an error
 - `Parser.compile(source_file=path)`: the generated source is written to `path`, and frames of generated code report
   that file, so tracebacks, `pdb` and an IDE can show it
@@ -51,7 +53,7 @@ messages name what was expected more precisely; see Changed.
 - `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
 - Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
   `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`,
-  and the `State` fields' `Expectation` and `CheckFailure` (parser)
+  and the `State` fields' `Expectation` and `Problem` (parser)
 - `funcparserlib.__version__`
 - `Token` is hashable, consistently with `==`: by type and value, ignoring positions
 
@@ -59,7 +61,7 @@ messages name what was expected more precisely; see Changed.
 
 - Error messages that named a sequence by its shape (`expected: ('x', 'y') or 'z'`) name what failed at the position
   instead (`expected: 'x' or 'z'`); `State` holds what failed there (`expected`), the active contexts and the recorded
-  check failures, and a `ParsingFailure` can be `committed`
+  errors, and a `ParsingFailure` can be `committed`
 - Dropped support for Python 2.7 and 3.7 to 3.11
 - A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
   `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one

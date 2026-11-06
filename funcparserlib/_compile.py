@@ -306,7 +306,7 @@ def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
     match _form(p):
         case ("seq" | "alt" | "but_not" | "counted", left, right):
             found = [left, right]
-        case ("map" | "starmap" | "check" | "when", inner, _):
+        case ("map" | "starmap" | "when", inner, _):
             found = [inner]
         case ("ignore" | "many" | "commit" | "context", inner):
             found = [inner]
@@ -486,7 +486,7 @@ class _Compiler:
                 result = _NO_CHARS
             case ("many" | "oneplus" | "ignore" | "commit" | "context", inner):
                 result = of(inner)
-            case ("map" | "starmap" | "check" | "when" | "but_not", inner, _):
+            case ("map" | "starmap" | "when" | "but_not", inner, _):
                 result = of(inner)
             case _:
                 pass
@@ -521,7 +521,7 @@ class _Compiler:
                 kind = kinds.pop() if len(kinds) == 1 else "unknown"
             case ("pure", x) if not isinstance(x, (IgnoredValue, self.internals.tuple_class)):
                 kind = "plain"
-            case ("context" | "commit", inner) | ("check" | "when" | "but_not", inner, _):
+            case ("context" | "commit", inner) | ("when" | "but_not", inner, _):
                 kind = self.kind(inner)
             case ("alt", left, right) if self.kind(left) == self.kind(right):
                 kind = self.kind(left)
@@ -712,7 +712,7 @@ class _Compiler:
                 parts = [left, right] if self.first[id(_target(left))][1] else [left]
             case ("alt" | "but_not", left, right):
                 parts = [left, right]
-            case ("map" | "starmap" | "check" | "when", inner, _):
+            case ("map" | "starmap" | "when", inner, _):
                 parts = [inner]
             case ("ignore" | "many" | "oneplus" | "commit" | "context", inner):
                 parts = [inner]
@@ -1027,16 +1027,6 @@ class _Compiler:
             name = self.fresh("v")
             self.assign(name, _call(function, _star(_read(value)) if star else _read(value)))
             then(at, _Value("unknown", name) if want else None)
-
-        self.emit(inner, pos, True, after)
-
-    def emit_check(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        _, inner, pred = _form(p)
-
-        def after(at: str, value: _Value | None) -> None:
-            value = self.bound(value or _Value("ignored"))
-            self.undecided_if(_not(_call(self.constant(pred), value.expr)))
-            then(at, value if want else None)
 
         self.emit(inner, pos, True, after)
 

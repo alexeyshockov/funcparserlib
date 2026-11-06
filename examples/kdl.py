@@ -18,7 +18,16 @@ from decimal import Decimal
 from typing import Any
 
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
-from funcparserlib.parser import ForwardDeclParser, Parser, finished, forward_decl, many, maybe, tok
+from funcparserlib.parser import (
+    ForwardDeclParser,
+    Invalid,
+    Parser,
+    finished,
+    forward_decl,
+    many,
+    maybe,
+    tok,
+)
 
 # --8<-- [start:tree]
 type Scalar = str | int | Decimal | bool | None
@@ -113,6 +122,8 @@ ESCAPE = re.compile(
 )
 LINE = re.compile(NL)
 BLANK = re.compile(rf"[{SPACE}]*")
+BAD_ESCAPE = "unknown escape in a string"
+BAD_INDENT = "a line does not start with the indent of the closing quotes"
 
 
 def is_scalar(code: str) -> bool:
@@ -121,21 +132,17 @@ def is_scalar(code: str) -> bool:
     return n <= 0x10FFFF and not 0xD800 <= n <= 0xDFFF
 
 
-def valid_escapes(text: str) -> bool:
-    """Whether every escape in `text` is one that KDL defines."""
-    return all(
-        m["space"] or (is_scalar(m["code"]) if m["code"] else m["char"] in ESCAPES)
-        for m in ESCAPE.finditer(text)
-    )
-
-
 def unescape(text: str) -> str:
-    """The string `text` stands for; an invalid escape, reported by a check, stands for nothing."""
+    """The string `text` stands for; raises `Invalid` for an escape KDL does not define."""
 
     def resolve(m: re.Match[str]) -> str:
-        if m["code"]:
-            return chr(int(m["code"], 16)) if is_scalar(m["code"]) else ""
-        return ESCAPES.get(m["char"], "") if m["char"] else ""
+        if m["space"]:
+            return ""
+        if m["code"] and is_scalar(m["code"]):
+            return chr(int(m["code"], 16))
+        if m["char"] in ESCAPES:
+            return ESCAPES[m["char"]]
+        raise Invalid(BAD_ESCAPE)
 
     return ESCAPE.sub(resolve, text)
 
@@ -145,17 +152,17 @@ def without_space_escapes(text: str) -> str:
     return ESCAPE.sub(lambda m: "" if m["space"] else m[0], text)
 
 
-def valid_indent(text: str) -> bool:
-    """Whether the last line of `text` is blank and starts every other line that is not blank."""
-    _, *lines, last = LINE.split(text)
-    return BLANK.fullmatch(last) is not None and all(
-        line.startswith(last) or BLANK.fullmatch(line) for line in lines
-    )
-
-
 def dedent(text: str) -> str:
-    """The lines between the first and the last of `text`, without the indent of the last."""
+    """The lines between the first and the last of `text`, without the indent of the last.
+
+    Raises `Invalid` for a last line that is not blank or does not start every other line. The text
+    is real, so parsing goes on with it, and a bad escape in it is reported too.
+    """
     _, *lines, last = LINE.split(text)
+    if not BLANK.fullmatch(last) or not all(
+        line.startswith(last) or BLANK.fullmatch(line) for line in lines
+    ):
+        raise Invalid(BAD_INDENT, keep=True)
     return "\n".join("" if BLANK.fullmatch(line) else line.removeprefix(last) for line in lines)
 
 
@@ -211,25 +218,20 @@ def make_node(parts: tuple[Any, ...]) -> Node:
     return Node(name, args, props, nested or [], type_)
 
 
-BAD_ESCAPE = "unknown escape in a string"
-BAD_INDENT = "a line does not start with the indent of the closing quotes"
-
 ws = tok("ws").named("whitespace")
 newline = tok("nl").named("newline")
 space = -maybe(ws)
 line_space = -many(ws | newline)
 slashdash = -tok("slashdash").named("'/-'") + line_space
 
-quoted = tok("string").check(valid_escapes, BAD_ESCAPE) >> (lambda t: unescape(t[1:-1]))
+quoted = (tok("string") >> (lambda t: t[1:-1])).validated(unescape)
 multiline = (
     (tok("multiline") >> (lambda t: without_space_escapes(t[3:-3])))
-    .check(valid_escapes, BAD_ESCAPE)
-    .check(valid_indent, BAD_INDENT)
-) >> (lambda t: unescape(dedent(t)))
+    .validated(dedent)
+    .validated(unescape)
+)
 raw = tok("raw") >> (lambda t: t.strip("#")[1:-1])
-raw_multiline = (tok("raw_multiline") >> (lambda t: t.strip("#")[3:-3])).check(
-    valid_indent, BAD_INDENT
-) >> dedent
+raw_multiline = (tok("raw_multiline") >> (lambda t: t.strip("#")[3:-3])).validated(dedent)
 bare = tok("ident").when(lambda s: s not in KEYWORD_NAMES).named("identifier")
 string = (bare | quoted | multiline | raw | raw_multiline).named("string")
 

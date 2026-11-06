@@ -106,8 +106,8 @@ Compiling is not free, which is why you ask for it:
 
 * A failed parse takes longer, as it runs twice
 * A compiled grammar is a snapshot: a `forward_decl()` defined again afterwards keeps its old meaning
-* A failed `check()` or `commit()` leaves the generated functions, so that parse takes the time of the parsers, and so
-  does a document that needs `recover()`
+* A rejected value or a failed `commit()` leaves the generated functions, so that parse takes the time of the parsers,
+  and so does a document that needs `recover()`
 
 The second run also calls the functions you gave to `>>` again:
 

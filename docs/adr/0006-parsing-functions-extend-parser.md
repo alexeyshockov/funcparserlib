@@ -38,7 +38,7 @@ this decision is a method that costs nothing on the supported interpreters.
 Backtracking needs no new name. `State` is a dataclass with public fields, and a choice that goes on from
 `dataclasses.replace(s, max=st.max, expected=st.expected)` matched `|` on all of 1,023,000 parses of
 random grammars, and on 511,500 compiled. It carries any field `State` gains. `st.reset_pos(s.pos)`
-differed on 443 of them: it keeps the `Parser.check()` errors of the failed branch.
+differed on 443 of them: it keeps the errors the failed branch recorded.
 
 Rejected:
 

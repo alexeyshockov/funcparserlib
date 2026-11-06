@@ -37,6 +37,7 @@ from funcparserlib.parser import (
     tok,
 )
 from funcparserlib.text import Text
+from tests.rules import kept
 
 from . import dot, json
 from .conftest import GeneratedCodeError
@@ -132,7 +133,7 @@ def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
     return st.one_of(
         plain_combined(kids),
         kids.map(commit),
-        kids.map(lambda k: k.check(short, "too long")),
+        kids.map(lambda k: k.validated(kept(short, "too long"))),
         kids.map(run_inner),
     )
 
@@ -154,7 +155,7 @@ def test_a_compiled_parser_parses_as_its_parser(grammar: P, documents: list[list
 
 @settings(max_examples=300, deadline=None)
 @given(plain_grammars, st.lists(inputs, min_size=4, max_size=4))
-def test_generated_code_decides_a_grammar_without_check_or_commit(
+def test_generated_code_decides_a_grammar_without_validated_or_commit(
     grammar: P, documents: list[list[Token]]
 ) -> None:
     fast = grammar.compile()._fast
@@ -268,16 +269,16 @@ def test_describe_reaches_the_error() -> None:
         a("x").compile().parse("y", describe=describe)
 
 
-def test_a_failed_check_is_reported_as_the_parser_reports_it() -> None:
-    grammar = many(tok("a").check(lambda _: False, "bad") + tok("b")) + -finished
+def test_a_broken_rule_is_reported_as_the_parser_reports_it() -> None:
+    grammar = many(tok("a").validated(kept(lambda _: False, "bad")) + tok("b")) + -finished
     with pytest.raises(ParseErrors) as caught:
         grammar.compile().parse(tokens("abab"))
     assert [str(e) for e in caught.value.exceptions] == ["bad", "bad"]
 
 
-def test_a_check_on_a_branch_backtracked_from_is_forgotten() -> None:
+def test_a_rule_on_a_branch_backtracked_from_is_forgotten() -> None:
     seen: list[str] = []
-    bad = (tok("a") >> seen.append).check(lambda _: False, "bad") + tok("b")
+    bad = (tok("a") >> seen.append).validated(kept(lambda _: False, "bad")) + tok("b")
     grammar = bad | tok("a") + tok("c")
     assert grammar.compile().parse(tokens("ac")) == ("x", "x")
     assert seen == ["x", "x"]
@@ -767,7 +768,7 @@ def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
     return st.one_of(
         plain_combined_without_tokens(kids),
         kids.map(commit),
-        kids.map(lambda k: k.check(short, "too long")),
+        kids.map(lambda k: k.validated(kept(short, "too long"))),
     )
 
 
@@ -850,8 +851,8 @@ def test_parse_text_says_what_was_expected_after_a_complete_document() -> None:
         compiled.parse_text("a ?")
 
 
-def test_parse_text_keeps_a_check_error_with_the_error_at_text_no_spec_matches() -> None:
-    compiled = (tok("a").check(lambda _: False, "bad") + tok("b")).compile(tokenizer)
+def test_parse_text_keeps_a_rule_error_with_the_error_at_text_no_spec_matches() -> None:
+    compiled = (tok("a").validated(kept(lambda _: False, "bad")) + tok("b")).compile(tokenizer)
     with pytest.raises(ParseErrors) as e:
         compiled.parse_text("a ?")
     assert [str(x) for x in e.value.exceptions] == [

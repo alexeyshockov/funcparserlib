@@ -70,9 +70,9 @@ with as many:
 ## Strings
 
 The tokenizer takes a string whole, and functions give it its value. A bad escape or indent does not stop the parse:
-`Parser.check()` records it and parsing goes on, so these functions have to get through a string that a check has
-already reported. A multi-line string is read in the order the spec gives: whitespace escapes first, then the indent,
-then the other escapes.
+`Parser.validated()` runs each function, which raises `Invalid`, and parsing goes on. A bad escape has no value, so nothing
+after it sees the string. A bad indent keeps the text, so a bad escape in the same string is reported too. A multi-line
+string is read in the order the spec gives: whitespace escapes first, then the indent, then the other escapes.
 
 ```python
 --8<-- "examples/kdl.py:strings"
@@ -144,7 +144,7 @@ Tokens out of place fail with `NoParseError`, and `render()` shows where:
 
 ```
 
-The errors of `Parser.check()` come together at the end of the parse, in a `ParseErrors`:
+The errors of `Parser.validated()` come together at the end of the parse, in a `ParseErrors`:
 
 ```pycon
 >>> text = r'a "\q" "\w"'

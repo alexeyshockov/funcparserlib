@@ -40,7 +40,7 @@ Run one test with `uv run pytest tests/test_parsing.py -k many -v`.
 
 `tests/test_parsing.py` and `tests/test_combinators.py` cover the combinators, `tests/test_lexer.py` the
 tokenizer, and `tests/test_errors.py` error reporting: what an error expects, labels, `commit()`, `Parser.context()`,
-`Parser.check()`, `describe=` and `render()`. `tests/test_json.py` and `tests/test_dot.py` drive the example grammars
+`Parser.validated()`, `describe=` and `render()`. `tests/test_json.py` and `tests/test_dot.py` drive the example grammars
 in `tests/json.py` and `tests/dot.py`, and `tests/test_examples.py` runs `examples/`.
 
 Properties go in the same modules, written with [Hypothesis](https://hypothesis.readthedocs.io/): the tokens

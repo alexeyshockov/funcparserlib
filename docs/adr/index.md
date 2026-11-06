@@ -9,3 +9,4 @@ The architectural decisions behind funcparserlib, one record each. A new one sta
 - [ADR 0004 — One definition per grammar](0004-one-definition-per-grammar.md)
 - [ADR 0005 — Byte grammars](0005-byte-grammars.md)
 - [ADR 0006 — Parsing functions extend Parser](0006-parsing-functions-extend-parser.md)
+- [ADR 0007 — A rejected value goes on without a value](0007-a-rejected-value-goes-on-without-a-value.md)

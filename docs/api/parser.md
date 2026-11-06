@@ -117,7 +117,7 @@ When parsing fails, `NoParseError` says where parsing stopped, what it found the
 parser that failed at that position expected. A name given with `Parser.named()` is a label: the
 error names it instead of what the parser is made of. `commit()` makes a failure final once a
 parser has read a token, `Parser.context()` names the part of the grammar an error is in, and
-`Parser.check()` records an error without stopping the parse.
+`Parser.validated()` reports a value that is not valid without stopping the parse.
 
 ::: funcparserlib.parser.NoParseError
 
@@ -131,7 +131,9 @@ parser has read a token, `Parser.context()` names the part of the grammar an err
 
 ::: funcparserlib.parser.Parser.context
 
-::: funcparserlib.parser.Parser.check
+::: funcparserlib.parser.Parser.validated
+
+::: funcparserlib.parser.Invalid
 
 ::: funcparserlib.parser.Parser.recover
 

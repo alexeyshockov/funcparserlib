@@ -26,7 +26,7 @@ alternative costs a comparison, and a token type is read from a list built once 
 
 Whenever that pass does not succeed, `CompiledParser.parse()` runs the interpreted parser on the same
 tokens, and what it returns or raises is the result. This covers a failed parse, a failed
-`Parser.check()`, a failure of `commit()` after it read a token, and any exception. Errors are
+`Parser.validated()` rejecting a value, a failure of `commit()` after it read a token, and any exception. Errors are
 therefore produced by the
 one implementation there is, and the compiled pass has a single obligation: when it succeeds, the
 interpreted parser would have given the same value.
@@ -45,7 +45,7 @@ a name of generated code; a `str` constant is `ast.Constant`. Generated code sta
 compiler takes, so nothing declines on a `SyntaxError`, and a malformed node raises from
 `Parser.compile()`. A wrong name still compiles, as `ast.Name` takes any string, and would fall back to
 the same result, so `tests/conftest.py` turns a `NameError` raised in a generated frame into an error no
-fallback catches, and the random grammars without `check()` or `commit()` assert that generated code
+fallback catches, and the random grammars without `validated()` or `commit()` assert that generated code
 decides the result alone.
 
 Compiling is opt-in. Measured on Python 3.12 on an arm64 laptop, CPU time, best of three:
@@ -92,7 +92,7 @@ Rejected:
 
 - A failed parse takes longer, by the time the compiled pass ran.
 - A `>>` function runs in both passes of a parse the compiled pass does not finish. That is a failed
-  parse, a parse past a `check()` that failed on a branch `|` backtracked from, and a parse past a
+  parse, a parse past a `validated()` that rejected a value on a branch `|` backtracked from, and a parse past a
   failure of `commit()` around a parsing function, whose reading the compiled pass cannot see. Any
   other parse that succeeds runs it as the interpreted parser does.
 - A compiled grammar is a snapshot: a `forward_decl()` defined again afterwards keeps its old meaning

@@ -33,6 +33,7 @@ from funcparserlib.parser import (
 )
 from funcparserlib.parser import longest as typed_longest
 from funcparserlib.text import Text
+from tests.rules import kept
 
 type P = Parser[Any, Any]
 type Runner = Callable[[P, bytes], Any]
@@ -216,7 +217,7 @@ def combined(kids: st.SearchStrategy[P], *, risky: bool) -> st.SearchStrategy[P]
     if risky:
         forms += [
             kids.map(commit),
-            kids.map(lambda k: k.check(short, "too long")),
+            kids.map(lambda k: k.validated(kept(short, "too long"))),
             st.tuples(lengths, kids).map(lambda lk: commit(prefixed(*lk))),
             st.tuples(lengths, kids).map(lambda lk: commit(counted(*lk)) | pure("none")),
             st.tuples(lengths, kids, kids).map(
@@ -266,7 +267,7 @@ def test_a_compiled_binary_grammar_parses_as_its_parser(grammar: P, samples: lis
 
 @settings(max_examples=100, deadline=None)
 @given(plain_grammars, documents)
-def test_generated_code_decides_a_grammar_without_check_or_commit(
+def test_generated_code_decides_a_grammar_without_validated_or_commit(
     grammar: P, samples: list[bytes]
 ) -> None:
     fast = loose(grammar.compile()._fast_text)
@@ -485,8 +486,8 @@ def test_try_parse_of_bytes() -> None:
     assert code.try_parse(loose(bytearray(b"\x00"))) == ([], None)
 
 
-def test_try_parse_of_a_check_that_fails_gives_none_and_of_a_commit_gives_none() -> None:
-    checked = prefixed(b.byte, b.byte.check(lambda v: v > 5, "too small"))
+def test_try_parse_of_a_rule_that_fails_gives_none_and_of_a_commit_gives_none() -> None:
+    checked = prefixed(b.byte, b.byte.validated(kept(lambda v: v > 5, "too small")))
     assert checked.compile().try_parse(b"\x01\x01") is None
     assert checked.compile().try_parse(b"\x01\x09") == 9
     committed = (b.literal(b"a") + commit(counted(b.byte, b.literal(b"b")))) | pure("other")
@@ -648,8 +649,8 @@ def test_a_length_of_a_buffer_that_ends_before_it_fails(run: Runner) -> None:
     )
 
 
-def test_a_check_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
-    big = b.byte.check(lambda v: v > 5, "too small")
+def test_a_rule_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
+    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
     grammar = b.byte + b.byte + prefixed(b.byte, big + big)
     assert message(run, grammar, b"\x01\x02\x02\x01\x09") == "offset 0x3: too small"
     assert message(run, grammar, b"\x01\x02\x02\x09\x01") == "offset 0x4: too small"
@@ -658,23 +659,23 @@ def test_a_check_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> No
     )
 
 
-def test_a_check_in_a_nested_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
-    big = b.byte.check(lambda v: v > 5, "too small")
+def test_a_rule_in_a_nested_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
+    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
     grammar = b.byte + prefixed(b.byte, b.byte + b.byte + prefixed(b.byte, big))
     assert message(run, grammar, b"\x00\x04\x00\x00\x01\x01") == "offset 0x5: too small"
     assert run(grammar, b"\xff\x04\x00\x00\x01\x09") == (255, (0, 0, 9))
 
 
-def test_a_check_in_a_region_that_fails_after_it_keeps_both_errors(run: Runner) -> None:
-    big = b.byte.check(lambda v: v > 5, "too small")
+def test_a_rule_in_a_region_that_fails_after_it_keeps_both_errors(run: Runner) -> None:
+    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
     grammar = prefixed(b.byte, big + b.literal(b"x"))
     assert message(run, grammar, b"\x02\x01y") == (
         "offset 0x1: too small\ngot unexpected token: 0x79 at offset 0x2, expected: b'x'"
     )
 
 
-def test_a_check_failure_reports_the_offsets_of_the_region_it_ended_in(run: Runner) -> None:
-    grammar = many(prefixed(b.byte, b.byte.check(lambda v: v > 5, "too small")))
+def test_a_rule_failure_reports_the_offsets_of_the_region_it_ended_in(run: Runner) -> None:
+    grammar = many(prefixed(b.byte, b.byte.validated(kept(lambda v: v > 5, "too small"))))
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x01\x01\x01\x02\x01\x07")
     assert [str(e) for e in caught.value.exceptions] == [
@@ -1685,14 +1686,14 @@ def test_an_error_says_what_every_alternative_expected(run: Runner) -> None:
     assert "expected: b'a' or b'b+'" in message(run, b.literal(b"a") | b.token(rb"b+"), b"c")
 
 
-def test_a_check_failure_in_a_byte_grammar_has_the_offset_in_hexadecimal(run: Runner) -> None:
-    grammar = b.byte + b.fixed(">H").check(lambda v: v < 10, "too big") + b.byte
+def test_a_rule_failure_in_a_byte_grammar_has_the_offset_in_hexadecimal(run: Runner) -> None:
+    grammar = b.byte + b.fixed(">H").validated(kept(lambda v: v < 10, "too big")) + b.byte
     assert message(run, grammar, b"\x00\x01\x00\x07") == "offset 0x1: too big"
     assert run(grammar, b"\x00\x00\x09\x07") == (0, 9, 7)
 
 
-def test_a_check_failure_that_spans_bytes_reports_the_start(run: Runner) -> None:
-    grammar = b.byte + b.fixed(">I").check(lambda v: v < 10, "too big")
+def test_a_rule_failure_that_spans_bytes_reports_the_start(run: Runner) -> None:
+    grammar = b.byte + b.fixed(">I").validated(kept(lambda v: v < 10, "too big"))
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x00\x00\x00\x01\x00")
     (error,) = caught.value.exceptions
@@ -1700,8 +1701,8 @@ def test_a_check_failure_that_spans_bytes_reports_the_start(run: Runner) -> None
     assert error.state.pos == 1
 
 
-def test_several_failed_checks_are_reported_in_order_of_offset(run: Runner) -> None:
-    item = b.byte.check(lambda v: v < 3, "too big")
+def test_several_broken_rules_are_reported_in_order_of_offset(run: Runner) -> None:
+    item = b.byte.validated(kept(lambda v: v < 3, "too big"))
     grammar = many(item)
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x01\x05\x02\x09")
@@ -1711,8 +1712,8 @@ def test_several_failed_checks_are_reported_in_order_of_offset(run: Runner) -> N
     ]
 
 
-def test_a_check_failure_and_a_parse_failure_are_reported_together(run: Runner) -> None:
-    item = b.byte.check(lambda v: v < 3, "too big")
+def test_a_rule_failure_and_a_parse_failure_are_reported_together(run: Runner) -> None:
+    item = b.byte.validated(kept(lambda v: v < 3, "too big"))
     grammar = item + item + b.literal(b"x")
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x09\x01\x7a")
@@ -1788,7 +1789,7 @@ def test_a_recovered_error_names_the_byte_in_hexadecimal(run: Runner) -> None:
 
 
 def test_recover_with_a_default_gives_it_where_the_record_failed(run: Runner) -> None:
-    record = (b.literal(b"a") + b.literal(b"x")).recover(b.literal(b"\n"), (b"?", b"?"))
+    record = (b.literal(b"a") + b.literal(b"x")).recover(b.literal(b"\n"), default=(b"?", b"?"))
     grammar = many(record + -b.literal(b"\n"))
     assert shape(run(grammar, b"ax\n")) == shape([(b"a", b"x")])
 
@@ -2024,12 +2025,12 @@ def test_what_the_length_left_expected_stays_in_the_error(run: Runner) -> None:
     )
 
 
-def test_a_check_on_a_length_stays_with_the_failure(run: Runner) -> None:
+def test_a_rule_on_a_length_stays_with_the_failure(run: Runner) -> None:
     with pytest.raises(ParseErrors) as caught:
-        run(prefixed(b.byte.check(lambda n: n < 5, "too long")), b"\x09hi")
+        run(prefixed(b.byte.validated(kept(lambda n: n < 5, "too long"))), b"\x09hi")
     assert len(caught.value.exceptions) == 2
     with pytest.raises(ParseErrors) as caught:
-        run(switch(b.byte.check(lambda n: n < 5, "too big"), {1: b.byte}), b"\x09")
+        run(switch(b.byte.validated(kept(lambda n: n < 5, "too big")), {1: b.byte}), b"\x09")
     assert len(caught.value.exceptions) == 2
 
 

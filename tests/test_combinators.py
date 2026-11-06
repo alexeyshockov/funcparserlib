@@ -29,6 +29,7 @@ from funcparserlib.parser import (
     tok,
 )
 from funcparserlib.util import expand_tuple_args, pretty_tree
+from tests.rules import kept
 
 type P = Parser[Any, Any]
 
@@ -292,8 +293,8 @@ def test_a_parsing_function_that_backtracks_reads_as_the_choice_does(text: str) 
     assert outcome(either(x + y, x + z)) == outcome((x + y) | (x + z))
 
 
-def test_a_parsing_function_that_backtracks_drops_the_failed_branch_checks() -> None:
-    x = a("x").check(lambda _: False, "bad x")
+def test_a_parsing_function_that_backtracks_drops_the_failed_branch_rules() -> None:
+    x = a("x").validated(kept(lambda _: False, "bad x"))
     assert either(x + a("y"), a("x") + a("z")).parse("xz") == ("x", "z")
 
 

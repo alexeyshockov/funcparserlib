@@ -153,12 +153,19 @@ and `maybe()` don't go back. A failure at its first token works as usual, so `ma
 
 ## Report Errors of Meaning
 
-Some input matches the grammar and is still wrong. `Parser.check()` records an error when a function returns false for a
-value, and parsing goes on, so one run finds them all. At the end of the parse they come together in `ParseErrors`, an
-`ExceptionGroup` of `NoParseError`:
+Some input matches the grammar and is still wrong. `Parser.validated()` takes a function that makes the value, or raises
+`Invalid` when it can't. The input was read, so parsing goes on and one run finds every error. At the end of the parse
+they come together in `ParseErrors`, an `ExceptionGroup` of `NoParseError`:
 
 ```pycon
->>> divisor = number.check(lambda n: n != 0, "division by zero")
+>>> from funcparserlib.parser import Invalid, some
+
+>>> def divisor_of(n: int) -> int:
+...     if n == 0:
+...         raise Invalid("division by zero")
+...     return n
+
+>>> divisor = number.validated(divisor_of)
 >>> ratio = number + many(-op("/") + divisor) + -finished
 
 >>> source = "1 / 0 / 2 / 0"
@@ -176,10 +183,31 @@ value, and parsing goes on, so one run finds them all. At the end of the parse t
 
 ```
 
+A rejected value has no value: no function after `>>` runs over it, so your code never sees it. To go on with a value that
+is real and only breaks a rule, raise `Invalid(message, keep=True)`. To give a broken part a value of your own, use
+`Parser.recover()`, as `p.recover(default=...)`.
+
+The function decides what counts as invalid: catch the exception you mean and raise `Invalid`, so that a bug in it stays
+a bug. To parse a value with another grammar, call that grammar in the function. Its `NoParseError` rejects the value,
+and `expected` names what should have been there:
+
+```pycon
+>>> from funcparserlib.text import Text
+
+>>> text = Text()
+>>> version = text.token(r"\d+") + -text.literal(".") + text.token(r"\d+") + -text.end
+>>> parsed = some(lambda t: True).validated(version.parse_text, "a version")
+>>> parsed.parse(["1.2"])
+('1', '2')
+
+```
+
+To decide among alternatives, use `Parser.when()`: a rejected value does not make `|` try the next one.
+
 ## Report Every Error in One Run
 
 A parse stops at its first syntax error. For a file that a person fixes and runs again, it is better to report all of
-them. `Parser.recover()` records a failure and goes on from a point you choose, here the next line:
+them. `Parser.recover()` with `until` records a failure and goes on from a point you choose, here the next line:
 
 ```pycon
 >>> newline = tok("newline")

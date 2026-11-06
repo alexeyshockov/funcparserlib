@@ -10,22 +10,31 @@ from hypothesis import strategies as st
 from funcparserlib import parser as parser_module
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
+    Invalid,
     NoParseError,
     ParseErrors,
     Parser,
     ParsingFailure,
+    ParsingResult,
+    ParsingSuccess,
     State,
     TokenDescription,
     a,
     commit,
+    counted,
     finished,
     forward_decl,
     many,
     maybe,
     parser,
+    prefixed,
+    pure,
     some,
+    switch,
     tok,
 )
+from funcparserlib.text import Text
+from tests.rules import kept
 
 x, y, z = a("x"), a("y"), a("z")
 
@@ -155,13 +164,13 @@ def test_a_context_ends_where_its_parser_ends() -> None:
     assert str(e) == "got unexpected token: 'w', expected: 'z'"
 
 
-# check()
+# validated() as a rule on a value
 
 DIGIT = some(str.isdigit) >> int
-SMALL = DIGIT.check(lambda n: n < 5, "too big")
+SMALL = DIGIT.validated(kept(lambda n: n < 5, "too big"))
 
 
-def test_failed_checks_are_raised_together_in_order() -> None:
+def test_broken_rules_are_raised_together_in_order() -> None:
     with pytest.raises(ParseErrors) as e:
         (many(SMALL) + -finished).parse("1928")
     assert [(str(err), err.state.pos) for err in e.value.exceptions] == [
@@ -170,7 +179,7 @@ def test_failed_checks_are_raised_together_in_order() -> None:
     ]
 
 
-def test_a_failed_parse_joins_the_failed_checks() -> None:
+def test_a_failed_parse_joins_the_broken_rules() -> None:
     with pytest.raises(ParseErrors) as e:
         (many(SMALL) + -finished).parse("19x")
     assert [str(err) for err in e.value.exceptions] == [
@@ -179,11 +188,11 @@ def test_a_failed_parse_joins_the_failed_checks() -> None:
     ]
 
 
-def test_a_check_on_a_branch_backtracked_from_is_forgotten() -> None:
+def test_a_rule_on_a_branch_backtracked_from_is_forgotten() -> None:
     assert ((SMALL + a("!")) | (DIGIT + a("?"))).parse("9?") == (9, "?")
 
 
-def test_except_star_handles_failed_checks_and_a_single_error_alike() -> None:
+def test_except_star_handles_broken_rules_and_a_single_error_alike() -> None:
     caught: list[str] = []
     for text in ("9", "x"):
         try:
@@ -194,9 +203,9 @@ def test_except_star_handles_failed_checks_and_a_single_error_alike() -> None:
 
 
 @given(st.text(alphabet="0123456789x", max_size=8))
-def test_a_check_that_holds_changes_nothing(text: str) -> None:
+def test_a_rule_that_holds_changes_nothing(text: str) -> None:
     plain = many(DIGIT) + -finished
-    checked = many(DIGIT.check(lambda _: True, "never")) + -finished
+    checked = many(DIGIT.validated(kept(lambda _: True, "never"))) + -finished
     try:
         value = plain.parse(text)
     except NoParseError as e:
@@ -468,3 +477,233 @@ def test_a_recovered_error_shows_a_token_as_describe_says() -> None:
     assert [error.msg for error in e.value.exceptions] == [
         "got unexpected token: <?>, expected: '1'"
     ]
+
+
+# validated()
+
+
+def odd(digit: str) -> int:
+    if int(digit) % 2 == 0:
+        raise Invalid(f"{digit} is even")
+    return int(digit)
+
+
+def noted(digit: str) -> str:
+    if digit == "2":
+        raise Invalid("2 is noted", keep=True)
+    return digit
+
+
+digit = some(str.isdigit)
+Compiled = Callable[[Parser[Any, Any]], Any]
+both = pytest.mark.parametrize("build", [lambda p: p, lambda p: p.compile()], ids=["run", "gen"])
+
+
+def messages(p: Any, tokens: Any) -> list[str]:
+    with pytest.raises(ParseErrors) as e:
+        p.parse(tokens)
+    return [error.msg for error in e.value.exceptions]
+
+
+@both
+def test_validated_gives_what_the_function_returns(build: Compiled) -> None:
+    assert build(many(digit.validated(odd)) + -finished).parse(list("13")) == [1, 3]
+
+
+@both
+def test_validated_reports_every_rejected_value(build: Compiled) -> None:
+    p = build(many(digit.validated(odd)) + -finished)
+    assert messages(p, list("1234")) == ["2 is even", "4 is even"]
+
+
+def test_no_function_after_a_rejected_value_runs() -> None:
+    seen: list[Any] = []
+    p = digit.validated(odd) + digit >> seen.append
+    assert messages(p, list("23")) == ["2 is even"]
+    assert seen == []
+
+
+def test_a_rejection_in_a_list_reaches_no_function_over_the_list() -> None:
+    seen: list[Any] = []
+    p = many(digit.validated(odd)) >> seen.append
+    assert messages(p, list("123")) == ["2 is even"]
+    assert seen == []
+
+
+def test_a_kept_value_goes_on_to_what_comes_after() -> None:
+    seen: list[Any] = []
+    p = digit.validated(noted).validated(odd) >> seen.append
+    assert messages(p, ["2"]) == ["2 is noted", "2 is even"]
+    assert seen == []
+    q = digit.validated(noted) >> seen.append
+    assert messages(q, ["2"]) == ["2 is noted"]
+    assert seen == ["2"]
+
+
+def test_a_function_does_not_run_over_a_rejected_value() -> None:
+    seen: list[Any] = []
+    p = digit.validated(odd).validated(seen.append)
+    assert messages(p, ["2"]) == ["2 is even"]
+    assert seen == []
+
+
+def test_a_rejected_value_is_no_reason_to_try_an_alternative() -> None:
+    assert messages(digit.validated(odd) | a("2"), ["2"]) == ["2 is even"]
+
+
+def test_when_still_decides_among_alternatives() -> None:
+    p = digit.when(lambda d: d == "1") | a("2")
+    assert p.parse(["2"]) == "2"
+
+
+def test_a_rejection_on_a_branch_that_fails_later_is_forgotten() -> None:
+    p = (digit.validated(odd) + a("!")) | (a("2") + a("?"))
+    assert p.parse(["2", "?"]) == ("2", "?")
+
+
+def test_a_nested_grammar_rejects_with_its_own_error() -> None:
+    inner = many(a("i")) + -finished
+    p = (some(lambda _: True).validated(inner.parse)) + -finished
+    assert messages(p, ["iw"]) == ["got unexpected token: 'w', expected: 'i' or end of input"]
+
+
+def test_a_nested_grammar_rejects_with_every_error_it_has() -> None:
+    inner = many(digit.validated(odd)) + -finished
+    p = some(lambda _: True).validated(inner.parse) + -finished
+    assert messages(p, ["24"]) == ["2 is even", "4 is even"]
+
+
+def test_a_label_names_what_a_nested_grammar_expected() -> None:
+    inner = many(a("i")) + -finished
+    p = some(lambda _: True).validated(inner.parse, "a word of i") + -finished
+    with pytest.raises(ParseErrors) as e:
+        p.parse(["iw"], describe=lambda t: TokenDescription(f"<{t}>"))
+    [error] = e.value.exceptions
+    assert error.msg == "got unexpected token: <iw>, expected: a word of i"
+    assert isinstance(error.__cause__, NoParseError)
+
+
+def test_the_exception_of_the_function_is_the_cause() -> None:
+    with pytest.raises(ParseErrors) as e:
+        digit.validated(odd).parse(["2"])
+    assert isinstance(e.value.exceptions[0].__cause__, Invalid)
+
+
+def test_any_other_exception_is_a_bug_and_propagates() -> None:
+    with pytest.raises(KeyError):
+        digit.validated({}.__getitem__).parse(["2"])
+
+
+@pytest.mark.parametrize(
+    "needs_value",
+    [
+        lambda n: n.bind(a),
+        lambda n: counted(n, a("x")),
+        prefixed,
+        lambda n: switch(n, {1: a("x")}),
+        lambda n: n.when(lambda v: v > 0),
+        lambda n: n.but_not(a("x")),
+    ],
+    ids=["bind", "counted", "prefixed", "switch", "when", "but_not"],
+)
+def test_what_needs_a_value_adds_nothing_to_a_rejection(needs_value: Any) -> None:
+    assert messages(needs_value(digit.validated(odd)), ["2", "x"]) == ["2 is even"]
+
+
+@pytest.mark.parametrize(
+    ("p", "tokens"),
+    [
+        (digit.validated(lambda d: (d, d)) + digit, list("12")),
+        ((digit + digit).validated(lambda pair: pair[0]) + digit, list("123")),
+        ((-a("x")).validated(lambda _: "made") + digit, list("x1")),
+        ((digit + digit).validated(list) + digit, list("123")),
+        (digit.validated(lambda _: None) + digit, list("12")),
+        (many(a("1").validated(int)) + digit, list("12")),
+    ],
+    ids=["from-token", "from-tuple", "from-ignored", "to-list", "to-none", "in-many"],
+)
+def test_generated_code_gives_the_value_validated_makes(p: Parser[str, Any], tokens: Any) -> None:
+    assert p.compile().parse(tokens) == p.parse(tokens)
+
+
+def test_a_failure_after_a_rejected_value_stays_a_failure_in_bind() -> None:
+    p = (digit.validated(odd) + a("x")).bind(pure)
+    assert messages(p, list("2y")) == ["2 is even", "got unexpected token: 'y', expected: 'x'"]
+    assert (p | (digit + a("y"))).parse(list("2y")) == ("2", "y")
+
+
+# recover()
+
+
+def test_recover_goes_on_from_until_after_a_part_that_stopped() -> None:
+    row = counted(digit.validated(odd) >> int, a("x")) + -a(";")
+    p = many(row.recover(until=a("1"))) + -finished
+    assert messages(p, list("2xx;1x;")) == ["2 is even"]
+
+
+def test_recover_without_until_leaves_a_part_that_stopped() -> None:
+    row = counted(digit.validated(odd), a("x")).recover(default=[])
+    assert isinstance(row.run(list("2x"), State(0, 0)), ParsingFailure)
+
+
+@both
+def test_recover_gives_a_rejected_part_its_default(build: Compiled) -> None:
+    item = (digit.validated(odd) + (digit >> int) >> sum).recover(default=-1)
+    p = many(item) >> list
+    res = p.run(list("2314"), State(0, 0))
+    assert res.value == [-1, 5]
+    assert [e.message for e in res.state.problems] == ["2 is even"]
+    assert messages(build(p + -finished), list("2314")) == ["2 is even"]
+
+
+def test_a_function_runs_above_a_recovered_part() -> None:
+    seen: list[Any] = []
+    p = digit.validated(odd).recover(default=0) + digit >> seen.append
+    assert messages(p, list("23")) == ["2 is even"]
+    assert seen == [(0, "3")]
+
+
+def test_recover_inside_recover_closes_the_inner_part_only() -> None:
+    inner = digit.validated(odd).recover(default="inner")
+    outer = ((inner + a("x")) >> (lambda p: ("built", p))).recover(default="outer")
+    res = outer.run(["2", "x"], State(0, 0))
+    assert res.value == ("built", ("inner", "x"))
+
+
+def test_recover_without_until_leaves_a_failure_alone() -> None:
+    p = (a("x") + a("y")).recover(default=0)
+    assert isinstance(p.run(list("xz"), State(0, 0)), ParsingFailure)
+
+
+def test_recover_changes_nothing_in_a_part_that_is_not_broken() -> None:
+    assert digit.validated(noted).recover(default=0).run(["1"], State(0, 0)).value == "1"
+
+
+def test_a_kept_value_is_no_broken_part() -> None:
+    res = digit.validated(noted).recover(default=0).run(["2"], State(0, 0))
+    assert res.value == "2"
+
+
+# State.rejected_since()
+
+
+def test_a_parsing_function_can_tell_a_rejected_part() -> None:
+    @parser("doubled")
+    def doubled(tokens: Any, s: State) -> ParsingResult[int]:
+        res = digit.validated(odd).run(tokens, s)
+        if isinstance(res, ParsingFailure) or res.state.rejected_since(s):
+            return res
+        return ParsingSuccess(res.value * 2, res.state)
+
+    assert doubled.parse(["3"]) == 6
+    assert messages(doubled, ["2"]) == ["2 is even"]
+
+
+# Compiled
+
+
+def test_try_parse_gives_none_for_a_rejected_value() -> None:
+    text = Text()
+    p = text.token(r"\d").validated(odd).compile()
+    assert p.try_parse("3") == 3
+    assert p.try_parse("2") is None

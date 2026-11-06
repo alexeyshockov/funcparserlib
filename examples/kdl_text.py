@@ -14,8 +14,6 @@ import re
 from typing import Any
 
 from examples.kdl import (
-    BAD_ESCAPE,
-    BAD_INDENT,
     DISALLOWED,
     END,
     IDENT_CHAR,
@@ -32,8 +30,6 @@ from examples.kdl import (
     make_node,
     number,
     unescape,
-    valid_escapes,
-    valid_indent,
     without_space_escapes,
 )
 from funcparserlib.parser import (
@@ -88,13 +84,10 @@ bare = text.token(rf"(?![+-]?\.?[0-9]){IDENT_CHAR}+").when(lambda s: s not in KE
 # `quoted` reads the `""` that opens a `"""` string, and `longest()` takes the longer match.
 string = longest(
     bare.named("identifier"),
-    quoted.check(valid_escapes, BAD_ESCAPE) >> unescape,
-    (multiline >> (lambda s: without_space_escapes(s[3:-3])))
-    .check(valid_escapes, BAD_ESCAPE)
-    .check(valid_indent, BAD_INDENT)
-    >> (lambda s: unescape(dedent(s))),
+    quoted.validated(unescape),
+    (multiline >> (lambda s: without_space_escapes(s[3:-3]))).validated(dedent).validated(unescape),
     raw >> (lambda s: s.strip("#")[1:-1]),
-    (raw_multiline >> (lambda s: s.strip("#")[3:-3])).check(valid_indent, BAD_INDENT) >> dedent,
+    (raw_multiline >> (lambda s: s.strip("#")[3:-3])).validated(dedent),
 ).named("string")
 # --8<-- [end:strings]
 

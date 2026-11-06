@@ -68,8 +68,9 @@ __all__ = [
     "commit",
     "TokenDescription",
     "ParseErrors",
+    "Invalid",
     "Expectation",
-    "CheckFailure",
+    "Problem",
     "debug",
 ]
 
@@ -77,6 +78,7 @@ import logging
 import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import replace
 from operator import attrgetter
 from os import PathLike
 from pathlib import Path
@@ -115,8 +117,27 @@ def _describe(token: object) -> TokenDescription:
     return TokenDescription(text)
 
 
+_STOPPED = "stopped at a rejected value"
 _WORD = re.compile(r"\S{1,20}")
 _UNREADABLE = "text no token spec matches"
+
+
+class Invalid(Exception):
+    """Raised by a function given to `Parser.validated()`: the value it got is not valid.
+
+    `message` is the error. With `keep`, the value is real and only breaks a rule, so parsing goes
+    on with it: what comes after the parser still sees the value. Without it there is no value, and
+    no function after `>>` runs on it.
+    """
+
+    message: str
+    keep: bool
+
+    def __init__(self, message: str, *, keep: bool = False) -> None:
+        """Say why the value is not valid, and whether parsing goes on with it."""
+        super().__init__(message)
+        self.message = message
+        self.keep = keep
 
 
 class _Undecided(Exception):
@@ -222,12 +243,13 @@ type Expectation = tuple[Parser[Any, Any], tuple[str, ...]]
 
 @final
 @valueclass
-class CheckFailure:
-    """A failed `Parser.check()`: its message, the tokens it covers (`start` to `end`, exclusive)
-    and the `Parser.context()` labels around it.
+class Problem:
+    """An error parsing went on after: its message, the tokens it covers (`start` to `end`,
+    exclusive) and the `Parser.context()` labels around it.
 
     With `unexpected`, the error starts by naming the token at `start` as `Parser.parse()` was told
-    to describe it, and `message` is what comes after that.
+    to describe it, and `message` is what comes after that. With `rejected`, the part has no value
+    until a `Parser.recover()` around it gives one. `cause` is the exception behind the error.
     """
 
     message: str
@@ -235,6 +257,8 @@ class CheckFailure:
     end: int
     context: tuple[str, ...]
     unexpected: bool = False
+    rejected: bool = False
+    cause: Exception | None = None
 
 
 @final
@@ -244,15 +268,25 @@ class State:
 
     `pos` is the position in the sequence being parsed, and `max` the furthest position a parser
     reached. `expected` holds the parsers that failed at `max`, each with the `Parser.context()`
-    labels around it; `context` holds the labels around `pos`; `problems` holds the non-fatal errors
-    `Parser.check()` recorded on the way here.
+    labels around it; `context` holds the labels around `pos`; `problems` holds the errors parsing
+    went on after, from `Parser.validated()` and `Parser.recover()`.
     """
 
     pos: int
     max: int
     expected: tuple[Expectation, ...] = ()
     context: tuple[str, ...] = ()
-    problems: tuple[CheckFailure, ...] = ()
+    problems: tuple[Problem, ...] = ()
+
+    def rejected_since(self, s: State) -> bool:
+        """Whether a part read since the state `s` has no value, because it was rejected.
+
+        A parsing function that reads the value of a `Parser.run()` asks this first: over a rejected
+        part the value is `None`, and has to be returned rather than used.
+        """
+        if self.problems is s.problems:
+            return False
+        return any(p.rejected for p in self.problems[len(s.problems) :])
 
     @property
     def parser(self) -> Parser[Any, Any] | None:
@@ -348,7 +382,7 @@ class NoParseError(Exception):
 
 @final
 class ParseErrors(ExceptionGroup[NoParseError]):
-    """Raised by `Parser.parse()` when `Parser.check()` recorded errors: all of them, by position.
+    """Raised by `Parser.parse()` when parsing went on after errors: all of them, by position.
 
     A parse that also failed has its `NoParseError` among them. `except* NoParseError` handles a
     `ParseErrors` and a single `NoParseError` alike.
@@ -714,9 +748,9 @@ class Parser[A, B]:
         It takes a sequence of tokens of arbitrary type `A` and returns the parsed value of
         arbitrary type `B`.
 
-        If the parser fails to parse the tokens, it raises `NoParseError`. If `Parser.check()`
-        recorded errors, it raises `ParseErrors` with them, and with the `NoParseError` when the
-        parse failed as well.
+        If the parser fails to parse the tokens, it raises `NoParseError`. If `Parser.validated()`
+        or `Parser.recover()` recorded errors, it raises `ParseErrors` with them, and with the
+        `NoParseError` when the parse failed as well.
 
         `describe` turns a token into the `TokenDescription` error messages show. By default it
         reads the `value`, `start` and `end` of a `funcparserlib.lexer.Token`, and shows any other
@@ -766,9 +800,9 @@ class Parser[A, B]:
     def _result(
         self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
     ) -> B:
-        """The value of `res`, or the errors of a failed parse and of failed checks."""
+        """The value of `res`, or the errors of a failed parse and those parsing went on after."""
         errors = [_problem_error(problem, tokens, show) for problem in res.state.problems]
-        if isinstance(res, ParsingFailure):
+        if isinstance(res, ParsingFailure) and res.message is not _STOPPED:
             fatal = _parse_error(res, tokens, show)
             if not errors:
                 raise fatal
@@ -790,11 +824,11 @@ class Parser[A, B]:
         parser on the same tokens, so the result and the errors are this parser's.
 
         That has a cost: a failed parse takes longer, and calls the functions given to `>>` a second
-        time. So does a parse that succeeds after a `Parser.check()` failed on a branch `|`
-        backtracked from, or after a `commit()` around a parsing function failed. The compiled
-        parser is a snapshot of the grammar, and does not follow a `forward_decl()` defined again
-        afterwards. A grammar nested too deeply to compile stays interpreted, as does a `many()` of
-        a parser that matches no tokens.
+        time. So does a parse that succeeds after a `Parser.validated()` rejected a value on a
+        branch `|` backtracked from, or after a `commit()` around a parsing function failed. The
+        compiled parser is a snapshot of the grammar, and does not follow a `forward_decl()` defined
+        again afterwards. A grammar nested too deeply to compile stays interpreted, as does a
+        `many()` of a parser that matches no tokens.
 
         Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
         in less memory still. A grammar of `funcparserlib.text.Text` or
@@ -844,15 +878,34 @@ class Parser[A, B]:
         write_source(path, text_source, source)
         return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=reads_tokens(self))
 
-    def recover(self, until: Parser[A, Any], default: B | None = None) -> Parser[A, B | None]:
-        """Record the error of a failure and go on from where `until` matches.
+    @overload
+    def recover(self, until: Parser[A, Any] | None = None) -> Parser[A, B | None]: ...
 
-        It gives one parse every error of a document, for a grammar of parts that a line or a
-        delimiter separates: `Parser.parse()` raises the recorded errors together as `ParseErrors`,
-        as it does for `Parser.check()`. When this parser fails past its first token, the parser
-        records what it expected, skips to the first position where `until` matches, without reading
-        it, and gives `default`. It fails as usual at its first token, so `many(p.recover(...))`
-        ends as `many(p)` does. The text runs out when `until` never matches.
+    @overload
+    def recover[C](
+        self, until: Parser[A, Any] | None = None, *, default: C
+    ) -> Parser[A, B | C]: ...
+
+    def recover(
+        self, until: Parser[A, Any] | None = None, *, default: Any = None
+    ) -> Parser[A, Any]:
+        """Give `default` for a broken part, and go on from where it ends.
+
+        The errors stay recorded: `Parser.parse()` raises them together as `ParseErrors`, and
+        `default` only lets the grammar around the part go on. What comes after this parser, a
+        function after `>>` included, runs on `default`, so a grammar that makes one has to say what
+        it means: a value of a type of its own says so best.
+
+        A part is broken when a function given to `Parser.validated()` rejected something in it. Its
+        input was read, so parsing goes on after it. With `until`, a part is also broken when this
+        parser fails past its first token: the failure is recorded, and parsing goes on from the
+        first position where `until` matches, without reading it. The text runs out when `until`
+        never matches. A parser fails as usual at its first token, so `many(p.recover(...))` ends as
+        `many(p)` does.
+
+        A parser that needs a rejected value to go on, such as `counted()` of a rejected count,
+        stops there, as the rest of its input cannot be read without it. Only `until` recovers from
+        that.
 
         Examples:
             ```pycon
@@ -868,28 +921,27 @@ class Parser[A, B]:
         """
 
         @_parser(self.name, shape=self._shape, first=self._first)
-        def _recover(tokens: Sequence[A], s: State) -> ParsingResult[B | None]:
+        def _recover(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             # A fresh furthest position tells whether this parser read a token.
             res = self.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
             st = res.state
             if res.__class__ is not ParsingFailure:
+                if st.rejected_since(s):
+                    return ParsingSuccess(default, _merged(_closed(st, s), s))
                 return ParsingSuccess(res.value, _merged(st, s))
-            if st.max == s.pos:
+            if until is None or st.max == s.pos:
                 return res._replace_state(_merged(st, s))
-            names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
-            expected = f", expected: {' or '.join(names)}" if names else ""
-            # Only `Parser.parse()` knows how to describe a token that is no character or byte.
-            unexpected = st.max < len(tokens) and not isinstance(tokens, str | bytes)
-            found = "got unexpected end of input"
-            if st.max < len(tokens):
-                found = "" if unexpected else f"got unexpected token: {_shown(tokens, st.max)}"
-            problem = CheckFailure(found + expected, st.max, st.max + 1, st.context, unexpected)
+            problems = _closed(st, s).problems
+            if res.message is not _STOPPED:
+                names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
+                expected = f", expected: {' or '.join(names)}" if names else ""
+                problems = (*problems, _unexpected(tokens, st.max, expected, st.context))
             pos = st.max
             while (
                 pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingFailure
             ):
                 pos += 1
-            return ParsingSuccess(default, State(pos, pos, (), s.context, (*st.problems, problem)))
+            return ParsingSuccess(default, State(pos, pos, (), s.context, problems))
 
         # What fails past its first token leaves the generated code, as a `commit()` failure does.
         _recover._form = ("commit", self)
@@ -918,7 +970,7 @@ class Parser[A, B]:
         @_parser(shown, leaf=True, first=self._first)
         def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingFailure):
+            if isinstance(res, ParsingFailure) or res.state.rejected_since(s):
                 return res
             res_not = other.run(tokens, res.state._reset_pos_to(s))
             if isinstance(res_not, ParsingFailure):
@@ -948,7 +1000,7 @@ class Parser[A, B]:
         @_parser(_label_of(self) or "when(...)", leaf=True, first=self._first)
         def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingFailure) or pred(res.value):
+            if isinstance(res, ParsingFailure) or res.state.rejected_since(s) or pred(res.value):
                 return res
             return ParsingFailure(s.expect(_when))
 
@@ -989,20 +1041,32 @@ class Parser[A, B]:
         _context._form = ("context", self)
         return _context
 
-    def check(self, pred: Callable[[B], bool], message: str) -> Parser[A, B]:
-        """Record an error, `message`, when `pred` is false for the parsed value, and go on.
+    def validated[C](self, f: Callable[[B], C], expected: str | None = None) -> Parser[A, C]:
+        """Make the value of the parser with `f`, which can say that the value is not valid.
 
-        Unlike `when()`, a failed check does not fail the parser: parsing goes on with the value,
-        and `Parser.parse()` raises `ParseErrors` with every recorded error at the end. An error
-        covers the tokens this parser parsed. A check on a branch that `|` backtracks from is
-        forgotten with the branch.
+        `f` returns the new value, or raises `Invalid`. Either way the input was read, so a rejected
+        value does not fail the parser: `|` tries nothing else and parsing goes on, which lets one
+        run find every error. `Parser.parse()` raises `ParseErrors` with them at the end. No
+        function after `>>` runs over a rejected value, and no value is made up for it: only
+        `Parser.recover()` gives the part a value. `Invalid(message, keep=True)` goes on with the
+        value instead, for a value that is real and only breaks a rule.
+
+        A `NoParseError` or `ParseErrors` from `f` rejects the value too, so `f` can parse the value
+        with another grammar. Its error is then the `__cause__` of the one reported, whose message
+        is that error's, or names the token and `expected` when it is given.
+
+        To decide among alternatives, use `Parser.when()`, which fails the parser.
 
         Examples:
             ```pycon
-            >>> digit = some(str.isdigit) >> int
-            >>> byte = (digit + digit) >> (lambda d: d[0] * 10 + d[1])
-            >>> small = byte.check(lambda n: n < 50, "number too big")
-            >>> many(small + -a(",")).parse("12,99,77,")
+            >>> def small(digit: str) -> int:
+            ...     if digit > "5":
+            ...         raise Invalid(f"{digit} is too big")
+            ...     return int(digit)
+            >>> digits = many(some(str.isdigit).validated(small)) + -finished
+            >>> digits.parse("15")
+            [1, 5]
+            >>> digits.parse("179")
             Traceback (most recent call last):
                 ...
             funcparserlib.parser.ParseErrors: 2 parsing errors (2 sub-exceptions)
@@ -1011,17 +1075,24 @@ class Parser[A, B]:
         """
 
         @_parser(self.name, shape=self._shape, first=self._first)
-        def _check(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        def _validated(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
-            if isinstance(res, ParsingFailure) or pred(res.value):
-                return res
             st = res.state
-            problem = CheckFailure(message, s.pos, st.pos, s.context)
-            checked = State(st.pos, st.max, st.expected, st.context, (*st.problems, problem))
-            return ParsingSuccess(res.value, checked)
+            if isinstance(res, ParsingFailure) or st.rejected_since(s):
+                return cast("ParsingResult[C]", res)
+            try:
+                return ParsingSuccess(f(res.value), st)
+            except Invalid as e:
+                problem = Problem(e.message, s.pos, st.pos, s.context, False, not e.keep, e)
+                found, value = (problem,), res.value if e.keep else None
+            except (NoParseError, ParseErrors) as e:
+                found, value = _nested(tokens, s.pos, st.pos, s.context, e, expected), None
+            checked = State(st.pos, st.max, st.expected, st.context, (*st.problems, *found))
+            return ParsingSuccess(cast("C", value), checked)
 
-        _check._form = ("check", self, pred)
-        return _check
+        # In generated code it is a conversion: what `f` raises leaves that code, as any exception.
+        _validated._form = ("map", self, f)
+        return _validated
 
     @overload
     def __add__(self, other: IgnoredEndOfInput) -> Self: ...  # type: ignore[overload-overlap]
@@ -1190,6 +1261,8 @@ class Parser[A, B]:
         @_parser(self.name, shape=self._shape, first=self._first)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
+            if res.state.problems is not s.problems and res.state.rejected_since(s):
+                return cast("ParsingResult[C]", res)
             return res.map(f)
 
         _map._form = ("map", self, f)
@@ -1201,6 +1274,8 @@ class Parser[A, B]:
         @_parser(self.name, shape=self._shape, first=self._first)
         def _map(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
+            if res.state.problems is not s.problems and res.state.rejected_since(s):
+                return cast("ParsingResult[C]", res)
             return res.starmap(f)
 
         _map._form = ("starmap", self, f)
@@ -1240,6 +1315,10 @@ class Parser[A, B]:
         @_parser(f"({self.name} >>=)", shape=True)
         def _bind(tokens: Sequence[A], s: State) -> ParsingResult[C]:
             res = self.run(tokens, s)
+            if res.__class__ is ParsingFailure:
+                return cast("ParsingResult[C]", res)
+            if res.state.rejected_since(s):
+                return _stopped(res.state)
             return res.bind(lambda v, s2: f(v).run(tokens, s2))
 
         return _bind
@@ -1459,10 +1538,10 @@ class CompiledParser[A, B]:
         """The value of `text`, or `None` where it does not parse.
 
         It is for text that is often invalid, when the reason does not matter: a parse that fails
-        stops there, which can be several times faster than making its error. A failed `check()` or
-        `commit()` leaves the generated code, so it takes the time of `parse_text()`. A grammar
-        whose value can be `None` cannot tell that from a failure this way. Text nested too deeply
-        gives `None` too, as a `RecursionError`. What a function after `>>` raises it raises.
+        stops there, which can be several times faster than making its error. A rejected value or a
+        failed `commit()` leaves the generated code, so it takes the time of `parse_text()`. A
+        grammar whose value can be `None` cannot tell that from a failure this way. Text nested too
+        deeply gives `None` too, as a `RecursionError`. What a function after `>>` raises it raises.
         """
         if self._fast_text is not None and not debug:
             try:
@@ -1475,6 +1554,49 @@ class CompiledParser[A, B]:
             return self._interpreted(cast("str", text), None)
         except (NoParseError, ParseErrors, LexerError, RecursionError):
             return None
+
+
+def _unexpected(
+    tokens: Sequence[Any], pos: int, expected: str, context: tuple[str, ...]
+) -> Problem:
+    """The error of the token at `pos`, which `Parser.parse()` describes unless it is text."""
+    if pos >= len(tokens):
+        return Problem(f"got unexpected end of input{expected}", pos, pos + 1, context)
+    if isinstance(tokens, str | bytes):
+        message = f"got unexpected token: {_shown(tokens, pos)}{expected}"
+        return Problem(message, pos, pos + 1, context)
+    return Problem(expected, pos, pos + 1, context, unexpected=True)
+
+
+def _nested(
+    tokens: Sequence[Any],
+    start: int,
+    end: int,
+    context: tuple[str, ...],
+    error: NoParseError | ParseErrors,
+    expected: str | None,
+) -> tuple[Problem, ...]:
+    """The errors of a value that another grammar could not parse."""
+    if expected is not None:
+        found = _unexpected(tokens, start, f", expected: {expected}", context)
+        return (replace(found, end=end, rejected=True, cause=error),)
+    errors = error.exceptions if isinstance(error, ParseErrors) else (error,)
+    return tuple(Problem(e.msg, start, end, context, False, True, e) for e in errors)
+
+
+def _stopped(st: State) -> ParsingFailure:
+    """The failure of a parser that needs a value a rejection left it without.
+
+    It is final, and adds no error of its own: the rejection is the error.
+    """
+    return ParsingFailure(st, _STOPPED, committed=True)
+
+
+def _closed(st: State, s: State) -> State:
+    """`st` with the rejections since `s` closed, so what comes after has values again."""
+    done = len(s.problems)
+    problems = tuple(replace(p, rejected=False) for p in st.problems[done:])
+    return State(st.pos, st.max, st.expected, st.context, (*st.problems[:done], *problems))
 
 
 def _merged(st: State, s: State) -> State:
@@ -1490,10 +1612,7 @@ def _merged(st: State, s: State) -> State:
 
 def _moved(s: State, offset: int) -> State:
     """`s` of a region that starts at `offset`, in the input around it."""
-    problems = tuple(
-        CheckFailure(p.message, p.start + offset, p.end + offset, p.context, p.unexpected)
-        for p in s.problems
-    )
+    problems = tuple(replace(p, start=p.start + offset, end=p.end + offset) for p in s.problems)
     return State(s.pos + offset, s.max + offset, s.expected, s.context, problems)
 
 
@@ -1563,6 +1682,8 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
         res = length.run(tokens, s)
         if res.__class__ is ParsingFailure:
             return res
+        if res.state.rejected_since(s):
+            return _stopped(res.state)
         start = res.state.pos
         end = start + res.value
         if res.value < 0 or end > len(tokens):
@@ -1596,6 +1717,8 @@ def counted[A, B](count: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B
         res = count.run(tokens, s)
         if res.__class__ is ParsingFailure:
             return cast("ParsingResult[list[B]]", res)
+        if res.state.rejected_since(s):
+            return _stopped(res.state)
         if res.value < 0:
             return ParsingFailure(res.state, f"count {res.value} is negative")
         items: list[B] = []
@@ -1647,6 +1770,8 @@ def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parse
         res = key.run(tokens, s)
         if res.__class__ is ParsingFailure:
             return res
+        if res.state.rejected_since(s):
+            return _stopped(res.state)
         p = table.get(res.value)
         if p is None:
             at = State(s.pos, s.max, s.expected, s.context, res.state.problems)
@@ -1736,7 +1861,7 @@ def parser[A, B](name: str | None) -> Callable[[ParserFn[A, B]], Parser[A, B]]:
     A function that tries another parser after a failure, whose state is `st`, goes on from
     `dataclasses.replace(s, max=st.max, expected=st.expected)`, as `|` does: the error still names
     what failed furthest, and what the failed parser recorded is gone. `st.reset_pos(s.pos)` keeps
-    the `Parser.check()` errors of the failed parser, which reject input `|` accepts.
+    the errors the failed parser recorded, which reject input `|` accepts.
 
     Examples:
         ```pycon
@@ -1888,15 +2013,14 @@ def _parse_error[A](
 
 
 def _problem_error[A](
-    problem: CheckFailure, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
+    problem: Problem, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
 ) -> NoParseError:
-    """The `NoParseError` of a failed `Parser.check()`, spanning the tokens it checked."""
+    """The `NoParseError` of a recorded error, spanning the tokens it covers."""
     token: A | None = None
     description: TokenDescription | None
     if isinstance(tokens, _Offsets):
         description = None
-        message = f"offset 0x{problem.start:x}: {problem.message}"
-        problem = CheckFailure(message, problem.start, problem.end, problem.context)
+        problem = replace(problem, message=f"offset 0x{problem.start:x}: {problem.message}")
     elif isinstance(tokens, _Located):
         in_text = problem.start < len(tokens)
         description = tokens.span(problem.start, problem.end) if in_text else tokens.end()
@@ -1906,14 +2030,17 @@ def _problem_error[A](
         last = describe(tokens[max(problem.start, problem.end - 1)])
         description = TokenDescription(first.text, first.start, last.end)
         if problem.unexpected:
-            message = f"got unexpected token: {first.text}{problem.message}"
-            problem = CheckFailure(message, problem.start, problem.end, problem.context)
+            problem = replace(
+                problem, message=f"got unexpected token: {first.text}{problem.message}"
+            )
     else:
         description = _after(tokens, describe)
     context = tuple(reversed(problem.context))
     msg = f"{_where(description)}{problem.message}" + "".join(f" in {c}" for c in context)
     state = State(problem.start, problem.start)
-    return NoParseError(msg, state, token=token, context=context, description=description)
+    error = NoParseError(msg, state, token=token, context=context, description=description)
+    error.__cause__ = problem.cause
+    return error
 
 
 def _where(d: TokenDescription | None) -> str:
@@ -2175,7 +2302,8 @@ def _failed_in_order(
         else:
             res = alt.run(tokens, st)
             st = res.state._reset_pos_to(s)
-    return ParsingFailure(st, cast("ParsingFailure", res).message)
+    failed = cast("ParsingFailure", res)
+    return ParsingFailure(st, failed.message, failed.committed)
 
 
 def _token_test(test: _TokenTest) -> Parser[Any, Any]:

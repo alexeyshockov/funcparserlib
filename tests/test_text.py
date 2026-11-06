@@ -31,6 +31,7 @@ from funcparserlib.parser import (
 )
 from funcparserlib.parser import longest as typed_longest
 from funcparserlib.text import Text
+from tests.rules import kept
 
 type P = Parser[Any, Any]
 type Runner = Callable[[P, str], Any]
@@ -164,7 +165,9 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
 
 def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
     return st.one_of(
-        plain_combined(kids), kids.map(commit), kids.map(lambda k: k.check(short, "too long"))
+        plain_combined(kids),
+        kids.map(commit),
+        kids.map(lambda k: k.validated(kept(short, "too long"))),
     )
 
 
@@ -199,7 +202,7 @@ def test_a_compiled_text_grammar_parses_as_its_parser(grammar: P, documents: lis
 
 @settings(max_examples=150, deadline=None)
 @given(plain_grammars, st.lists(texts, min_size=4, max_size=4))
-def test_generated_code_decides_a_grammar_without_check_or_commit(
+def test_generated_code_decides_a_grammar_without_validated_or_commit(
     grammar: P, documents: list[str]
 ) -> None:
     code = grammar.compile()
@@ -294,15 +297,15 @@ def test_a_committed_failure_after_a_longest_is_final(run: Runner) -> None:
     assert message(run, grammar, "abx") == "1,3-1,3: got unexpected token: 'x', expected: 'c'"
 
 
-def test_a_check_on_an_alternative_that_lost_is_forgotten(run: Runner) -> None:
-    lost = skipping.token("a").check(lambda _: False, "lost")
+def test_a_rule_on_an_alternative_that_lost_is_forgotten(run: Runner) -> None:
+    lost = skipping.token("a").validated(kept(lambda _: False, "lost"))
     assert run(longest(lost, skipping.token("ab")), "ab") == "ab"
     assert run(longest(skipping.token("ab"), lost), "ab") == "ab"
 
 
-def test_a_check_on_the_alternative_that_won_is_reported(run: Runner) -> None:
-    won = skipping.token("ab").check(lambda _: False, "won")
-    lost = skipping.token("a").check(lambda _: False, "lost")
+def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
+    won = skipping.token("ab").validated(kept(lambda _: False, "won"))
+    lost = skipping.token("a").validated(kept(lambda _: False, "lost"))
     assert message(run, longest(lost, won), "ab") == "1,1-1,2: won"
 
 
@@ -566,7 +569,9 @@ def test_an_error_renders_a_line_that_ends_with_a_carriage_return(run: Runner) -
 
 
 def test_parse_errors_render_each_error(run: Runner) -> None:
-    digit = plain.token(r"\d").check(lambda v: int(v) < 5, "too big") + -plain.literal(",")
+    digit = plain.token(r"\d").validated(kept(lambda v: int(v) < 5, "too big")) + -plain.literal(
+        ","
+    )
     source = "9,1,\n7,"
     grammar = many(digit | -plain.literal("\n")) + -plain.end
     with pytest.raises(ParseErrors) as caught:
@@ -576,13 +581,16 @@ def test_parse_errors_render_each_error(run: Runner) -> None:
     )
 
 
-def test_a_failed_check_names_the_position_of_its_token(run: Runner) -> None:
-    grammar = many(skipping.token(r"\d+").check(lambda v: int(v) < 5, "too big")) + -skipping.end
+def test_a_broken_rule_names_the_position_of_its_token(run: Runner) -> None:
+    grammar = (
+        many(skipping.token(r"\d+").validated(kept(lambda v: int(v) < 5, "too big")))
+        + -skipping.end
+    )
     assert message(run, grammar, "1 2 \n 9 3  7") == "2,2-2,2: too big\n2,7-2,7: too big"
 
 
-def test_a_failed_check_spans_the_token_without_the_text_skipped_after_it(run: Runner) -> None:
-    grammar = skipping.token(r"[a-z]+").check(lambda _: False, "bad") + -skipping.end
+def test_a_broken_rule_spans_the_token_without_the_text_skipped_after_it(run: Runner) -> None:
+    grammar = skipping.token(r"[a-z]+").validated(kept(lambda _: False, "bad")) + -skipping.end
     with pytest.raises(ParseErrors) as caught:
         run(grammar, "ab   ")
     (error,) = caught.value.exceptions
@@ -590,8 +598,10 @@ def test_a_failed_check_spans_the_token_without_the_text_skipped_after_it(run: R
     assert (error.description.start, error.description.end) == ((1, 1), (1, 2))
 
 
-def test_a_failed_check_names_the_token_it_checked(run: Runner) -> None:
-    grammar = skipping.token(r"[a-z]+").check(lambda _: False, "bad") + skipping.literal("+")
+def test_a_broken_rule_names_the_token_it_checked(run: Runner) -> None:
+    grammar = skipping.token(r"[a-z]+").validated(kept(lambda _: False, "bad")) + skipping.literal(
+        "+"
+    )
     with pytest.raises(ParseErrors) as caught:
         run(grammar, "ab+cd")
     (error,) = caught.value.exceptions
@@ -599,8 +609,11 @@ def test_a_failed_check_names_the_token_it_checked(run: Runner) -> None:
     assert error.description.text == "'ab'"
 
 
-def test_a_check_error_and_the_error_of_the_parse_come_together(run: Runner) -> None:
-    grammar = many(skipping.token(r"\d+").check(lambda v: int(v) < 5, "too big")) + -skipping.end
+def test_a_rule_error_and_the_error_of_the_parse_come_together(run: Runner) -> None:
+    grammar = (
+        many(skipping.token(r"\d+").validated(kept(lambda v: int(v) < 5, "too big")))
+        + -skipping.end
+    )
     assert (
         message(run, grammar, "9 x")
         == "1,1-1,1: too big\n1,3-1,3: got unexpected token: 'x', expected: /\\d+/ or end of input"
@@ -650,8 +663,8 @@ def test_an_error_from_a_nested_parse_is_unchanged(run: Runner) -> None:
     assert message(run, grammar, "a\nc") == message(run, inner, "a\nc")
 
 
-def test_a_failed_check_on_a_branch_that_was_backtracked_from_is_forgotten(run: Runner) -> None:
-    bad = skipping.token("a").check(lambda _: False, "bad") + skipping.token("b")
+def test_a_broken_rule_on_a_branch_that_was_backtracked_from_is_forgotten(run: Runner) -> None:
+    bad = skipping.token("a").validated(kept(lambda _: False, "bad")) + skipping.token("b")
     assert run(bad | skipping.token("a") + skipping.token("c"), "a c") == ("a", "c")
 
 
@@ -742,18 +755,16 @@ def test_try_parse_of_a_grammar_that_accepts_the_tokens_before_bad_text_is_none(
     assert many(tok("num")).compile(tokenize).try_parse("1 2") == ["1", "2"]
 
 
-def test_try_parse_keeps_a_valid_parse_whose_other_branch_had_a_failing_check(
-    tokenize: Any,
-) -> None:
-    rejected = tok("num").check(lambda _: False, "rejected") + tok("num")
+def test_try_parse_keeps_a_valid_parse_whose_other_branch_had_a_broken_rule(tokenize: Any) -> None:
+    rejected = tok("num").validated(kept(lambda _: False, "rejected")) + tok("num")
     grammar = (rejected | tok("num") + -tok("plus")) + tok("num") + -finished
     code = grammar.compile(tokenize)
     assert code.try_parse("1 + 2") == ("1", "2")
     assert code.parse_text("1 + 2") == ("1", "2")
 
 
-def test_try_parse_rejects_a_parse_whose_check_failed(tokenize: Any) -> None:
-    grammar = tok("num").check(lambda _: False, "rejected") + -finished
+def test_try_parse_rejects_a_parse_whose_rule_broke(tokenize: Any) -> None:
+    grammar = tok("num").validated(kept(lambda _: False, "rejected")) + -finished
     code = grammar.compile(tokenize)
     assert code.try_parse("1") is None
     with pytest.raises(ParseErrors):
@@ -885,13 +896,13 @@ def test_a_commit_of_the_end_is_no_token_read(run: Runner) -> None:
     assert run(grammar, "a b") == ("a", " b")
 
 
-def test_a_failed_check_spans_no_comment_after_the_token(run: Runner) -> None:
-    grammar = comments.token(r"\d+").check(lambda _: False, "bad") + -comments.end
+def test_a_broken_rule_spans_no_comment_after_the_token(run: Runner) -> None:
+    grammar = comments.token(r"\d+").validated(kept(lambda _: False, "bad")) + -comments.end
     assert message(run, grammar, "1 # note\n") == "1,1-1,1: bad"
 
 
-def test_a_failed_check_at_the_end_of_the_text_has_a_position(run: Runner) -> None:
-    grammar = many(skipping.literal("a")).check(bool, "at least one") + -skipping.end
+def test_a_broken_rule_at_the_end_of_the_text_has_a_position(run: Runner) -> None:
+    grammar = many(skipping.literal("a")).validated(kept(bool, "at least one")) + -skipping.end
     assert message(run, grammar, "") == "1,1-1,1: at least one"
 
 
@@ -903,7 +914,7 @@ def test_a_failed_parse_gives_the_character_as_its_token() -> None:
 
 def test_try_parse_runs_a_conversion_in_two_passes_at_most() -> None:
     seen: list[str] = []
-    grammar = (plain.token(r"\d") >> seen.append).check(lambda _: False, "bad")
+    grammar = (plain.token(r"\d") >> seen.append).validated(kept(lambda _: False, "bad"))
     assert grammar.compile().try_parse("0") is None
     assert len(seen) == 2
 
@@ -947,7 +958,9 @@ def test_recover_reports_a_failure_at_the_end_of_the_text(run: Runner) -> None:
 
 def test_recover_gives_its_default_for_what_it_skipped() -> None:
     grammar = many(
-        (skipping.literal("a") + skipping.literal("b")).recover(skipping.literal(";"), ("?", "?"))
+        (skipping.literal("a") + skipping.literal("b")).recover(
+            skipping.literal(";"), default=("?", "?")
+        )
         + -skipping.literal(";")
     )
     with pytest.raises(ParseErrors) as caught:
@@ -962,8 +975,8 @@ def test_recover_fails_as_usual_at_its_first_token(run: Runner) -> None:
     )
 
 
-def test_recover_keeps_a_check_error_before_the_failure(run: Runner) -> None:
-    number = blank.token(r"\d+").check(lambda _: False, "bad")
+def test_recover_keeps_a_rule_error_before_the_failure(run: Runner) -> None:
+    number = blank.token(r"\d+").validated(kept(lambda _: False, "bad"))
     line = (number + blank.literal("x")).recover(until=line_end)
     assert message(run, many(line + -maybe(line_end)) + -blank.end, "1 y\n") == (
         "1,1-1,1: bad\n1,3-1,3: got unexpected token: 'y', expected: 'x'"
