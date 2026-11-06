@@ -594,6 +594,14 @@ class Parser[A, B]:
         """
         self._define(p)
 
+    @staticmethod
+    def _made_leaf(name: str, run: Any, form: tuple[Any, ...]) -> Parser[Any, Any]:
+        """A parser of `funcparserlib.text` or `funcparserlib.binary`: a function and its form."""
+        p: Parser[Any, Any] = Parser(run).named(name)
+        p._leaf = True
+        p._form = form
+        return p
+
     def named(self, name: str | None) -> Self:
         # noinspection GrazieInspection
         """Specify the name of the parser for easier debugging.

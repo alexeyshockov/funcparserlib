@@ -40,13 +40,6 @@ class Binary:
 
     __slots__ = ()
 
-    @staticmethod
-    def _leaf(name: str, run: Any, form: tuple[Any, ...]) -> Parser[Any, Any]:
-        p: Parser[Any, Any] = Parser(run).named(name)
-        p._leaf = True
-        p._form = form
-        return p
-
     def token(self, pattern: bytes, flags: int = 0) -> Parser[int, bytes]:
         """A parser of the bytes the regexp `pattern`, with its `flags`, matches.
 
@@ -66,7 +59,7 @@ class Binary:
                 return ParsingFailure(s.expect(p))
             return ParsingSuccess(m.group(), s.reset_pos(m.end()))
 
-        p = self._leaf(repr(pattern), run, ("text", regexp.match, None, None))
+        p = Parser._made_leaf(repr(pattern), run, ("text", regexp.match, None, None))
         return p
 
     def literal(self, value: bytes) -> Parser[int, bytes]:
@@ -89,7 +82,7 @@ class Binary:
                 return ParsingSuccess(value, s.reset_pos(s.pos + len(value)))
             return ParsingFailure(s.expect(p))
 
-        p = self._leaf(repr(value), run, ("text", None, value, None))
+        p = Parser._made_leaf(repr(value), run, ("text", None, value, None))
         return p
 
     def fixed(self, fmt: str) -> Parser[int, Any]:
@@ -114,7 +107,7 @@ class Binary:
                 return ParsingFailure(s.expect(p), "not enough bytes")
             return ParsingSuccess(unpack(data, s.pos)[0], s.reset_pos(s.pos + size))
 
-        p = self._leaf(f"{size} byte{'s' if size > 1 else ''}", run, ("fixed", unpack, size))
+        p = Parser._made_leaf(f"{size} byte{'s' if size > 1 else ''}", run, ("fixed", unpack, size))
         return p
 
     @property
@@ -126,7 +119,7 @@ class Binary:
                 return ParsingFailure(s.expect(p), "not enough bytes")
             return ParsingSuccess(data[s.pos], s.reset_pos(s.pos + 1))
 
-        p = self._leaf("a byte", run, ("byte",))
+        p = Parser._made_leaf("a byte", run, ("byte",))
         return p
 
     def previous(self, mask: int = 0xFF) -> Parser[int, int]:
@@ -141,7 +134,7 @@ class Binary:
                 return ParsingFailure(s.expect(p))
             return ParsingSuccess(data[s.pos - 1] & mask, s)
 
-        p = self._leaf("the byte before", run, ("previous", mask))
+        p = Parser._made_leaf("the byte before", run, ("previous", mask))
         return p
 
     @property
@@ -153,5 +146,5 @@ class Binary:
                 return ParsingSuccess(None, s)
             return ParsingFailure(s.expect(p))
 
-        p = self._leaf("end of input", run, ("text_end", None))
+        p = Parser._made_leaf("end of input", run, ("text_end", None))
         return p

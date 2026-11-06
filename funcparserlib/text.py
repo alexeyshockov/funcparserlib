@@ -80,9 +80,8 @@ class Text:
                 return ParsingFailure(s.expect(p))
             return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
 
-        p: Parser[Any, str] = Parser(run).named(name)
-        p._leaf = True
-        p._form = ("text", regexp.match if regexp else None, value, self._skip)
+        form = ("text", regexp.match if regexp else None, value, self._skip)
+        p: Parser[Any, str] = Parser._made_leaf(name, run, form)
         return p
 
     def token(self, pattern: str, flags: int = 0) -> Parser[str, str]:
@@ -135,7 +134,5 @@ class Text:
                 return ParsingSuccess(None, s.reset_pos(start))
             return ParsingFailure(s.expect(p))
 
-        p: Parser[Any, None] = Parser(run).named("end of input")
-        p._leaf = True
-        p._form = ("text_end", self._skip)
+        p: Parser[Any, None] = Parser._made_leaf("end of input", run, ("text_end", self._skip))
         return p
