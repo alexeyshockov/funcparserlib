@@ -1,8 +1,10 @@
 import math
+import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 import msgpack
 import pytest
@@ -10,7 +12,17 @@ from hypothesis import given
 from hypothesis import strategies as st
 from ruamel.yaml.error import YAMLError
 
-from examples import adr, changelog, kdl, kdl_text, markdown, msgpack_format, yaml
+from examples import (
+    adr,
+    changelog,
+    http_headers,
+    kdl,
+    kdl_text,
+    markdown,
+    msgpack_format,
+    uri,
+    yaml,
+)
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
@@ -1010,3 +1022,246 @@ def test_adr_reports_a_broken_record_before_the_rules_across_records(tmp_path: P
 
 def test_adr_records_of_this_repository_follow_the_rules() -> None:
     assert adr.check(ROOT / "docs" / "adr") == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ftp://ftp.is.co.za/rfc/rfc1808.txt",
+        "ldap://[2001:db8::7]/c=GB?objectClass?one",
+        "mailto:John.Doe@example.com",
+        "news:comp.infosystems.www.servers.unix",
+        "tel:+1-816-555-1212",
+        "telnet://192.0.2.16:80/",
+        "urn:oasis:names:specification:docbook:dtd:xml:4.1.2",
+        "g;x?y#s",
+        "../../g",
+        "//g",
+        "?y",
+        "",
+    ],
+)
+def test_uri_reads_the_examples_of_the_rfc(text: str) -> None:
+    uri.parse(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "kind", "host"),
+    [
+        ("http://[::1]/", "ipv6", "::1"),
+        ("http://[v1.x]/", "ipvfuture", "v1.x"),
+        ("http://1.2.3.4/", "ipv4", "1.2.3.4"),
+        ("http://1.2.3.4.5/", "name", "1.2.3.4.5"),
+        ("http://256.2.3.4/", "name", "256.2.3.4"),
+        ("file:///etc/hosts", "name", ""),
+    ],
+)
+def test_uri_says_what_kind_of_host_it_names(text: str, kind: str, host: str) -> None:
+    authority = uri.parse(text).authority
+    assert authority is not None
+    assert (authority.kind, authority.host) == (kind, host)
+
+
+def test_uri_tells_a_userinfo_from_a_host() -> None:
+    assert uri.parse("http://u:p@h:80/").authority == uri.Authority("u:p", "h", "name", 80)
+    assert uri.parse("http://h:80/").authority == uri.Authority(None, "h", "name", 80)
+    assert uri.parse("http://@h:/").authority == uri.Authority("", "h", "name", None)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("http://a b/", "1,9-1,9: got unexpected token: ' '"),
+        ("http://evil.example\\@good.example/", "1,20-1,20: got unexpected token"),
+        ("http://a@b@c/", "1,11-1,11: got unexpected token: '@c/'"),
+        ("http://[::1/", "1,12-1,12: got unexpected token: '/', expected: ']'"),
+        ("1a:b", "1,3-1,3: got unexpected token: ':b'"),
+        ("a%zz", "1,2-1,2: got unexpected token: '%zz'"),
+    ],
+)
+def test_uri_rejects_what_urlsplit_may_let_through(text: str, message: str) -> None:
+    with pytest.raises(NoParseError, match=re.escape(message)):
+        uri.parse(text)
+
+
+@pytest.mark.parametrize("text", ["http://h:65536/", "http://[1::2::3]/"])
+def test_uri_rejects_a_value_out_of_range(text: str) -> None:
+    with pytest.raises(ParseErrors):
+        uri.parse(text)
+
+
+URI_CHARS = "ab1:/?#[]@!$&'()*+,;=-._~%2F"
+
+
+@given(st.sampled_from(["http://", "//", "a:", "a+b:/", ""]), st.text(URI_CHARS, max_size=16))
+def test_uri_splits_what_it_accepts_as_urlsplit_does(prefix: str, rest: str) -> None:
+    text = prefix + rest
+    try:
+        parsed = uri.parse(text)
+    except (NoParseError, ParseErrors):
+        return
+    split = urlsplit(text)
+    scheme = (parsed.scheme or "").lower()
+    assert (scheme, parsed.path, parsed.query or "", parsed.fragment or "") == (
+        split.scheme,
+        split.path,
+        split.query,
+        split.fragment,
+    )
+
+
+def test_uri_keeps_a_scheme_as_written_where_urlsplit_lowers_it() -> None:
+    assert uri.parse("F:").scheme == "F"
+    assert urlsplit("F:").scheme == "f"
+
+
+def test_uri_query_decodes_each_pair() -> None:
+    text = "a=1&b=x+y&flag&e=&c=%E2%82%AC"
+    assert uri.parse_query(text) == parse_qsl(text, keep_blank_values=True)
+    assert uri.parse_query("") == []
+
+
+@given(st.text("ab=&+%25Fz", max_size=14))
+def test_uri_query_reads_what_it_accepts_as_parse_qsl_does(text: str) -> None:
+    try:
+        pairs = uri.parse_query(text)
+    except (NoParseError, ParseErrors):
+        return
+    assert pairs == parse_qsl(text, keep_blank_values=True)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("a=1&", [("a", "1")]), ("&a=1", [("a", "1")]), ("a&&b", [("a", ""), ("b", "")]), ("&&", [])],
+)
+def test_uri_query_skips_an_empty_pair(text: str, expected: list[tuple[str, str]]) -> None:
+    assert uri.parse_query(text) == expected
+
+
+@pytest.mark.parametrize("text", ["a=%zz", "=v", "a=1&=v"])
+def test_uri_query_rejects_what_parse_qsl_lets_through(text: str) -> None:
+    with pytest.raises(NoParseError):
+        uri.parse_query(text)
+
+
+@pytest.mark.parametrize("text", ["a=\ud800", "\udfff=1"])
+def test_uri_query_rejects_a_lone_surrogate(text: str) -> None:
+    with pytest.raises(NoParseError):
+        uri.parse_query(text)
+    assert uri.compiled_pairs.try_parse(text) is None
+
+
+def test_uri_query_rejects_an_escape_that_is_not_utf_8() -> None:
+    with pytest.raises(ParseErrors, match="1 parsing error") as e:
+        uri.parse_query("a=%FF")
+    assert "not UTF-8 once percent-decoded" in str(e.value.exceptions[0])
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("text/html", [("text", "html", 1.0)]),
+        ("TEXT/HTML;Q=0.5", [("text", "html", 0.5)]),
+        ("*/*;q=0", [("*", "*", 0.0)]),
+        (",, a/b ,,c/d ,", [("a", "b", 1.0), ("c", "d", 1.0)]),
+        ('a/b;x="c,d";q=0.1, e/f;q=0.5', [("a", "b", 0.1), ("e", "f", 0.5)]),
+        ('a/b;x="q=0;";q=0.9', [("a", "b", 0.9)]),
+        ("", []),
+    ],
+)
+def test_http_accept_reads_each_range(text: str, expected: list[tuple[str, str, float]]) -> None:
+    assert [(m.type, m.subtype, m.q) for m in http_headers.accept.parse_text(text)] == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["a/b;q=2", "a/b;q=-1", "a/b;q=x", "a/b;q=1.5", "a/b;q=0.1234", "a/b;q=1e-1", "a/b;q=00.5"]
+    + ["a/b;q=+0.5", 'a/b;q="0.5"', "a/b;q=", "a/b;q=1.001"],
+)
+def test_http_accept_rejects_what_is_not_a_weight(text: str) -> None:
+    with pytest.raises(NoParseError):
+        http_headers.accept.parse_text(text)
+
+
+@pytest.mark.parametrize(
+    ("text", "q"),
+    [("a/b;q=0", 0.0), ("a/b;q=0.", 0.0), ("a/b;q=0.125", 0.125), ("a/b;Q=1.000", 1.0)],
+)
+def test_http_accept_reads_every_form_of_a_weight(text: str, q: float) -> None:
+    assert http_headers.accept.parse_text(text)[0].q == q
+
+
+def test_http_content_type_has_no_weight() -> None:
+    media = http_headers.content_type.parse_text("text/plain; q=hello")
+    assert media == http_headers.Media("text", "plain", {"q": "hello"})
+
+
+def test_http_content_type_keeps_what_quotes_protect() -> None:
+    media = http_headers.content_type.parse_text('multipart/form-data; boundary="a;b\\"c";;')
+    assert media == http_headers.Media("multipart", "form-data", {"boundary": 'a;b"c'})
+
+
+@pytest.mark.parametrize(
+    ("text", "filename"),
+    [
+        ('attachment; filename="a;b.txt"', "a;b.txt"),
+        ("attachment; filename=a.txt", "a.txt"),
+        ("attachment; filename*=UTF-8''%e2%82%ac.txt; filename=\"x\"", "€.txt"),
+        ("attachment; filename=\"x\"; FileName*=iso-8859-1'en'%E9.txt", "é.txt"),
+        ("inline", None),
+    ],
+)
+def test_http_content_disposition_prefers_the_extended_name(
+    text: str, filename: str | None
+) -> None:
+    assert http_headers.content_disposition.parse_text(text).filename == filename
+
+
+def test_http_content_disposition_rejects_a_quoted_extended_name() -> None:
+    with pytest.raises(NoParseError):
+        http_headers.content_disposition.parse_text("attachment; filename*=\"UTF-8''%C3%A9\"")
+
+
+def test_http_content_disposition_rejects_an_escape_of_another_charset() -> None:
+    with pytest.raises(ParseErrors):
+        http_headers.content_disposition.parse_text("attachment; filename*=UTF-8''%FF")
+
+
+def test_http_links_read_a_uri_between_brackets() -> None:
+    first, second = http_headers.links.parse_text(
+        '<https://a.example/x,y;z?page=2>; rel="next", </?page=5>; rel=last'
+    )
+    assert (first.target.path, first.target.query) == ("/x,y;z", "page=2")
+    assert first.parameters == {"rel": "next"}
+    assert second.target.authority is None
+    assert second.parameters == {"rel": "last"}
+
+
+def test_http_links_reject_a_target_that_is_not_a_uri() -> None:
+    with pytest.raises(NoParseError, match=r"1,10-1,10: got unexpected token: ' '"):
+        http_headers.links.parse_text("<http://a b>; rel=x")
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Bearer", [("Bearer", None, {})]),
+        ("Negotiate abc=", [("Negotiate", "abc=", {})]),
+        ('Basic realm="a, b"', [("Basic", None, {"realm": "a, b"})]),
+        ("Basic realm = x", [("Basic", None, {"realm": "x"})]),
+        (
+            'Digest realm="x", qop="auth,auth-int", Basic realm="y", Negotiate abc=, Bearer',
+            [
+                ("Digest", None, {"realm": "x", "qop": "auth,auth-int"}),
+                ("Basic", None, {"realm": "y"}),
+                ("Negotiate", "abc=", {}),
+                ("Bearer", None, {}),
+            ],
+        ),
+    ],
+)
+def test_http_www_authenticate_tells_a_parameter_from_a_challenge(
+    text: str, expected: list[tuple[str, str | None, dict[str, str]]]
+) -> None:
+    challenges = http_headers.www_authenticate.parse_text(text)
+    assert [(c.scheme, c.token68, c.parameters) for c in challenges] == expected

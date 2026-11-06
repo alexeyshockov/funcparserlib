@@ -41,6 +41,11 @@ nav = [
             { "Checking a Changelog" = "recipes/changelog.md" },
             { "Checking Decision Records" = "recipes/adr.md" },
         ] },
+        { "Web Formats" = [
+            { "Parsing URIs" = "recipes/uri.md" },
+            { "Parsing HTTP Headers" = "recipes/http-headers.md" },
+            { "Parsing Structured Fields" = "recipes/structured-fields.md" },
+        ] },
         { "Parsing KDL" = "recipes/kdl.md" },
     ] },
     { "API Reference" = [
