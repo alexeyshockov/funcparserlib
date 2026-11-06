@@ -364,11 +364,9 @@ class _Compiler:
         self.kinds: dict[int, _Kind] = {}
         self.sizes: dict[int, int] = {}
         for p in self.nodes.values():
-            if _form(p)[0] in ("many", "oneplus"):
-                first, nullable = self.first[id(_target(_form(p)[1]))]
-                # A first-token test can skip the loop, and the `ValueError` it raises.
-                if nullable and first is not None:
-                    raise _Declined(f"{p.name} repeats a parser that matches no tokens")
+            # A first-token test, of the loop or around it, can skip the `ValueError` it raises.
+            if _form(p)[0] in ("many", "oneplus") and self.first[id(_target(_form(p)[1]))][1]:
+                raise _Declined(f"{p.name} repeats a parser that matches no tokens")
 
     # --- Analysis ---
 
@@ -1274,13 +1272,9 @@ class _Compiler:
         self.assign(at, pos)
         if want:
             self.assign(acc, ast.List([head.expr] if head else [], ast.Load()))
-        nullable = self.first[id(item)][1]
 
         def body() -> None:
             def after(end: str, value: _Value | None) -> None:
-                if nullable:
-                    # What `many()` raises for a parser that reads no tokens.
-                    self.undecided_if(_compare(end, ast.Eq(), at))
                 if want:
                     self.add(ast.Expr(_call(_attr(acc, "append"), _read(value))))
                 self.assign(at, end)
