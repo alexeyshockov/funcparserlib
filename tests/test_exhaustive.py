@@ -54,7 +54,7 @@ def short(value: object) -> bool:
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
-    declared.define(skipping.match("a") + maybe(body + declared))
+    declared.define(skipping.regex("a") + maybe(body + declared))
     return declared
 
 
@@ -83,9 +83,9 @@ def without_tok(first: object, second: object) -> list[Callable[[], P]]:
 
 
 LEAVES: list[Callable[[], P]] = [
-    lambda: skipping.match("a"),
-    lambda: text.literal("b"),
-    lambda: -text.literal("a"),
+    lambda: skipping.regex("a"),
+    lambda: text.lit("b"),
+    lambda: -text.lit("a"),
     *without_tok("a", "b"),
 ]
 BYTE_LEAVES = without_tok(ord("a"), ord("b"))

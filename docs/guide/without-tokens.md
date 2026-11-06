@@ -4,8 +4,8 @@ In [Getting Started](../getting-started/index.md) we split the input into tokens
 well when a token is the same thing wherever it appears. Sometimes it isn't:
 
 * A `<` opens a tag in one rule and compares two numbers in another
-* A comment holds other comments, and a regexp cannot count how deep they go
-* You want an error inside a token, where a regexp can only fail at its start
+* A comment holds other comments, and a regex cannot count how deep they go
+* You want an error inside a token, where a regex can only fail at its start
 
 For these cases you can leave the tokenizer out. The parsers read the text themselves, at the position the parsing has
 reached. We call this a **text grammar**, and a grammar that reads tokens a **token grammar**. Both are `Parser` objects
@@ -13,16 +13,16 @@ and combine with the same operators.
 
 ## A First Text Grammar
 
-Let's make the parsers with [`Text`](../api/text.md): `match()` for a regexp and `literal()` for a fixed string. `skip`
-is a regexp for what may sit between two tokens, such as whitespace. Every parser skips it after what it reads, and the
+Let's make the parsers with [`Text`](../api/text.md): `regex()` for a regex and `lit()` for a fixed string. `skip`
+is a regex for what may sit between two tokens, such as whitespace. Every parser skips it after what it reads, and the
 text may also start with it:
 
 ```pycon
 >>> from funcparserlib.parser import many
 >>> from funcparserlib.text import Text
 >>> spaced = Text(skip=r"\s+")
->>> number = (spaced.match(r"\d+") >> int).named("number")
->>> total = number + many(-spaced.literal("+") + number) + -spaced.end
+>>> number = (spaced.regex(r"\d+") >> int).named("number")
+>>> total = number + many(-spaced.lit("+") + number) + -spaced.end
 >>> total.parse_text(" 1 + 2 + 3 ")
 (1, [2, 3])
 
@@ -31,7 +31,7 @@ text may also start with it:
 `Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what `skip` matches, and
 `named()` gives a parser the name its errors use.
 
-The functions `text.match()` and `text.literal()` skip nothing, which is what a token that has whitespace
+The functions `text.regex()` and `text.lit()` skip nothing, which is what a token that has whitespace
 inside needs. Such a grammar ends with `finished`, as a token grammar does. The first `skip` found in the grammar is still
 read before parsing starts, so that a document can start with whitespace, even before a first parser that skips nothing:
 whitespace at the very start of the text never reaches a parser. Use the `Text` for the grammar, and the functions for the
@@ -40,8 +40,8 @@ close it with the `Text`, so that the whitespace after the string is skipped:
 
 ```pycon
 >>> from funcparserlib import text
->>> chars = many(text.match(r'[^"\\\n]+') | text.match(r"\\."))
->>> string = -text.literal('"') + chars + -spaced.literal('"') >> "".join
+>>> chars = many(text.regex(r'[^"\\\n]+') | text.regex(r"\\."))
+>>> string = -text.lit('"') + chars + -spaced.lit('"') >> "".join
 >>> (string + string + -spaced.end).parse_text('"a  b"   "c"  ')
 ('a  b', 'c')
 
@@ -53,7 +53,7 @@ close it with the `Text`, so that the whitespace after the string is skipped:
 began, by the order of its specs. Without them the order is in the grammar, and a shorter match hides a longer one:
 
 ```pycon
->>> less = spaced.literal("<") | spaced.literal("<=")
+>>> less = spaced.lit("<") | spaced.lit("<=")
 >>> (less + number).parse_text("<= 1")
 Traceback (most recent call last):
     ...
@@ -66,7 +66,7 @@ alternatives stops mattering:
 
 ```pycon
 >>> from funcparserlib.parser import longest
->>> less = longest(spaced.literal("<"), spaced.literal("<="))
+>>> less = longest(spaced.lit("<"), spaced.lit("<="))
 >>> (less + number).parse_text("<= 1")
 ('<=', 1)
 
@@ -106,19 +106,19 @@ A token written as a grammar fails inside itself. Here is the string from above,
 
 ## Tokens That Depend on Where They Are
 
-What a token means can depend on the rules around it. A comment that nests is a recursive rule, where a regexp could
+What a token means can depend on the rules around it. A comment that nests is a recursive rule, where a regex could
 only count to a fixed depth:
 
 ```pycon
 >>> from funcparserlib.parser import finished, forward_decl
 >>> comment = forward_decl()
 >>> comment.define(
-...     text.literal("/*")
-...     + many(text.match(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
-...     + text.literal("*/")
+...     text.lit("/*")
+...     + many(text.regex(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
+...     + text.lit("*/")
 ... )
->>> gap = many(text.match(r"\s+") | comment)
->>> words = many(-gap + text.match(r"\w+")) + -gap + -finished
+>>> gap = many(text.regex(r"\s+") | comment)
+>>> words = many(-gap + text.regex(r"\w+")) + -gap + -finished
 >>> words.parse_text("a /* b /* c */ d */ e")
 ['a', 'e']
 
@@ -129,7 +129,7 @@ level is indented by two spaces more, are the lines of a deeper `item()` after a
 
 ```pycon
 >>> def item(depth):
-...     line = text.match(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
+...     line = text.regex(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
 ...     return line.bind(lambda l: many(item(depth + 1)) >> (lambda kids: (l.strip(), kids)))
 >>> (many(item(0)) + -finished).parse_text("a\n  b\n    c\n  d\ne\n")
 [('a', [('b', [('c', [])]), ('d', [])]), ('e', [])]

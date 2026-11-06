@@ -5,11 +5,11 @@ to keep in order, and what a piece of text means can depend on where it is. Its 
 grammar: they say what was expected, with the line and column of the text. See `Parser.parse_text()`
 and `Parser.compile()`.
 
-`text.match()` and `text.literal()` read exactly what they are given. A `Text` makes the same
-parsers, and each of them also skips what may sit between tokens, such as whitespace and comments.
+`text.regex()` and `text.lit()` read exactly what they are given. A `Text` makes the same parsers,
+and each of them also skips what may sit between tokens, such as whitespace and comments.
 """
 
-__all__ = ["Text", "literal", "match"]
+__all__ = ["Text", "lit", "regex"]
 
 import re
 from re import Pattern
@@ -23,11 +23,11 @@ from .parser import Parser, ParsingFailure, ParsingResult, ParsingSuccess, State
 class Text:
     """Makes parsers of text, each skipping what `skip` matches after what it reads.
 
-    `skip` is a regexp for what may sit between tokens, such as whitespace and comments, and it
+    `skip` is a regex for what may sit between tokens, such as whitespace and comments, and it
     matches as many times as it can. The text may start with it, for any first parser of the
     grammar:
     the first `skip` found in the grammar is read before parsing starts. Inside a token, such as a
-    string written as a grammar, use `text.match()` and `text.literal()`, which skip nothing.
+    string written as a grammar, use `text.regex()` and `text.lit()`, which skip nothing.
 
     Raises `ValueError` for a `skip` that matches the empty string or cannot repeat.
 
@@ -36,8 +36,8 @@ class Text:
         >>> from funcparserlib.parser import many
         >>> from funcparserlib.text import Text
         >>> spaced = Text(skip=r"\\s+")
-        >>> number = (spaced.match(r"\\d+") >> int).named("number")
-        >>> total = number + many(-spaced.literal("+") + number) + -spaced.end
+        >>> number = (spaced.regex(r"\\d+") >> int).named("number")
+        >>> total = number + many(-spaced.lit("+") + number) + -spaced.end
         >>> total.parse_text(" 1 + 2 ")
         (1, [2])
         >>> total.parse_text("1 +\\n  x")
@@ -51,7 +51,7 @@ class Text:
     __slots__ = ("_skip",)
 
     def __init__(self, skip: str | None = None, flags: int = 0) -> None:
-        """Make parsers that skip what the regexp `skip`, with its `flags`, matches."""
+        """Make parsers that skip what the regex `skip`, with its `flags`, matches."""
         self._skip: Pattern[str] | None = None
         if skip is not None:
             regexp = re.compile(skip, flags)
@@ -87,8 +87,8 @@ class Text:
         p: Parser[Any, str] = Parser._made_leaf(name, run, form)
         return p
 
-    def match(self, pattern: str, flags: int = 0) -> Parser[str, str]:
-        """A parser of the text the regexp `pattern`, with its `flags`, matches.
+    def regex(self, pattern: str, flags: int = 0) -> Parser[str, str]:
+        """A parser of the text the regex `pattern`, with its `flags`, matches.
 
         Give it a name with `Parser.named()` for its errors. Raises `ValueError` for a pattern that
         matches the empty string.
@@ -106,16 +106,16 @@ class Text:
 
         return self._reading(f"/{pattern}/", read, regexp, None)
 
-    def literal(self, value: str) -> Parser[str, str]:
+    def lit(self, value: str) -> Parser[str, str]:
         """A parser of the text `value`, which it reads where a longer word starts with it too.
 
-        To read a keyword, end the regexp with a word boundary: `text.match(r"if\\b")`. Raises
+        To read a keyword, end the regex with a word boundary: `text.regex(r"if\\b")`. Raises
         `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
         """
         if not isinstance(value, str):
             raise with_hint(
                 TypeError(f"literal value must be a str, not {type(value).__name__}"),
-                "Pass the text to read, as `text.literal('if')`.",
+                "Pass the text to read, as `text.lit('if')`.",
             )
         if not value:
             raise with_hint(
@@ -144,8 +144,8 @@ class Text:
 _plain = Text()
 
 
-def match(pattern: str, flags: int = 0) -> Parser[str, str]:
-    """A parser of the text the regexp `pattern`, with its `flags`, matches, skipping nothing.
+def regex(pattern: str, flags: int = 0) -> Parser[str, str]:
+    """A parser of the text the regex `pattern`, with its `flags`, matches, skipping nothing.
 
     It gives the whole match. Give it a name with `Parser.named()` for its errors. Raises
     `ValueError` for a pattern that matches the empty string.
@@ -154,20 +154,20 @@ def match(pattern: str, flags: int = 0) -> Parser[str, str]:
         ```pycon
         >>> from funcparserlib import text
         >>> from funcparserlib.parser import finished
-        >>> number = text.match(r"\\d+").named("number") >> int
-        >>> (number + -text.literal(".") + number + -finished).parse_text("1.25")
+        >>> number = text.regex(r"\\d+").named("number") >> int
+        >>> (number + -text.lit(".") + number + -finished).parse_text("1.25")
         (1, 25)
 
         ```
     """
-    return _plain.match(pattern, flags)
+    return _plain.regex(pattern, flags)
 
 
-def literal(value: str) -> Parser[str, str]:
+def lit(value: str) -> Parser[str, str]:
     """A parser of the text `value`, skipping nothing, which reads where a longer word starts with
     it.
 
-    To read a keyword, end the regexp with a word boundary: `text.match(r"if\\b")`. Raises
+    To read a keyword, end the regex with a word boundary: `text.regex(r"if\\b")`. Raises
     `ValueError` for an empty `value`, and `TypeError` for anything but a `str`.
     """
-    return _plain.literal(value)
+    return _plain.lit(value)

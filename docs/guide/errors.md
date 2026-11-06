@@ -194,7 +194,7 @@ and `expected` names what should have been there:
 ```pycon
 >>> from funcparserlib import text
 
->>> version = text.match(r"\d+") + -text.literal(".") + text.match(r"\d+") + -finished
+>>> version = text.regex(r"\d+") + -text.lit(".") + text.regex(r"\d+") + -finished
 >>> parsed = some(lambda t: True).validated(version.parse_text, "a version")
 >>> parsed.parse(["1.2"])
 ('1', '2')

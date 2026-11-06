@@ -94,11 +94,11 @@ class Release:
 
 
 # --8<-- [start:version]
-number = text.match(r"\d+").named("number") >> int
-release_segment = number + many(-text.literal(".") + number) >> (lambda p: (p[0], *p[1]))
-pre_release = (text.literal("a") | text.literal("b") | text.literal("rc")) + number
-post_release = -text.literal(".post") + number
-dev_release = -text.literal(".dev") + number
+number = text.regex(r"\d+").named("number") >> int
+release_segment = number + many(-text.lit(".") + number) >> (lambda p: (p[0], *p[1]))
+pre_release = (text.lit("a") | text.lit("b") | text.lit("rc")) + number
+post_release = -text.lit(".post") + number
+dev_release = -text.lit(".dev") + number
 version = (
     release_segment + maybe(pre_release) + maybe(post_release) + maybe(dev_release)
     >> (lambda p: Version(*p))
@@ -115,26 +115,26 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-day = text.match(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+day = text.regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 # --8<-- [end:date]
 
 
 # --8<-- [start:headings]
-unreleased = text.literal("[Unreleased]") >> (lambda _: Title(None, None, yanked=False))
-separator = -(text.literal(" - ") | text.literal(" — "))
-yanked = maybe(text.literal(" [YANKED]")) >> (lambda y: y is not None)
-numbered = -text.literal("[") + version + -text.literal("]") + separator + day + yanked >> (
+unreleased = text.lit("[Unreleased]") >> (lambda _: Title(None, None, yanked=False))
+separator = -(text.lit(" - ") | text.lit(" — "))
+yanked = maybe(text.lit(" [YANKED]")) >> (lambda y: y is not None)
+numbered = -text.lit("[") + version + -text.lit("]") + separator + day + yanked >> (
     lambda p: Title(*p)
 )
 release_title = (unreleased | numbered) + -finished
 
 change_kind = (
-    text.literal("Added")
-    | text.literal("Changed")
-    | text.literal("Deprecated")
-    | text.literal("Removed")
-    | text.literal("Fixed")
-    | text.literal("Security")
+    text.lit("Added")
+    | text.lit("Changed")
+    | text.lit("Deprecated")
+    | text.lit("Removed")
+    | text.lit("Fixed")
+    | text.lit("Security")
 ) + -finished
 # --8<-- [end:headings]
 

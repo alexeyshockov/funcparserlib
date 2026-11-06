@@ -501,7 +501,7 @@ def test_a_source_file_holds_what_parse_runs_without_functions_for_text(tmp_path
 
 def test_a_source_file_holds_a_grammar_of_text(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
-    many(Text().literal("a")).compile(source_file=path)
+    many(Text().lit("a")).compile(source_file=path)
     assert "T.startswith('a'" in source_of(path)
 
 
@@ -1096,7 +1096,7 @@ def test_a_match_of_a_regexp_starts_with_one_of_its_first_characters(
 def test_a_repeated_parser_that_matches_nothing_raises_as_the_interpreted_parser_does() -> None:
     spaced = Text(skip=r"\s+")
     grammar: ForwardDeclParser[str, Any] = forward_decl()
-    grammar.define(spaced.match("a") + maybe(many(many(spaced.match("a"))) + grammar))
+    grammar.define(spaced.regex("a") + maybe(many(many(spaced.regex("a"))) + grammar))
     with pytest.raises(ValueError, match="matched no tokens inside many"):
         grammar.parse_text("a")
     with pytest.raises(ValueError, match="matched no tokens inside many"):

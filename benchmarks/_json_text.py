@@ -18,21 +18,21 @@ def _array(values: tuple[Any, list[Any]] | None) -> list[Any]:
 
 
 def _keyword(word: str, value: object) -> Parser[str, Any]:
-    return spaced.match(rf"{word}\b") >> (lambda _: value)
+    return spaced.regex(rf"{word}\b") >> (lambda _: value)
 
 
 def _punctuation(symbol: str) -> Parser[str, Any]:
-    return -spaced.literal(symbol)
+    return -spaced.lit(symbol)
 
 
 value: ForwardDeclParser[str, Any] = forward_decl()
-string = spaced.match(STRING) >> unescape
+string = spaced.regex(STRING) >> unescape
 member = string + _punctuation(":") + value >> tuple
 members = maybe(member + many(_punctuation(",") + member)) >> _array
 values = maybe(value + many(_punctuation(",") + value)) >> _array
 value.define(
     string
-    | spaced.match(NUMBER) >> number
+    | spaced.regex(NUMBER) >> number
     | _punctuation("{") + members + _punctuation("}") >> dict
     | _punctuation("[") + values + _punctuation("]")
     | _keyword("true", True)

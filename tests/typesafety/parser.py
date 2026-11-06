@@ -115,15 +115,15 @@ _ = assert_type(x + finished, Tuple2Parser[str, str, None])
 
 # Text parsers read `str` and give the text they matched; `end` gives nothing.
 spaced = Text(skip=r"\s+")
-_ = assert_type(spaced.match("a"), Parser[str, str])
-_ = assert_type(spaced.literal("a"), Parser[str, str])
+_ = assert_type(spaced.regex("a"), Parser[str, str])
+_ = assert_type(spaced.lit("a"), Parser[str, str])
 _ = assert_type(spaced.end, Parser[str, None])
-_ = assert_type(spaced.match("a") + -spaced.end, Parser[str, str])
-_ = assert_type(spaced.match("a") + spaced.literal("b"), Tuple2Parser[str, str, str])
-_ = assert_type(spaced.match("a") >> len, Parser[str, int])
-_ = assert_type(text.match("a"), Parser[str, str])
-_ = assert_type(text.literal("a"), Parser[str, str])
-_ = assert_type(text.match("a") + -finished, Parser[str, str])
+_ = assert_type(spaced.regex("a") + -spaced.end, Parser[str, str])
+_ = assert_type(spaced.regex("a") + spaced.lit("b"), Tuple2Parser[str, str, str])
+_ = assert_type(spaced.regex("a") >> len, Parser[str, int])
+_ = assert_type(text.regex("a"), Parser[str, str])
+_ = assert_type(text.lit("a"), Parser[str, str])
+_ = assert_type(text.regex("a") + -finished, Parser[str, str])
 
 # `longest()` keeps the type of its parsers.
 _ = assert_type(longest(x, x), Parser[str, str])
@@ -131,43 +131,43 @@ _ = assert_type(longest(n, n, n), Parser[Token, int])
 
 # Parsing text.
 _ = assert_type(x.parse_text("x"), str)
-_ = assert_type(spaced.match("a").parse_text("a"), str)
-_ = assert_type((spaced.match("a") + spaced.match("b")).parse_text("ab"), tuple[str, str])
-_ = assert_type(spaced.match("a").compile().parse_text("a"), str)
-_ = assert_type(spaced.match("a").compile().try_parse("a"), str | None)
+_ = assert_type(spaced.regex("a").parse_text("a"), str)
+_ = assert_type((spaced.regex("a") + spaced.regex("b")).parse_text("ab"), tuple[str, str])
+_ = assert_type(spaced.regex("a").compile().parse_text("a"), str)
+_ = assert_type(spaced.regex("a").compile().try_parse("a"), str | None)
 _ = assert_type(n.compile(make_tokenizer([])).try_parse(""), int | None)
 
 # Bytes: `funcparserlib.binary` parsers read `int` bytes, and `prefixed()`, `counted()` and
 # `switch()` keep the type of what they read.
 _ = assert_type(b.byte(), Parser[int, int])
-_ = assert_type(b.match(b"a+"), Parser[int, bytes])
-_ = assert_type(b.literal(b"ab"), Parser[int, bytes])
+_ = assert_type(b.regex(b"a+"), Parser[int, bytes])
+_ = assert_type(b.lit(b"ab"), Parser[int, bytes])
 _ = assert_type(b.fixed(">H"), Parser[int, Any])  # pyright: ignore[reportExplicitAny] -- `struct` values are `Any`
 _ = assert_type(b.previous(), Parser[int, int])
 _ = assert_type(b.previous(0x0F), Parser[int, int])
-_ = assert_type(b.byte() + b.match(b"a"), Tuple2Parser[int, int, bytes])
+_ = assert_type(b.byte() + b.regex(b"a"), Tuple2Parser[int, int, bytes])
 _ = assert_type(b.byte() + -finished, Parser[int, int])
 _ = assert_type(many(b.byte()), Parser[int, list[int]])
 
 _ = assert_type(prefixed(b.byte()), Parser[int, bytes])
 _ = assert_type(prefixed(b.byte(), many(b.byte())), Parser[int, list[int]])
-_ = assert_type(prefixed(b.byte(), b.match(b"a")), Parser[int, bytes])
+_ = assert_type(prefixed(b.byte(), b.regex(b"a")), Parser[int, bytes])
 _ = assert_type(prefixed(b.fixed(">H"), b.byte() + b.byte()), Parser[int, tuple[int, int]])
-_ = assert_type(prefixed(spaced.match("a") >> len), Parser[str, str])
-_ = assert_type(prefixed(spaced.match("a") >> len, spaced.match("b")), Parser[str, str])
+_ = assert_type(prefixed(spaced.regex("a") >> len), Parser[str, str])
+_ = assert_type(prefixed(spaced.regex("a") >> len, spaced.regex("b")), Parser[str, str])
 
-_ = assert_type(counted(b.byte(), b.match(b"a")), Parser[int, list[bytes]])
+_ = assert_type(counted(b.byte(), b.regex(b"a")), Parser[int, list[bytes]])
 _ = assert_type(counted(b.byte(), prefixed(b.byte())), Parser[int, list[bytes]])
-_ = assert_type(counted(spaced.match("a") >> len, spaced.match("b")), Parser[str, list[str]])
+_ = assert_type(counted(spaced.regex("a") >> len, spaced.regex("b")), Parser[str, list[str]])
 
 # The cases of `switch()` usually give different values, so it gives `Any`.
-mixed: Parser[int, bytes | int] = switch(b.byte(), {1: b.match(b"a"), 2: b.byte()})
+mixed: Parser[int, bytes | int] = switch(b.byte(), {1: b.regex(b"a"), 2: b.byte()})
 ranges: Parser[int, int] = switch(b.byte(), {range(1, 4): b.byte(), 0: b.byte()})
-keys: Parser[str, str] = switch(spaced.match("a"), {"a": spaced.match("b")})
+keys: Parser[str, str] = switch(spaced.regex("a"), {"a": spaced.regex("b")})
 
 # Parsing bytes.
 _ = assert_type(b.byte().parse_bytes(b"a"), int)
-_ = assert_type((b.byte() + b.match(b"a")).parse_bytes(b"ab"), tuple[int, bytes])
+_ = assert_type((b.byte() + b.regex(b"a")).parse_bytes(b"ab"), tuple[int, bytes])
 _ = assert_type(prefixed(b.byte()).parse_bytes(b"\x01a"), bytes)
 _ = assert_type(counted(b.byte(), b.byte()).parse_bytes(b"\x01a"), list[int])
 _ = assert_type(b.byte().compile().parse_bytes(b"a"), int)

@@ -22,7 +22,7 @@ Examples:
     ```
 """
 
-__all__ = ["byte", "fixed", "literal", "match", "previous"]
+__all__ = ["byte", "fixed", "lit", "previous", "regex"]
 
 import re
 import struct
@@ -32,8 +32,8 @@ from ._commons import with_hint
 from .parser import Parser, ParsingFailure, ParsingResult, ParsingSuccess, State
 
 
-def match(pattern: bytes, flags: int = 0) -> Parser[int, bytes]:
-    """A parser of the bytes the regexp `pattern`, with its `flags`, matches.
+def regex(pattern: bytes, flags: int = 0) -> Parser[int, bytes]:
+    """A parser of the bytes the regex `pattern`, with its `flags`, matches.
 
     Give it a name with `Parser.named()` for its errors. Raises `ValueError` for a pattern that
     matches no bytes.
@@ -55,7 +55,7 @@ def match(pattern: bytes, flags: int = 0) -> Parser[int, bytes]:
     return p
 
 
-def literal(value: bytes) -> Parser[int, bytes]:
+def lit(value: bytes) -> Parser[int, bytes]:
     """A parser of the bytes `value`.
 
     Raises `ValueError` for an empty `value`, and `TypeError` for anything but `bytes`.
@@ -63,7 +63,7 @@ def literal(value: bytes) -> Parser[int, bytes]:
     if not isinstance(value, bytes):
         raise with_hint(
             TypeError(f"literal value must be bytes, not {type(value).__name__}"),
-            "Pass the bytes to read, as `binary.literal(b'ab')`.",
+            "Pass the bytes to read, as `binary.lit(b'ab')`.",
         )
     if not value:
         raise with_hint(

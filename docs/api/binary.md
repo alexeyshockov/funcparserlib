@@ -4,9 +4,9 @@
     options:
         show_root_heading: false
 
-::: funcparserlib.binary.match
+::: funcparserlib.binary.regex
 
-::: funcparserlib.binary.literal
+::: funcparserlib.binary.lit
 
 ::: funcparserlib.binary.fixed
 

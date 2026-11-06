@@ -84,25 +84,25 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-number = text.match(r"\d+").named("number") >> int
-day = text.match(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+number = text.regex(r"\d+").named("number") >> int
+day = text.regex(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 
-plain_status = text.literal("Proposed") | text.literal("Accepted") | text.literal("Deprecated")
-written = -text.literal("Superseded by ADR ") + number
-linked = -text.literal("Superseded by [") + number + -text.match(r"[^\]]*\]\([^)]*\)")
+plain_status = text.lit("Proposed") | text.lit("Accepted") | text.lit("Deprecated")
+written = -text.lit("Superseded by ADR ") + number
+linked = -text.lit("Superseded by [") + number + -text.regex(r"[^\]]*\]\([^)]*\)")
 superseded = written | linked
 status = (plain_status >> Status) | (superseded >> (lambda n: Status("Superseded", n)))
 
 title_number = (
-    number + -text.literal(" — ")
-    | number + -text.literal(". ")
-    | -text.literal("ADR ") + number + -text.literal(": ")
+    number + -text.lit(" — ")
+    | number + -text.lit(". ")
+    | -text.lit("ADR ") + number + -text.lit(": ")
 )
-title = title_number + text.match(r".+") + -finished >> (lambda p: Title(*p))
+title = title_number + text.regex(r".+") + -finished >> (lambda p: Title(*p))
 
-listed_status = -text.literal("**Status:** ") + status + -finished
-listed_date = -text.literal("**Date:** ") + day + -finished
-plain_date = -text.literal("Date: ") + day + -finished
+listed_status = -text.lit("**Status:** ") + status + -finished
+listed_date = -text.lit("**Date:** ") + day + -finished
+plain_date = -text.lit("Date: ") + day + -finished
 # --8<-- [end:parts]
 
 

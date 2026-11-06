@@ -22,7 +22,7 @@ has a C parser and a parser in pure Python to measure against. A grammar for it 
 ## Decision
 
 `funcparserlib.binary` has parsers of bytes, as `funcparserlib.text` has parsers of text, and they
-read the buffer at the position: `match()` and `literal()` as in text, `byte()`, `fixed()` for what the
+read the buffer at the position: `regex()` and `lit()` as in text, `byte()`, `fixed()` for what the
 `struct` module reads, and `previous()` for the byte just read, where a tag holds a value. A grammar
 ends with `finished`.
 `Parser.parse_bytes()` runs them, and errors give the byte in hexadecimal and its offset.
