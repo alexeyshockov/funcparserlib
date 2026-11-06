@@ -1847,11 +1847,19 @@ def test_parse_of_bytes_is_a_parse_of_integers() -> None:
     assert prefixed(some(lambda v: True)).parse(b"\x02ab") == b"ab"
 
 
-def test_parse_bytes_of_a_bytearray_and_a_memoryview() -> None:
+@pytest.mark.parametrize("kind", [bytes, bytearray])
+def test_parse_bytes_of_bytes_and_a_bytearray(kind: Callable[[bytes], Any]) -> None:
     grammar = prefixed(b.byte, many(b.byte)) + b.fixed(">H")
     data = b"\x02ab\x00\x07"
-    assert shape(grammar.parse_bytes(data)) == shape(([97, 98], 7))
-    assert shape(grammar.parse_bytes(loose(bytearray(data)))) == shape(([97, 98], 7))
+    assert shape(grammar.parse_bytes(kind(data))) == shape(([97, 98], 7))
+
+
+def test_a_memoryview_is_refused_rather_than_copied() -> None:
+    grammar = b.literal(b"a")
+    code = grammar.compile()
+    for parse in (grammar.parse_bytes, code.parse_bytes, code.try_parse):
+        with pytest.raises(TypeError, match="memoryview cannot be parsed"):
+            parse(loose(memoryview(b"a")))
 
 
 def test_the_message_of_an_error_does_not_depend_on_the_data_type() -> None:
@@ -1859,7 +1867,7 @@ def test_the_message_of_an_error_does_not_depend_on_the_data_type() -> None:
     for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
         for data in (b"\x00b", bytearray(b"\x00b")):
             with pytest.raises(NoParseError, match="0x62 at offset 0x1"):
-                parse(loose(data))
+                parse(data)
 
 
 # commit()
