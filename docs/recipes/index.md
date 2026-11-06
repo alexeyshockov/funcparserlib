@@ -18,6 +18,15 @@ counts and type tags:
 
 * [Parsing MessagePack](msgpack.md): all of a binary format with funcparserlib alone
 
+## Rules of a Format
+
+A document can be valid Markdown and still break the rules of its format. When a generic parser and a few lines of code
+cover your problem, you do not need this library. When the format is in the details, a version, a status, what may follow
+what, grammars read those details on top of the tokens of a Markdown tokenizer:
+
+* [Checking a Changelog](changelog.md): Keep a Changelog, with a version grammar and every broken release in one run
+* [Checking Decision Records](adr.md): one record as a grammar, and the rules across records in plain code
+
 ## A Whole Language
 
 * [Parsing KDL](kdl.md): a language defined from scratch, first with `make_tokenizer()`, then with no tokenizer at all

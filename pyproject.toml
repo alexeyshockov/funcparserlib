@@ -40,8 +40,9 @@ dev = [
     { include-group = "tests" },
     { include-group = "examples" },
 ]
-# What examples/ imports besides the package: markdown.py and yaml.py read another library's token
-# stream, markdown-it-py's and ruamel.yaml's; msgpack_format.py is checked against msgpack.
+# What examples/ imports besides the package: markdown.py, changelog.py, adr.py and yaml.py read
+# another library's token stream, markdown-it-py's and ruamel.yaml's; msgpack_format.py is checked
+# against msgpack.
 examples = ["markdown-it-py ~=4.0", "msgpack ~=1.1", "ruamel.yaml ~=0.19"]
 # The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = [

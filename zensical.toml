@@ -37,6 +37,10 @@ nav = [
         { "Binary Data" = [
             { "Parsing MessagePack" = "recipes/msgpack.md" },
         ] },
+        { "Rules of a Format" = [
+            { "Checking a Changelog" = "recipes/changelog.md" },
+            { "Checking Decision Records" = "recipes/adr.md" },
+        ] },
         { "Parsing KDL" = "recipes/kdl.md" },
     ] },
     { "API Reference" = [

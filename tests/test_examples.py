@@ -1,5 +1,7 @@
 import math
+from datetime import date
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 from typing import Any
 
 import msgpack
@@ -8,7 +10,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from ruamel.yaml.error import YAMLError
 
-from examples import kdl, kdl_text, markdown, msgpack_format, yaml
+from examples import adr, changelog, kdl, kdl_text, markdown, msgpack_format, yaml
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
@@ -740,3 +742,271 @@ def test_msgpack_raises_what_unpackb_raises_for_a_string_and_a_key() -> None:
             msgpack_format.parse(data)
         with pytest.raises(error):
             unpack(data)
+
+
+ROOT = Path(__file__).parent.parent
+RECORD = (
+    "# 0001 — A title\n\n"
+    "- **Status:** Accepted\n"
+    "- **Date:** 2026-02-20\n\n"
+    "## Context\n\na\n\n"
+    "## Decision\n\nb\n\n"
+    "## Consequences\n\nc\n"
+)
+
+
+def test_changelog_reads_releases_with_either_dash_and_a_linked_version() -> None:
+    releases = changelog.parse(
+        "# Changelog\n\nIntro.\n\n"
+        "## [Unreleased]\n\nNotes.\n\n### Added\n\n- one\n\n"
+        "## [1.0.0] - 2017-06-20\n\n### Fixed\n\n- two\n\n### Security\n\n- three\n\n"
+        "## [0.1] — 2016-01-01 [YANKED]\n\n"
+        "[1.0.0]: https://example.com/1.0.0\n"
+    )
+    v100 = changelog.Version((1, 0, 0), None, None, None)
+    v01 = changelog.Version((0, 1), None, None, None)
+    assert [r.title for r in releases] == [
+        changelog.Title(None, None, yanked=False),
+        changelog.Title(v100, date(2017, 6, 20), yanked=False),
+        changelog.Title(v01, date(2016, 1, 1), yanked=True),
+    ]
+    assert releases[0].notes == "Notes."
+    assert [c.kind for c in releases[1].changes] == ["Fixed", "Security"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1.2", changelog.Version((1, 2), None, None, None)),
+        ("2.0.0b1", changelog.Version((2, 0, 0), ("b", 1), None, None)),
+        ("1.2rc3.post4.dev5", changelog.Version((1, 2), ("rc", 3), 4, 5)),
+    ],
+)
+def test_changelog_reads_a_version(text: str, expected: changelog.Version) -> None:
+    assert changelog.version.parse_text(text) == expected
+
+
+def test_changelog_orders_versions_as_pep_440_does() -> None:
+    ordered = ["1.0.dev1", "1.0a1", "1.0b2", "1.0rc1", "1.0", "1.0.post1", "1.1"]
+    orders = [changelog.version.parse_text(v).order for v in ordered]
+    assert orders == sorted(orders)
+    assert len({str(o) for o in orders}) == len(orders)
+    assert changelog.version.parse_text("1.0").order == changelog.version.parse_text("1.0.0").order
+
+
+@pytest.mark.parametrize(
+    ("section", "expected"),
+    [
+        ("## 1.0.0 - 2020-01-01", "`[version] - date`"),
+        ("## [one] - 2020-01-01", "`[version] - date`"),
+        ("## [1.0.0]", "`[version] - date`"),
+        ("## [1.0.0] - 2020-13-01", "`[version] - date`"),
+        ("## [1.0.0] - 2020-1-1", "`[version] - date`"),
+        ("## [Unreleased] - 2020-01-01", "`[version] - date`"),
+        ("## [1.0.0] - 2020-01-01\n\n### Updated", "Added, Changed"),
+    ],
+)
+def test_changelog_rejects_what_is_not_a_release(section: str, expected: str) -> None:
+    with pytest.raises(ParseErrors) as e:
+        changelog.parse(f"# Changelog\n\n{section}\n")
+    [error] = e.value.exceptions
+    assert expected in error.msg
+
+
+@pytest.mark.parametrize(
+    ("sections", "message"),
+    [
+        ("## [1.0.0] - 2020-01-01\n\n### Added\n\n### Added", "Added appears twice in a release"),
+        ("## [1.0.0] - 2020-01-01\n\n## [2.0.0] - 2021-01-01", "2.0.0 comes after 1.0.0"),
+        ("## [2.0.0] - 2020-01-01\n\n## [1.0.0] - 2021-01-01", "1.0.0 has a later date than 2.0.0"),
+        ("## [1.0.0] - 2020-01-01\n\n## [Unreleased]", "Unreleased is not the first release"),
+        ("## [1.0.0] - 2020-01-01\n\n## [1.0.0] - 2020-01-01", "1.0.0 comes after 1.0.0"),
+        ("## [1.0] - 2020-01-01\n\n## [1.0.0] - 2020-01-01", "1.0.0 comes after 1.0"),
+        ("## [1.0b1] - 2020-01-01\n\n## [1.0] - 2019-01-01", "1.0 comes after 1.0b1"),
+    ],
+)
+def test_changelog_reports_a_broken_rule(sections: str, message: str) -> None:
+    with pytest.raises(ParseErrors) as e:
+        changelog.parse(f"# Changelog\n\n{sections}\n")
+    [error] = e.value.exceptions
+    assert error.msg == message
+
+
+def test_changelog_reports_every_error_of_one_release() -> None:
+    text = "# Changelog\n\n## [one] - 2020-01-01\n\n### Updated\n\n### Removd\n"
+    with pytest.raises(ParseErrors) as e:
+        changelog.parse(text)
+    assert [error.msg.split(":")[0] for error in e.value.exceptions] == [
+        "3,1-3,1",
+        "5,1-5,1",
+        "7,1-7,1",
+    ]
+
+
+def test_changelog_orders_a_pre_release_after_its_final_version() -> None:
+    text = "# Changelog\n\n## [2.0.0] - 2021-01-01\n\n## [2.0.0b1] - 2020-01-01\n"
+    assert len(changelog.parse(text)) == 2
+
+
+def test_changelog_reads_a_linked_version_as_it_is_written() -> None:
+    text = "# Changelog\n\n## [1.0] - 2020-01-01\n\n[1.0]: https://example.com\n"
+    [release] = changelog.parse(text)
+    assert release.title.date == date(2020, 1, 1)
+
+
+def test_changelog_shows_the_heading_it_rejects() -> None:
+    text = "# Changelog\n\n## [1.0] - 2020-13-01\n"
+    with pytest.raises(ParseErrors) as e:
+        changelog.parse(text)
+    [error] = e.value.exceptions
+    assert error.msg.startswith("3,1-3,1: got unexpected token: '[1.0] - 2020-13-01', expected:")
+
+
+def test_changelog_allows_two_releases_on_one_day() -> None:
+    text = "# Changelog\n\n## [1.0.1] - 2020-01-01\n\n## [1.0.0] - 2020-01-01\n"
+    assert len(changelog.parse(text)) == 2
+
+
+def test_changelog_takes_whatever_markdown_sits_under_a_heading() -> None:
+    text = (
+        "# Changelog\n\n<!-- intro -->\n\n### About\n\n"
+        "## [1.0.0] - 2020-01-01\n\n<!-- ## notes -->\n\n![logo](l.png) <br>\n\n"
+        "### Added\n\n#### Parser\n\n```\n## not a heading\n```\n\n| a |"
+    )
+    [release] = changelog.parse(text)
+    assert release.notes == "<!-- ## notes -->\n![logo](l.png) <br>"
+    assert release.changes[0].text == "Parser\n## not a heading\n| a |"
+
+
+def test_changelog_reports_every_broken_release_where_it_breaks() -> None:
+    text = (
+        "# Changelog\n\n## [2.0.0] - 2020-13-01\n\n"
+        "## [1.0.0] - 2019-01-01\n\n### Updated\n\n"
+        "## [0.1] - 2018-13-01\n"
+    )
+    with pytest.raises(ParseErrors) as e:
+        changelog.parse(text)
+    assert [error.msg.split(":")[0] for error in e.value.exceptions] == [
+        "3,1-3,1",
+        "7,1-7,1",
+        "9,1-9,1",
+    ]
+
+
+def test_changelog_of_this_repository_follows_the_rules() -> None:
+    releases = changelog.parse((ROOT / "CHANGELOG.md").read_text(encoding="utf-8"))
+    assert releases[0].title.version is None
+    last = releases[-1].title.version
+    assert last is not None
+    assert last.release == (0, 1)
+
+
+def test_adr_reads_a_record() -> None:
+    record = adr.parse(RECORD)
+    assert (record.number, record.title) == (1, "A title")
+    assert record.status == adr.Status("Accepted")
+    assert record.date == date(2026, 2, 20)
+    assert record.consequences == "c"
+
+
+@pytest.mark.parametrize("heading", ["# 0001 — A title", "# 1. A title", "# ADR 1: A title"])
+def test_adr_reads_each_form_of_title(heading: str) -> None:
+    record = adr.parse(RECORD.replace("# 0001 — A title", heading))
+    assert (record.number, record.title) == (1, "A title")
+
+
+def test_adr_reads_the_details_as_adr_tools_writes_them() -> None:
+    details = "- **Status:** Accepted\n- **Date:** 2026-02-20\n"
+    record = adr.parse(RECORD.replace(details, "Date: 2026-02-20\n\n## Status\n\nProposed\n"))
+    assert (record.status, record.date) == (adr.Status("Proposed"), date(2026, 2, 20))
+
+
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        ("Proposed", adr.Status("Proposed")),
+        ("Deprecated", adr.Status("Deprecated")),
+        ("Superseded by ADR 0002", adr.Status("Superseded", 2)),
+        ("Superseded by [2. A title](0002-a-title.md)", adr.Status("Superseded", 2)),
+    ],
+)
+def test_adr_reads_each_status(status: str, expected: adr.Status) -> None:
+    assert adr.parse(RECORD.replace("Accepted", status)).status == expected
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        ("# 0001 — A title", "# A title", "`NNNN — Title`"),
+        ("Accepted", "accepted", "**Status:** Proposed"),
+        ("Accepted", "Superseded by 0002", "**Status:** Proposed"),
+        ("2026-02-20", "2026-02-30", "**Date:**"),
+        ("**Status:**", "**State:**", "**Status:** Proposed"),
+        ("**Date:**", "**On:**", "**Date:**"),
+    ],
+)
+def test_adr_rejects_what_is_not_a_record(old: str, new: str, expected: str) -> None:
+    with pytest.raises(ParseErrors) as e:
+        adr.parse(RECORD.replace(old, new))
+    [error] = e.value.exceptions
+    assert expected in error.msg
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        ("## Decision\n\nb\n\n", "", "## Decision"),
+        ("## Consequences", "## Results", "## Consequences"),
+    ],
+)
+def test_adr_requires_every_section(old: str, new: str, expected: str) -> None:
+    with pytest.raises(NoParseError) as e:
+        adr.parse(RECORD.replace(old, new))
+    assert expected in e.value.expected
+
+
+def test_adr_reports_every_field_of_a_record() -> None:
+    broken = RECORD.replace("0001 — ", "").replace("Accepted", "Done").replace("20\n", "30\n")
+    with pytest.raises(ParseErrors) as e:
+        adr.parse(broken.replace("2026-02-30", "2026-02-31"))
+    assert [error.msg.split(":")[0] for error in e.value.exceptions] == [
+        "1,1-1,1",
+        "3,1-3,1",
+        "4,1-4,1",
+    ]
+
+
+def test_adr_takes_whatever_markdown_sits_in_a_section() -> None:
+    body = "### Options\n\n<!-- ## c -->\n\n```\n## Consequences\n```\n\n![d](d.png)"
+    decision = adr.parse(RECORD.replace("\nb\n", f"\n{body}\n")).decision
+    assert decision == "Options\n<!-- ## c -->\n## Consequences\n![d](d.png)"
+
+
+def test_adr_finds_what_is_wrong_across_records(tmp_path: Path) -> None:
+    (tmp_path / "0001-a.md").write_text(RECORD.replace("Accepted", "Superseded by ADR 0006"))
+    (tmp_path / "0003-b.md").write_text(RECORD.replace("0001", "0005"))
+    assert adr.check(tmp_path) == [
+        "the numbers are not 1 to 2 without gaps: [1, 5]",
+        "0001-a.md: superseded by ADR 0006, which does not exist",
+        "0003-b.md: the title says 0005",
+    ]
+
+
+def test_adr_finds_a_record_superseded_by_itself(tmp_path: Path) -> None:
+    (tmp_path / "0001-a.md").write_text(RECORD.replace("Accepted", "Superseded by ADR 0001"))
+    assert adr.check(tmp_path) == ["0001-a.md: superseded by itself"]
+
+
+def test_adr_reports_a_directory_without_records(tmp_path: Path) -> None:
+    assert adr.check(tmp_path) == [f"no records in {tmp_path}"]
+    assert adr.check(tmp_path / "missing") == [f"no records in {tmp_path / 'missing'}"]
+
+
+def test_adr_reports_a_broken_record_before_the_rules_across_records(tmp_path: Path) -> None:
+    (tmp_path / "0002-a.md").write_text(RECORD.replace("Accepted", "Done"))
+    [problem] = adr.check(tmp_path)
+    assert problem.startswith("0002-a.md:\n3,1-3,1: got unexpected token: '**Status:** Done'")
+
+
+def test_adr_records_of_this_repository_follow_the_rules() -> None:
+    assert adr.check(ROOT / "docs" / "adr") == []

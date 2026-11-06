@@ -12,6 +12,7 @@ Anything else (an image, an HTML block) fails with `NoParseError`, naming the to
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from markdown_it import MarkdownIt
@@ -47,14 +48,14 @@ class Code:
 class Emphasis:
     """Emphasised inline content: `*text*`."""
 
-    children: list[Inline]
+    children: Sequence[Inline]
 
 
 @dataclass(frozen=True, slots=True)
 class Strong:
     """Strongly emphasised inline content: `**text**`."""
 
-    children: list[Inline]
+    children: Sequence[Inline]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +63,7 @@ class Link:
     """A link to `href` with its text."""
 
     href: str
-    children: list[Inline]
+    children: Sequence[Inline]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,21 +81,21 @@ class Heading:
     """A heading of `level` 1 to 6."""
 
     level: int
-    children: list[Inline]
+    children: Sequence[Inline]
 
 
 @dataclass(frozen=True, slots=True)
 class Paragraph:
     """A paragraph."""
 
-    children: list[Inline]
+    children: Sequence[Inline]
 
 
 @dataclass(frozen=True, slots=True)
 class BulletList:
     """A bullet list; each item is a list of blocks."""
 
-    items: list[list[Block]]
+    items: Sequence[Sequence[Block]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,14 +103,14 @@ class OrderedList:
     """An ordered list numbered from `start`; each item is a list of blocks."""
 
     start: int
-    items: list[list[Block]]
+    items: Sequence[Sequence[Block]]
 
 
 @dataclass(frozen=True, slots=True)
 class Blockquote:
     """A block quote."""
 
-    children: list[Block]
+    children: Sequence[Block]
 
 
 @dataclass(frozen=True, slots=True)
