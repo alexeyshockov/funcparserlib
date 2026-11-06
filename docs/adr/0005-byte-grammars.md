@@ -21,9 +21,10 @@ has a C parser and a parser in pure Python to measure against. A grammar for it 
 
 ## Decision
 
-`funcparserlib.binary.Binary` makes parsers of bytes, as `Text` makes parsers of text, and they read
-the buffer at the position: `token()` and `literal()` as in `Text`, `byte`, `fixed()` for what the
-`struct` module reads, `end`, and `previous()` for the byte just read, where a tag holds a value.
+`funcparserlib.binary` has parsers of bytes, as `funcparserlib.text` has parsers of text, and they
+read the buffer at the position: `match()` and `literal()` as in text, `byte()`, `fixed()` for what the
+`struct` module reads, and `previous()` for the byte just read, where a tag holds a value. A grammar
+ends with `finished`.
 `Parser.parse_bytes()` runs them, and errors give the byte in hexadecimal and its offset.
 
 Three combinators replace `bind()` for what binary formats do, and they work over text and tokens too:
@@ -52,6 +53,7 @@ Rejected:
 
 - **A `switch` case as a function of the key.** It reads plainly, and hides the parser from generated
   code as `bind()` does. `previous()` reads the same byte, and the case stays a parser.
+- **A class of parsers, as `Text`.** It would hold nothing: a `Text` exists to hold `skip`.
 - **Bytes through `Text`.** A `Text` skips and counts lines, which bytes have no use for.
 - **Readers for Protobuf or any one format in the library.** A varint is a `token()` and a function.
 
@@ -60,7 +62,7 @@ Rejected:
 - A grammar of bytes compiles as one of text does, and `try_parse()` takes bytes.
 - `previous()` depends on what ran before it, so it belongs right after what read the byte. It fails at
   the start of the input.
-- A region of `prefixed(length, body)` is parsed as its own input: `previous()` and `Binary.end` see
+- A region of `prefixed(length, body)` is parsed as its own input: `previous()` and `finished` see
   its bounds, and errors are moved back to offsets in the buffer.
 - MessagePack's `ext` types put the type between the length and the data, which reads most plainly with
   `bind()`.

@@ -18,7 +18,7 @@ def _array(values: tuple[Any, list[Any]] | None) -> list[Any]:
 
 
 def _keyword(word: str, value: object) -> Parser[str, Any]:
-    return text.token(rf"{word}\b") >> (lambda _: value)
+    return text.match(rf"{word}\b") >> (lambda _: value)
 
 
 def _punctuation(symbol: str) -> Parser[str, Any]:
@@ -26,13 +26,13 @@ def _punctuation(symbol: str) -> Parser[str, Any]:
 
 
 value: ForwardDeclParser[str, Any] = forward_decl()
-string = text.token(STRING) >> unescape
+string = text.match(STRING) >> unescape
 member = string + _punctuation(":") + value >> tuple
 members = maybe(member + many(_punctuation(",") + member)) >> _array
 values = maybe(value + many(_punctuation(",") + value)) >> _array
 value.define(
     string
-    | text.token(NUMBER) >> number
+    | text.match(NUMBER) >> number
     | _punctuation("{") + members + _punctuation("}") >> dict
     | _punctuation("[") + values + _punctuation("]")
     | _keyword("true", True)

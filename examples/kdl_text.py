@@ -32,37 +32,36 @@ from examples.kdl import (
     unescape,
     without_space_escapes,
 )
+from funcparserlib import text
 from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
     Parser,
+    finished,
     forward_decl,
     longest,
     many,
     maybe,
     oneplus,
 )
-from funcparserlib.text import Text
 
 # --8<-- [start:whitespace]
 # KDL keeps its whitespace significant, so these parsers skip nothing.
-text = Text()
-
-spaces = text.token(rf"[{SPACE}]+")
-line_comment = text.token(LINE_COMMENT)
-newline_char = text.token(NL)
+spaces = text.match(rf"[{SPACE}]+")
+line_comment = text.match(LINE_COMMENT)
+newline_char = text.match(NL)
 
 # A comment holds comments, which a regexp cannot count and a rule can.
 block_comment: ForwardDeclParser[str, Any] = forward_decl().named("comment")
 block_comment.define(
     text.literal("/*")
-    + many(text.token(r"(?:[^*/]|\*(?!/)|/(?!\*))+").named("comment text") | block_comment)
+    + many(text.match(r"(?:[^*/]|\*(?!/)|/(?!\*))+").named("comment text") | block_comment)
     + text.literal("*/")
 )
 
 # A backslash continues the line, and so does a comment before the newline.
 esc_line = (
-    text.literal("\\") + many(spaces | block_comment) + (line_comment | newline_char | text.end)
+    text.literal("\\") + many(spaces | block_comment) + (line_comment | newline_char | finished)
 )
 
 ws = oneplus(spaces | block_comment | esc_line).named("whitespace")
@@ -70,16 +69,16 @@ newline = (newline_char | line_comment).named("newline")
 # --8<-- [end:whitespace]
 
 # --8<-- [start:strings]
-plain = text.token(rf'[^"\\{NEWLINE}{DISALLOWED}]+').named("text")
-escape = text.token(rf"\\(?:[{SPACE}{NEWLINE}]+|.)", re.DOTALL).named("escape")
+plain = text.match(rf'[^"\\{NEWLINE}{DISALLOWED}]+').named("text")
+escape = text.match(rf"\\(?:[{SPACE}{NEWLINE}]+|.)", re.DOTALL).named("escape")
 # Between the quotes come text and escapes in any order; a missing quote fails there.
 quoted_body = (-text.literal('"') + many(plain | escape) + -text.literal('"')).context("string")
 
 quoted = quoted_body >> "".join
-multiline = text.token(rf'"""{NL}(?:[^\\{DISALLOWED}]|\\[^{DISALLOWED}])*?"""')
-raw = text.token(rf'(#+)"(?!"")[^{NEWLINE}{DISALLOWED}]*?"\1')
-raw_multiline = text.token(rf'(#+)"""{NL}[^{DISALLOWED}]*?"""\1')
-bare = text.token(rf"(?![+-]?\.?[0-9]){IDENT_CHAR}+").when(lambda s: s not in KEYWORD_NAMES)
+multiline = text.match(rf'"""{NL}(?:[^\\{DISALLOWED}]|\\[^{DISALLOWED}])*?"""')
+raw = text.match(rf'(#+)"(?!"")[^{NEWLINE}{DISALLOWED}]*?"\1')
+raw_multiline = text.match(rf'(#+)"""{NL}[^{DISALLOWED}]*?"""\1')
+bare = text.match(rf"(?![+-]?\.?[0-9]){IDENT_CHAR}+").when(lambda s: s not in KEYWORD_NAMES)
 
 # `quoted` reads the `""` that opens a `"""` string, and `longest()` takes the longer match.
 string = longest(
@@ -92,11 +91,11 @@ string = longest(
 # --8<-- [end:strings]
 
 # --8<-- [start:grammar]
-numeric = text.token(
+numeric = text.match(
     r"[+-]?(?:0x[0-9a-fA-F][0-9a-fA-F_]*|0o[0-7][0-7_]*|0b[01][01_]*"
     rf"|[0-9][0-9_]*(?:\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?){END}"
 ).named("number")
-keyword = text.token(rf"#(?:true|false|null|inf|-inf|nan){END}").named("keyword")
+keyword = text.match(rf"#(?:true|false|null|inf|-inf|nan){END}").named("keyword")
 
 space = -maybe(ws)
 line_space = -many(ws | newline)
@@ -141,7 +140,7 @@ terminator = (newline | text.literal(";")) + line_space
 nodes.define(
     line_space + separated(node, terminator) >> (lambda ns: [n for n in ns if n is not None])
 )
-document: Parser[str, list[Node]] = nodes + -text.end
+document: Parser[str, list[Node]] = nodes + -finished
 # --8<-- [end:grammar]
 
 # --8<-- [start:parse]

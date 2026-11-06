@@ -1096,7 +1096,7 @@ def test_a_match_of_a_regexp_starts_with_one_of_its_first_characters(
 def test_a_repeated_parser_that_matches_nothing_raises_as_the_interpreted_parser_does() -> None:
     text = Text(skip=r"\s+")
     grammar: ForwardDeclParser[str, Any] = forward_decl()
-    grammar.define(text.token("a") + maybe(many(many(text.token("a"))) + grammar))
+    grammar.define(text.match("a") + maybe(many(many(text.match("a"))) + grammar))
     with pytest.raises(ValueError, match="matched no tokens inside many"):
         grammar.parse_text("a")
     with pytest.raises(ValueError, match="matched no tokens inside many"):

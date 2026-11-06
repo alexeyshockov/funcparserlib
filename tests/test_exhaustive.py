@@ -38,12 +38,12 @@ def short(value: object) -> bool:
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
-    declared.define(skipping.token("a") + maybe(body + declared))
+    declared.define(skipping.match("a") + maybe(body + declared))
     return declared
 
 
 LEAVES: list[Callable[[], P]] = [
-    lambda: skipping.token("a"),
+    lambda: skipping.match("a"),
     lambda: text.literal("b"),
     lambda: -text.literal("a"),
     lambda: pure("p"),

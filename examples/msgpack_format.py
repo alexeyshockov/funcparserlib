@@ -1,7 +1,7 @@
 """A MessagePack parser, written from the format specification.
 
 MessagePack is a binary format: every value starts with a byte that says its type, and often holds a
-length or a count that says what follows. The grammar is a table of those bytes. `Binary` reads a
+length or a count that says what follows. The grammar is a table of those bytes. `fixed()` reads a
 number, `prefixed()` reads as many bytes as a length says, `counted()` as many values as a count
 says, and `switch()` chooses what to read by the type byte, so the grammar compiles. `parse()` gives
 what `msgpack.unpackb(data, raw=False, strict_map_key=False, timestamp=0)` gives: `None`, `bool`,
@@ -14,12 +14,13 @@ import struct
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
-from funcparserlib.binary import Binary
+from funcparserlib import binary as b
 from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
     Parser,
     counted,
+    finished,
     forward_decl,
     prefixed,
     pure,
@@ -49,7 +50,6 @@ class Timestamp(NamedTuple):
 # --8<-- [end:tree]
 
 # --8<-- [start:numbers]
-b = Binary()
 u8 = b.fixed(">B").named("uint8")
 u16 = b.fixed(">H").named("uint16")
 u32 = b.fixed(">I").named("uint32")
@@ -174,8 +174,8 @@ cases: Mapping[int | range, Parser[int, Any]] = {
     range(0xE0, 0x100): b.previous() >> negative,
 }
 
-value.define(switch(b.byte, cases).named("MessagePack type"))
-document = value + -b.end
+value.define(switch(b.byte(), cases).named("MessagePack type"))
+document = value + -finished
 # --8<-- [end:grammar]
 
 # --8<-- [start:parse]

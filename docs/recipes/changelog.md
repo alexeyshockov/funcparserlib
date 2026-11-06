@@ -27,7 +27,7 @@ library is checked with it. The whole program is `examples/changelog.py`; every 
 ## Why a grammar
 
 markdown-it-py gives the Markdown: which lines are headings. The format is in what those headings say and in how they
-follow each other. So there are two grammars here. One reads the tokens of markdown-it-py, and a `Text` grammar reads the
+follow each other. So there are two grammars here. One reads the tokens of markdown-it-py, and a text grammar reads the
 text of a heading, because a version has a grammar of its own.
 
 ## The tree
@@ -57,7 +57,7 @@ A date has a shape, and not every value of that shape is a day. `Parser.validate
 ## What a heading says
 
 The dash before the date has two spellings, and this library's changelog writes `—`. The six kinds of change are
-alternatives. Each grammar ends with `text.end`, so a heading has to be all of it:
+alternatives. Each grammar ends with `finished`, so a heading has to be all of it:
 
 ```python
 --8<-- "examples/changelog.py:headings"

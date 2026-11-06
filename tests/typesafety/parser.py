@@ -6,7 +6,7 @@ The assertions are static, made by `just types-api`; see this directory's confte
 from collections.abc import Callable, Sequence
 from typing import Any, assert_type
 
-from funcparserlib.binary import Binary
+from funcparserlib import binary
 from funcparserlib.lexer import Token, make_tokenizer
 from funcparserlib.parser import (
     CompiledParser,
@@ -33,7 +33,7 @@ from funcparserlib.parser import (
     switch,
     tok,
 )
-from funcparserlib.text import Text
+from funcparserlib.text import Text, literal, match
 from funcparserlib.util import expand_tuple_args
 
 x = a("x")
@@ -114,12 +114,15 @@ _ = assert_type(x + finished, Tuple2Parser[str, str, None])
 
 # Text parsers read `str` and give the text they matched; `end` gives nothing.
 text = Text(skip=r"\s+")
-_ = assert_type(text.token("a"), Parser[str, str])
+_ = assert_type(text.match("a"), Parser[str, str])
 _ = assert_type(text.literal("a"), Parser[str, str])
 _ = assert_type(text.end, Parser[str, None])
-_ = assert_type(text.token("a") + -text.end, Parser[str, str])
-_ = assert_type(text.token("a") + text.literal("b"), Tuple2Parser[str, str, str])
-_ = assert_type(text.token("a") >> len, Parser[str, int])
+_ = assert_type(text.match("a") + -text.end, Parser[str, str])
+_ = assert_type(text.match("a") + text.literal("b"), Tuple2Parser[str, str, str])
+_ = assert_type(text.match("a") >> len, Parser[str, int])
+_ = assert_type(match("a"), Parser[str, str])
+_ = assert_type(literal("a"), Parser[str, str])
+_ = assert_type(match("a") + -finished, Parser[str, str])
 
 # `longest()` keeps the type of its parsers.
 _ = assert_type(longest(x, x), Parser[str, str])
@@ -127,51 +130,49 @@ _ = assert_type(longest(n, n, n), Parser[Token, int])
 
 # Parsing text.
 _ = assert_type(x.parse_text("x"), str)
-_ = assert_type(text.token("a").parse_text("a"), str)
-_ = assert_type((text.token("a") + text.token("b")).parse_text("ab"), tuple[str, str])
-_ = assert_type(text.token("a").compile().parse_text("a"), str)
-_ = assert_type(text.token("a").compile().try_parse("a"), str | None)
+_ = assert_type(text.match("a").parse_text("a"), str)
+_ = assert_type((text.match("a") + text.match("b")).parse_text("ab"), tuple[str, str])
+_ = assert_type(text.match("a").compile().parse_text("a"), str)
+_ = assert_type(text.match("a").compile().try_parse("a"), str | None)
 _ = assert_type(n.compile(make_tokenizer([])).try_parse(""), int | None)
 
-# Bytes: `Binary` parsers read `int` bytes, and `prefixed()`, `counted()` and `switch()` keep the
-# type of what they read.
-binary = Binary()
-_ = assert_type(binary.byte, Parser[int, int])
-_ = assert_type(binary.token(b"a+"), Parser[int, bytes])
+# Bytes: `funcparserlib.binary` parsers read `int` bytes, and `prefixed()`, `counted()` and
+# `switch()` keep the type of what they read.
+_ = assert_type(binary.byte(), Parser[int, int])
+_ = assert_type(binary.match(b"a+"), Parser[int, bytes])
 _ = assert_type(binary.literal(b"ab"), Parser[int, bytes])
 _ = assert_type(binary.fixed(">H"), Parser[int, Any])  # pyright: ignore[reportExplicitAny] -- `struct` values are `Any`
 _ = assert_type(binary.previous(), Parser[int, int])
 _ = assert_type(binary.previous(0x0F), Parser[int, int])
-_ = assert_type(binary.end, Parser[int, None])
-_ = assert_type(binary.byte + binary.token(b"a"), Tuple2Parser[int, int, bytes])
-_ = assert_type(binary.byte + -binary.end, Parser[int, int])
-_ = assert_type(many(binary.byte), Parser[int, list[int]])
+_ = assert_type(binary.byte() + binary.match(b"a"), Tuple2Parser[int, int, bytes])
+_ = assert_type(binary.byte() + -finished, Parser[int, int])
+_ = assert_type(many(binary.byte()), Parser[int, list[int]])
 
-_ = assert_type(prefixed(binary.byte), Parser[int, bytes])
-_ = assert_type(prefixed(binary.byte, many(binary.byte)), Parser[int, list[int]])
-_ = assert_type(prefixed(binary.byte, binary.token(b"a")), Parser[int, bytes])
+_ = assert_type(prefixed(binary.byte()), Parser[int, bytes])
+_ = assert_type(prefixed(binary.byte(), many(binary.byte())), Parser[int, list[int]])
+_ = assert_type(prefixed(binary.byte(), binary.match(b"a")), Parser[int, bytes])
 _ = assert_type(
-    prefixed(binary.fixed(">H"), binary.byte + binary.byte), Parser[int, tuple[int, int]]
+    prefixed(binary.fixed(">H"), binary.byte() + binary.byte()), Parser[int, tuple[int, int]]
 )
-_ = assert_type(prefixed(text.token("a") >> len), Parser[str, str])
-_ = assert_type(prefixed(text.token("a") >> len, text.token("b")), Parser[str, str])
+_ = assert_type(prefixed(text.match("a") >> len), Parser[str, str])
+_ = assert_type(prefixed(text.match("a") >> len, text.match("b")), Parser[str, str])
 
-_ = assert_type(counted(binary.byte, binary.token(b"a")), Parser[int, list[bytes]])
-_ = assert_type(counted(binary.byte, prefixed(binary.byte)), Parser[int, list[bytes]])
-_ = assert_type(counted(text.token("a") >> len, text.token("b")), Parser[str, list[str]])
+_ = assert_type(counted(binary.byte(), binary.match(b"a")), Parser[int, list[bytes]])
+_ = assert_type(counted(binary.byte(), prefixed(binary.byte())), Parser[int, list[bytes]])
+_ = assert_type(counted(text.match("a") >> len, text.match("b")), Parser[str, list[str]])
 
 # The cases of `switch()` usually give different values, so it gives `Any`.
-mixed: Parser[int, bytes | int] = switch(binary.byte, {1: binary.token(b"a"), 2: binary.byte})
-ranges: Parser[int, int] = switch(binary.byte, {range(1, 4): binary.byte, 0: binary.byte})
-keys: Parser[str, str] = switch(text.token("a"), {"a": text.token("b")})
+mixed: Parser[int, bytes | int] = switch(binary.byte(), {1: binary.match(b"a"), 2: binary.byte()})
+ranges: Parser[int, int] = switch(binary.byte(), {range(1, 4): binary.byte(), 0: binary.byte()})
+keys: Parser[str, str] = switch(text.match("a"), {"a": text.match("b")})
 
 # Parsing bytes.
-_ = assert_type(binary.byte.parse_bytes(b"a"), int)
-_ = assert_type((binary.byte + binary.token(b"a")).parse_bytes(b"ab"), tuple[int, bytes])
-_ = assert_type(prefixed(binary.byte).parse_bytes(b"\x01a"), bytes)
-_ = assert_type(counted(binary.byte, binary.byte).parse_bytes(b"\x01a"), list[int])
-_ = assert_type(binary.byte.compile().parse_bytes(b"a"), int)
-_ = assert_type(binary.byte.compile().try_parse(b"a"), int | None)
-_ = assert_type(binary.byte.compile().try_parse(b""), int | None)
-_ = assert_type(prefixed(binary.byte).compile().parse_bytes(b"\x01a"), bytes)
-_ = assert_type(prefixed(binary.byte).compile().try_parse(b"\x01a"), bytes | None)
+_ = assert_type(binary.byte().parse_bytes(b"a"), int)
+_ = assert_type((binary.byte() + binary.match(b"a")).parse_bytes(b"ab"), tuple[int, bytes])
+_ = assert_type(prefixed(binary.byte()).parse_bytes(b"\x01a"), bytes)
+_ = assert_type(counted(binary.byte(), binary.byte()).parse_bytes(b"\x01a"), list[int])
+_ = assert_type(binary.byte().compile().parse_bytes(b"a"), int)
+_ = assert_type(binary.byte().compile().try_parse(b"a"), int | None)
+_ = assert_type(binary.byte().compile().try_parse(b""), int | None)
+_ = assert_type(prefixed(binary.byte()).compile().parse_bytes(b"\x01a"), bytes)
+_ = assert_type(prefixed(binary.byte()).compile().try_parse(b"\x01a"), bytes | None)

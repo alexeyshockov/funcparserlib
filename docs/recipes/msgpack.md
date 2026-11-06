@@ -22,8 +22,8 @@ a row, with nothing to infer from a schema. A format whose layout comes from a s
 Buffers message, has the layout in the schema, and its parser is generated from there.
 
 What sets a binary format apart from text is that what comes next depends on a number just read: a length, a count, a
-type. A [`Binary`](../api/binary.md) makes the parsers of a **byte grammar**, which read the bytes at the position the
-parsing has reached, and three combinators take such a number:
+type. [`funcparserlib.binary`](../api/binary.md) has the parsers of a **byte grammar**, which read the bytes at the
+position the parsing has reached, and three combinators take such a number:
 
 * `prefixed(length)` reads as many bytes as `length` parses;
 * `counted(count, item)` reads as many `item`s;
@@ -43,7 +43,7 @@ the application gives a meaning to, and one type is the specification's own, num
 
 ## Numbers
 
-The numbers are `struct` formats, big-endian as the specification says. `Binary.fixed()` reads one value of a format,
+The numbers are `struct` formats, big-endian as the specification says. `fixed()` reads one value of a format,
 and `named()` gives each the name its errors use:
 
 ```python

@@ -1400,7 +1400,9 @@ def write_source(filename: str | None, *sources: str | None) -> None:
 
 
 def reads_text(root: Parser[Any, Any]) -> bool:
-    """Whether the grammar reads text or bytes, through `Text` or `Binary`."""
+    """Whether the grammar reads text or bytes, through `funcparserlib.text` or
+    `funcparserlib.binary`.
+    """
     seen: set[int] = set()
     stack = [root]
     try:

@@ -21,6 +21,7 @@ from itertools import pairwise
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
+from funcparserlib import text
 from funcparserlib.parser import (
     Invalid,
     NoParseError,
@@ -32,7 +33,6 @@ from funcparserlib.parser import (
     maybe,
     some,
 )
-from funcparserlib.text import Text
 
 
 # --8<-- [start:tree]
@@ -94,9 +94,7 @@ class Release:
 
 
 # --8<-- [start:version]
-text = Text()
-
-number = text.token(r"\d+").named("number") >> int
+number = text.match(r"\d+").named("number") >> int
 release_segment = number + many(-text.literal(".") + number) >> (lambda p: (p[0], *p[1]))
 pre_release = (text.literal("a") | text.literal("b") | text.literal("rc")) + number
 post_release = -text.literal(".post") + number
@@ -117,7 +115,7 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-day = text.token(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+day = text.match(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 # --8<-- [end:date]
 
 
@@ -128,7 +126,7 @@ yanked = maybe(text.literal(" [YANKED]")) >> (lambda y: y is not None)
 numbered = -text.literal("[") + version + -text.literal("]") + separator + day + yanked >> (
     lambda p: Title(*p)
 )
-release_title = (unreleased | numbered) + -text.end
+release_title = (unreleased | numbered) + -finished
 
 change_kind = (
     text.literal("Added")
@@ -137,7 +135,7 @@ change_kind = (
     | text.literal("Removed")
     | text.literal("Fixed")
     | text.literal("Security")
-) + -text.end
+) + -finished
 # --8<-- [end:headings]
 
 

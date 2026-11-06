@@ -13,36 +13,36 @@ and combine with the same operators.
 
 ## A First Text Grammar
 
-Let's make the parsers with [`Text`](../api/text.md): `token()` for a regexp and `literal()` for a fixed string. `skip`
+Let's make the parsers with [`Text`](../api/text.md): `match()` for a regexp and `literal()` for a fixed string. `skip`
 is a regexp for what may sit between two tokens, such as whitespace. Every parser skips it after what it reads, and the
 text may also start with it:
 
 ```pycon
 >>> from funcparserlib.parser import many
 >>> from funcparserlib.text import Text
->>> text = Text(skip=r"\s+")
->>> number = (text.token(r"\d+") >> int).named("number")
->>> total = number + many(-text.literal("+") + number) + -text.end
+>>> spaced = Text(skip=r"\s+")
+>>> number = (spaced.match(r"\d+") >> int).named("number")
+>>> total = number + many(-spaced.literal("+") + number) + -spaced.end
 >>> total.parse_text(" 1 + 2 + 3 ")
 (1, [2, 3])
 
 ```
 
-`Parser.parse_text()` takes the text itself. `text.end` succeeds at the end of the text, as `finished` does for tokens,
-and `named()` gives a parser the name its errors use.
+`Parser.parse_text()` takes the text itself. `spaced.end` succeeds at the end of the text, past what `skip` matches, and
+`named()` gives a parser the name its errors use.
 
-A `Text` without `skip` skips nothing, which is what a token that has whitespace inside needs. The first `skip` found in
-the grammar is still read before parsing starts, so that a document can start with whitespace, even before a first parser
-without `skip`: whitespace at the very start of the text never reaches a parser. Keep two of them: the one
-with `skip` for the grammar, and one without for the inside of a token. Open the string with the second, so that the
-whitespace after the quote belongs to the string, and close it with the first, so that the whitespace after the string
-is skipped:
+The functions `match()` and `literal()` of `funcparserlib.text` skip nothing, which is what a token that has whitespace
+inside needs. Such a grammar ends with `finished`, as a token grammar does. The first `skip` found in the grammar is still
+read before parsing starts, so that a document can start with whitespace, even before a first parser that skips nothing:
+whitespace at the very start of the text never reaches a parser. Use the `Text` for the grammar, and the functions for the
+inside of a token. Open the string with a function, so that the whitespace after the quote belongs to the string, and
+close it with the `Text`, so that the whitespace after the string is skipped:
 
 ```pycon
->>> inside = Text()
->>> chars = many(inside.token(r'[^"\\\n]+') | inside.token(r"\\."))
->>> string = -inside.literal('"') + chars + -text.literal('"') >> "".join
->>> (string + string + -text.end).parse_text('"a  b"   "c"  ')
+>>> from funcparserlib import text
+>>> chars = many(text.match(r'[^"\\\n]+') | text.match(r"\\."))
+>>> string = -text.literal('"') + chars + -spaced.literal('"') >> "".join
+>>> (string + string + -spaced.end).parse_text('"a  b"   "c"  ')
 ('a  b', 'c')
 
 ```
@@ -53,7 +53,7 @@ is skipped:
 began, by the order of its specs. Without them the order is in the grammar, and a shorter match hides a longer one:
 
 ```pycon
->>> less = text.literal("<") | text.literal("<=")
+>>> less = spaced.literal("<") | spaced.literal("<=")
 >>> (less + number).parse_text("<= 1")
 Traceback (most recent call last):
     ...
@@ -66,7 +66,7 @@ alternatives stops mattering:
 
 ```pycon
 >>> from funcparserlib.parser import longest
->>> less = longest(text.literal("<"), text.literal("<="))
+>>> less = longest(spaced.literal("<"), spaced.literal("<="))
 >>> (less + number).parse_text("<= 1")
 ('<=', 1)
 
@@ -95,7 +95,7 @@ A token written as a grammar fails inside itself. Here is the string from above,
 
 ```pycon
 >>> try:
-...     (string + string + -text.end).parse_text('"a" "b\n')
+...     (string + string + -spaced.end).parse_text('"a" "b\n')
 ... except NoParseError as e:
 ...     print(e)
 1,7-1,7: got unexpected token: '\n', expected: /[^"\\\n]+/ or /\\./ or '"'
@@ -110,16 +110,15 @@ What a token means can depend on the rules around it. A comment that nests is a 
 only count to a fixed depth:
 
 ```pycon
->>> from funcparserlib.parser import forward_decl
->>> blank = Text()
+>>> from funcparserlib.parser import finished, forward_decl
 >>> comment = forward_decl()
 >>> comment.define(
-...     blank.literal("/*")
-...     + many(blank.token(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
-...     + blank.literal("*/")
+...     text.literal("/*")
+...     + many(text.match(r"[^/*]+|/(?!\*)|\*(?!/)") | comment)
+...     + text.literal("*/")
 ... )
->>> gap = many(blank.token(r"\s+") | comment)
->>> words = many(-gap + blank.token(r"\w+")) + -gap + -blank.end
+>>> gap = many(text.match(r"\s+") | comment)
+>>> words = many(-gap + text.match(r"\w+")) + -gap + -finished
 >>> words.parse_text("a /* b /* c */ d */ e")
 ['a', 'e']
 
@@ -129,11 +128,10 @@ A parser that depends on what was read before it is made with `Parser.bind()`. T
 level is indented by two spaces more, are the lines of a deeper `item()` after a line:
 
 ```pycon
->>> outline = Text()
 >>> def item(depth):
-...     line = outline.token(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
+...     line = text.match(rf" {{{2 * depth}}}\w+(?:\n|\Z)")
 ...     return line.bind(lambda l: many(item(depth + 1)) >> (lambda kids: (l.strip(), kids)))
->>> (many(item(0)) + -outline.end).parse_text("a\n  b\n    c\n  d\ne\n")
+>>> (many(item(0)) + -finished).parse_text("a\n  b\n    c\n  d\ne\n")
 [('a', [('b', [('c', [])]), ('d', [])]), ('e', [])]
 
 ```
@@ -155,7 +153,7 @@ See [Performance](performance.md) for what compiling costs, and for `try_parse()
 
 ## Reading Bytes
 
-Bytes are read the same way. A [`Binary`](../api/binary.md) makes the parsers of a byte grammar, `Parser.parse_bytes()`
-runs it, and `prefixed()`, `counted()` and `switch()` read what depends on a number just read: a length, a count, a
-type. A grammar of them compiles as a text grammar does. For a whole format, see
+Bytes are read the same way. [`funcparserlib.binary`](../api/binary.md) has the parsers of a byte grammar,
+`Parser.parse_bytes()` runs it, and `prefixed()`, `counted()` and `switch()` read what depends on a number just read: a
+length, a count, a type. A grammar of them compiles as a text grammar does. For a whole format, see
 [Parsing MessagePack](../recipes/msgpack.md).

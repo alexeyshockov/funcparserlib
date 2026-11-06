@@ -32,11 +32,12 @@ A grammar has one definition of its language, and there are two kinds.
 
 - A **token grammar** is what the library has today: global tokens define it, and a 1.0 grammar stays
   one. Its fast path reads the same tokens, so the two cannot disagree.
-- A **text grammar** is made of the parsers of `funcparserlib.text.Text`, which read text at the
+- A **text grammar** is made of the parsers of `funcparserlib.text`, which read text at the
   position the parser has reached, and that defines it. Only the tokens that make sense at a position
-  are tried, so specs have no global order, and context is recursion and `bind()`. Each token reads
-  what `skip` matches after it, and the first `skip` of the grammar is read before parsing starts, so a
-  failed attempt moves nothing. Its generated code reads the text directly.
+  are tried, so specs have no global order, and context is recursion and `bind()`. A `Text` holds what
+  to `skip`: each of its parsers reads what `skip` matches after it, and the first `skip` of the grammar
+  is read before parsing starts, so a failed attempt moves nothing. Its generated code reads the text
+  directly.
 
 The two ways of reading never share a grammar, so they cannot disagree on what is accepted. When
 `CompiledParser.parse_text()` of a token grammar stops at text no spec matches, the tokens before it
@@ -124,11 +125,11 @@ Rejected:
 
 - Nothing changes for existing grammars unless they opt in.
 - The library has two kinds of grammar to explain and test, and generated code for both.
-- An interpreted text grammar is slow, as `Text` parsers cannot be fused as token tests are, and a failed
+- An interpreted text grammar is slow, as its parsers cannot be fused as token tests are, and a failed
   parse pays for it: a text grammar that often fails on large input wants `try_parse()`.
 - `longest()` runs every alternative that can start with the character at the position, in generated code
   too.
-- A `Text` skips after what it reads, so the parser after a `Text` without `skip` does not skip what
+- A `Text` skips after what it reads, so the parser after one that skips nothing does not skip what
   comes before it, but for `Text.end`.
 - `bytes` are not supported: `Text` takes `str` patterns, and positions count `"\n"`.
 - `Parser.recover()` gives one parse every error of a document, through the errors `State` collects.

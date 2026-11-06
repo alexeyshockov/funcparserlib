@@ -9,7 +9,7 @@ import pytest
 from hypothesis import assume, event, given, settings
 from hypothesis import strategies as st
 
-from funcparserlib.binary import Binary
+from funcparserlib import binary as b
 from funcparserlib.lexer import TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     CompiledParser,
@@ -44,7 +44,6 @@ def longest(*parsers: P) -> P:
     return typed_longest(*parsers)
 
 
-b = Binary()
 plain = Text()
 skipping = Text(skip=r"\s+")
 
@@ -155,34 +154,34 @@ def small(value: int) -> int:
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
-    declared.define(b.byte + maybe(body + declared))
+    declared.define(b.byte() + maybe(body + declared))
     return declared
 
 
 leaves: st.SearchStrategy[P] = st.sampled_from(
     [
-        b.byte,
+        b.byte(),
         b.fixed(">H"),
         b.fixed("<H"),
         b.fixed("b"),
         b.fixed(">I"),
-        b.token(rb"[\x01-\x7f]+"),
-        b.token(rb"\x00+"),
-        b.token(rb"[\x01\x02]{2,3}"),
+        b.match(rb"[\x01-\x7f]+"),
+        b.match(rb"\x00+"),
+        b.match(rb"[\x01\x02]{2,3}"),
         b.literal(b"\x01\x02"),
         b.literal(b"ab"),
         b.literal(b"\x00"),
-        b.end,
+        finished,
         b.previous(),
         b.previous(0x0F),
-        -b.byte,
-        b.byte >> str,
+        -b.byte(),
+        b.byte() >> str,
         pure("p"),
     ]
 )
 
 lengths: st.SearchStrategy[P] = st.sampled_from(
-    [b.byte, b.fixed("b"), b.byte >> small, b.fixed(">H") >> small, b.previous(0x03), pure(1)]
+    [b.byte(), b.fixed("b"), b.byte() >> small, b.fixed(">H") >> small, b.previous(0x03), pure(1)]
 )
 
 
@@ -206,7 +205,7 @@ def combined(kids: st.SearchStrategy[P], *, risky: bool) -> st.SearchStrategy[P]
         kids.map(lambda k: k.context("label")),
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
-        kids.map(lambda k: k + -b.end),
+        kids.map(lambda k: k + -finished),
         *conversions(kids, wrap),
         lengths.map(prefixed),
         st.tuples(lengths, kids).map(lambda lk: prefixed(*lk)),
@@ -336,72 +335,82 @@ def without_parser(code: CompiledParser[Any, Any]) -> CompiledParser[Any, Any]:
 
 
 tree: P = forward_decl()
-tree.define(counted(b.byte, tree))
+tree.define(counted(b.byte(), tree))
 
 sized: P = forward_decl()
-sized.define(prefixed(b.byte, many(sized)))
+sized.define(prefixed(b.byte(), many(sized)))
 
 expression: P = forward_decl()
 expression.define(
     switch(
-        b.byte,
-        {0: b.byte >> str, 1: expression + expression, range(2, 4): prefixed(b.byte, expression)},
+        b.byte(),
+        {
+            0: b.byte() >> str,
+            1: expression + expression,
+            range(2, 4): prefixed(b.byte(), expression),
+        },
     )
 )
 
-bound = b.byte.bind(lambda n: counted(pure(n), b.byte))
+bound = b.byte().bind(lambda n: counted(pure(n), b.byte()))
 
 FORMS: list[tuple[str, P, bytes, object, int]] = [
-    ("byte", b.byte, b"\x07\x09", 7, 1),
+    ("byte", b.byte(), b"\x07\x09", 7, 1),
     ("fixed", b.fixed(">H"), b"\x01\x02\x03", 0x0102, 2),
     ("fixed little", b.fixed("<H"), b"\x01\x02\x03", 0x0201, 2),
     ("fixed signed", b.fixed("b"), b"\xff", -1, 1),
     ("fixed float", b.fixed(">d"), struct.pack(">d", 1.5), 1.5, 8),
-    ("token", b.token(rb"[a-z]+"), b"abc1", b"abc", 3),
+    ("token", b.match(rb"[a-z]+"), b"abc1", b"abc", 3),
     ("literal", b.literal(b"\x01\x02"), b"\x01\x02\x03", b"\x01\x02", 2),
-    ("end", b.byte + b.end, b"\x01", (1, None), 1),
-    ("previous", b.byte + b.previous(0x0F), b"\x7f", (0x7F, 0x0F), 1),
+    ("end", b.byte() + finished, b"\x01", (1, None), 1),
+    ("previous", b.byte() + b.previous(0x0F), b"\x7f", (0x7F, 0x0F), 1),
     (
         "seq of values",
-        b.byte + b.fixed(">H") + b.token(rb"x+"),
+        b.byte() + b.fixed(">H") + b.match(rb"x+"),
         b"\x01\x00\x02xx",
         (1, 2, b"xx"),
         5,
     ),
     ("alt", b.literal(b"ab") | b.literal(b"cd"), b"cd", b"cd", 2),
     ("many", many(b.fixed(">H")), b"\x00\x01\x00\x02\x09", [1, 2], 4),
-    ("oneplus", oneplus(b.token(rb"[xy]{2}")), b"xyyxx", [b"xy", b"yx"], 4),
+    ("oneplus", oneplus(b.match(rb"[xy]{2}")), b"xyyxx", [b"xy", b"yx"], 4),
     ("maybe", maybe(b.literal(b"ab")), b"cd", None, 0),
     ("map", b.fixed(">H") >> (lambda v: v + 1), b"\x00\x01", 2, 2),
     ("longest", longest(b.literal(b"ab"), b.literal(b"abc")), b"abcd", b"abc", 3),
-    ("but_not", b.token(rb"[a-z]+").but_not(b.literal(b"abc")), b"abx", b"abx", 3),
+    ("but_not", b.match(rb"[a-z]+").but_not(b.literal(b"abc")), b"abx", b"abx", 3),
     ("when", b.fixed(">H").when(lambda v: v > 5), b"\x00\x09", 9, 2),
     ("named", b.fixed(">H").named("size"), b"\x00\x09", 9, 2),
     ("context", b.fixed(">H").context("size"), b"\x00\x09", 9, 2),
-    ("prefixed raw", prefixed(b.byte), b"\x03abcd", b"abc", 4),
-    ("prefixed zero", prefixed(b.byte), b"\x00abcd", b"", 1),
+    ("prefixed raw", prefixed(b.byte()), b"\x03abcd", b"abc", 4),
+    ("prefixed zero", prefixed(b.byte()), b"\x00abcd", b"", 1),
     ("prefixed fixed length", prefixed(b.fixed(">H")), b"\x00\x02abcd", b"ab", 4),
-    ("prefixed body", prefixed(b.byte, many(b.fixed(">H"))), b"\x04\x00\x01\x00\x02z", [1, 2], 5),
-    ("prefixed body with end", prefixed(b.byte, b.byte + b.end), b"\x01\x05z", (5, None), 2),
-    ("prefixed body zero", prefixed(b.byte, many(b.byte)), b"\x00z", [], 1),
-    ("prefixed nested", prefixed(b.byte, prefixed(b.byte, b.byte)), b"\x02\x01\x09z", 9, 3),
-    ("prefixed previous", prefixed(b.byte, b.byte + b.previous()), b"\x01\x05", (5, 5), 2),
-    ("prefixed then more", prefixed(b.byte) + b.byte, b"\x01a\x07", (b"a", 7), 3),
-    ("counted", counted(b.byte, b.fixed(">H")), b"\x02\x00\x01\x00\x02\x00\x03", [1, 2], 5),
-    ("counted zero", counted(b.byte, b.fixed(">H")), b"\x00\x00\x01", [], 1),
-    ("counted fixed length", counted(b.fixed(">H"), b.byte), b"\x00\x02\x05\x06\x07", [5, 6], 4),
+    ("prefixed body", prefixed(b.byte(), many(b.fixed(">H"))), b"\x04\x00\x01\x00\x02z", [1, 2], 5),
+    ("prefixed body with end", prefixed(b.byte(), b.byte() + finished), b"\x01\x05z", (5, None), 2),
+    ("prefixed body zero", prefixed(b.byte(), many(b.byte())), b"\x00z", [], 1),
+    ("prefixed nested", prefixed(b.byte(), prefixed(b.byte(), b.byte())), b"\x02\x01\x09z", 9, 3),
+    ("prefixed previous", prefixed(b.byte(), b.byte() + b.previous()), b"\x01\x05", (5, 5), 2),
+    ("prefixed then more", prefixed(b.byte()) + b.byte(), b"\x01a\x07", (b"a", 7), 3),
+    ("counted", counted(b.byte(), b.fixed(">H")), b"\x02\x00\x01\x00\x02\x00\x03", [1, 2], 5),
+    ("counted zero", counted(b.byte(), b.fixed(">H")), b"\x00\x00\x01", [], 1),
+    ("counted fixed length", counted(b.fixed(">H"), b.byte()), b"\x00\x02\x05\x06\x07", [5, 6], 4),
     (
         "counted of prefixed",
-        counted(b.byte, prefixed(b.byte)),
+        counted(b.byte(), prefixed(b.byte())),
         b"\x02\x01a\x02bc",
         [b"a", b"bc"],
         6,
     ),
-    ("switch value", switch(b.byte, {1: b.fixed(">H"), 2: b.token(rb"x+")}), b"\x01\x00\x07", 7, 3),
-    ("switch range", switch(b.byte, {range(1, 4): b.byte}), b"\x03\x09", 9, 2),
+    (
+        "switch value",
+        switch(b.byte(), {1: b.fixed(">H"), 2: b.match(rb"x+")}),
+        b"\x01\x00\x07",
+        7,
+        3,
+    ),
+    ("switch range", switch(b.byte(), {range(1, 4): b.byte()}), b"\x03\x09", 9, 2),
     (
         "switch previous",
-        switch(b.byte, {5: counted(b.previous(0x0F), b.byte)}),
+        switch(b.byte(), {5: counted(b.previous(0x0F), b.byte())}),
         b"\x05\x01\x02\x03\x04\x05\x06",
         [1, 2, 3, 4, 5],
         6,
@@ -410,8 +419,8 @@ FORMS: list[tuple[str, P, bytes, object, int]] = [
     ("recursive prefixed", sized, b"\x04\x01\x00\x01\x00", [[[]], [[]]], 5),
     ("recursive switch", expression, b"\x01\x00\x07\x00\x08", ("7", "8"), 5),
     ("recursive switch region", expression, b"\x02\x05\x01\x00\x01\x00\x02", ("1", "2"), 7),
-    ("bind in a sequence", b.byte + bound + b.byte, b"\x01\x01\x07\x09", (1, [7], 9), 4),
-    ("bind in a region", prefixed(b.byte, bound + b.byte), b"\x03\x01\x07\x09", ([7], 9), 4),
+    ("bind in a sequence", b.byte() + bound + b.byte(), b"\x01\x01\x07\x09", (1, [7], 9), 4),
+    ("bind in a region", prefixed(b.byte(), bound + b.byte()), b"\x03\x01\x07\x09", ([7], 9), 4),
 ]
 
 
@@ -440,24 +449,26 @@ def test_the_value_of_generated_code_is_the_value_of_the_parser(
 @pytest.mark.parametrize(
     ("grammar", "data"),
     [
-        pytest.param(b.byte, b"", id="byte"),
+        pytest.param(b.byte(), b"", id="byte"),
         pytest.param(b.fixed(">H"), b"\x01", id="fixed"),
-        pytest.param(b.token(rb"a+"), b"b", id="token"),
+        pytest.param(b.match(rb"a+"), b"b", id="token"),
         pytest.param(b.literal(b"ab"), b"a", id="literal"),
-        pytest.param(b.end, b"a", id="end"),
+        pytest.param(b.byte() + finished, b"ab", id="end"),
         pytest.param(b.previous(), b"a", id="previous"),
-        pytest.param(prefixed(b.byte), b"\x05ab", id="prefixed past the end"),
+        pytest.param(prefixed(b.byte()), b"\x05ab", id="prefixed past the end"),
         pytest.param(prefixed(b.fixed("b")), b"\xffab", id="prefixed negative"),
-        pytest.param(prefixed(b.byte), b"", id="prefixed without length"),
-        pytest.param(prefixed(b.byte, b.byte), b"\x02ab", id="prefixed body short"),
-        pytest.param(prefixed(b.byte, b.byte + b.byte), b"\x01ab", id="prefixed body long"),
-        pytest.param(prefixed(b.byte, b.previous()), b"\x00", id="prefixed previous at start"),
-        pytest.param(prefixed(b.byte, many(b.byte) + b.literal(b"a")), b"\x01ab", id="in a region"),
-        pytest.param(counted(b.byte, b.byte), b"\x03ab", id="counted short"),
-        pytest.param(counted(b.byte, b.byte), b"", id="counted without length"),
-        pytest.param(switch(b.byte, {1: b.byte}), b"\x02a", id="switch unknown"),
-        pytest.param(switch(b.byte, {1: b.byte}), b"\x01", id="switch case fails"),
-        pytest.param(switch(b.byte, {1: b.byte}), b"", id="switch without key"),
+        pytest.param(prefixed(b.byte()), b"", id="prefixed without length"),
+        pytest.param(prefixed(b.byte(), b.byte()), b"\x02ab", id="prefixed body short"),
+        pytest.param(prefixed(b.byte(), b.byte() + b.byte()), b"\x01ab", id="prefixed body long"),
+        pytest.param(prefixed(b.byte(), b.previous()), b"\x00", id="prefixed previous at start"),
+        pytest.param(
+            prefixed(b.byte(), many(b.byte()) + b.literal(b"a")), b"\x01ab", id="in a region"
+        ),
+        pytest.param(counted(b.byte(), b.byte()), b"\x03ab", id="counted short"),
+        pytest.param(counted(b.byte(), b.byte()), b"", id="counted without length"),
+        pytest.param(switch(b.byte(), {1: b.byte()}), b"\x02a", id="switch unknown"),
+        pytest.param(switch(b.byte(), {1: b.byte()}), b"\x01", id="switch case fails"),
+        pytest.param(switch(b.byte(), {1: b.byte()}), b"", id="switch without key"),
         pytest.param(tree, b"\x02\x01", id="tree"),
         pytest.param(sized, b"\x04\x01\x00", id="recursive prefixed"),
         pytest.param(expression, b"\x01\x00\x07", id="recursive switch"),
@@ -468,7 +479,7 @@ def test_generated_code_rejects_without_the_parser(grammar: P, data: bytes) -> N
 
 
 def test_bind_in_a_grammar_runs_in_generated_code() -> None:
-    grammar = b.byte + bound + b.byte
+    grammar = b.byte() + bound + b.byte()
     data = b"\x01\x02\x05\x06\x09"
     code = grammar.compile()
     assert code._fast_text is not None
@@ -484,7 +495,7 @@ def test_a_grammar_of_only_bind_parses_as_the_parser(run: Runner, data: bytes) -
 
 
 def test_try_parse_of_bytes() -> None:
-    grammar = prefixed(b.byte, many(b.fixed(">H"))) + b.end
+    grammar = prefixed(b.byte(), many(b.fixed(">H"))) + finished
     code = grammar.compile()
     assert code.try_parse(b"\x04\x00\x01\x00\x02") == ([1, 2], None)
     assert code.try_parse(b"\x03\x00\x01\x00\x02") is None
@@ -493,10 +504,10 @@ def test_try_parse_of_bytes() -> None:
 
 
 def test_try_parse_of_a_rule_that_fails_gives_none_and_of_a_commit_gives_none() -> None:
-    checked = prefixed(b.byte, b.byte.validated(kept(lambda v: v > 5, "too small")))
+    checked = prefixed(b.byte(), b.byte().validated(kept(lambda v: v > 5, "too small")))
     assert checked.compile().try_parse(b"\x01\x01") is None
     assert checked.compile().try_parse(b"\x01\x09") == 9
-    committed = (b.literal(b"a") + commit(counted(b.byte, b.literal(b"b")))) | pure("other")
+    committed = (b.literal(b"a") + commit(counted(b.byte(), b.literal(b"b")))) | pure("other")
     assert committed.compile().try_parse(b"a\x01c") is None
     assert committed.compile().try_parse(b"c") == "other"
 
@@ -508,7 +519,7 @@ def test_generated_code_runs_the_function_after_an_arrow_once_for_a_parse_that_s
         seen.append(value)
         return value
 
-    grammar = prefixed(b.byte, many(b.byte >> record))
+    grammar = prefixed(b.byte(), many(b.byte() >> record))
     assert grammar.compile().parse_bytes(b"\x02\x05\x06") == [5, 6]
     assert seen == [5, 6]
 
@@ -517,7 +528,7 @@ def test_an_exception_of_a_function_in_a_region_is_the_exception_of_the_parser()
     def explode(value: int) -> int:
         raise KeyError(value)
 
-    grammar = prefixed(b.byte, many(b.byte >> explode))
+    grammar = prefixed(b.byte(), many(b.byte() >> explode))
     for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
         with pytest.raises(KeyError):
             parse(b"\x01\x05")
@@ -527,90 +538,90 @@ def test_an_exception_of_a_function_in_a_region_is_the_exception_of_the_parser()
 
 
 def test_prefixed_reads_as_many_bytes_as_the_length_says(run: Runner) -> None:
-    assert run(prefixed(b.byte), b"\x03abcd") == b"abc"
-    assert run(prefixed(b.byte) + b.byte, b"\x03abcd") == (b"abc", ord("d"))
+    assert run(prefixed(b.byte()), b"\x03abcd") == b"abc"
+    assert run(prefixed(b.byte()) + b.byte(), b"\x03abcd") == (b"abc", ord("d"))
     assert run(prefixed(b.fixed(">H")), b"\x00\x02abc") == b"ab"
     assert run(prefixed(b.fixed("<H")), b"\x02\x00abc") == b"ab"
 
 
 def test_prefixed_of_a_length_of_zero_reads_nothing(run: Runner) -> None:
-    assert run(prefixed(b.byte), b"\x00") == b""
-    assert run(prefixed(b.byte, many(b.byte)), b"\x00") == []
-    assert run(prefixed(b.byte, b.end), b"\x00") is None
-    assert run(prefixed(b.byte) + b.byte, b"\x00\x07") == (b"", 7)
+    assert run(prefixed(b.byte()), b"\x00") == b""
+    assert run(prefixed(b.byte(), many(b.byte())), b"\x00") == []
+    assert run(prefixed(b.byte(), finished), b"\x00") is None
+    assert run(prefixed(b.byte()) + b.byte(), b"\x00\x07") == (b"", 7)
 
 
 def test_prefixed_gives_the_bytes_it_read_as_bytes(run: Runner) -> None:
-    value = run(prefixed(b.byte), b"\x02ab")
+    value = run(prefixed(b.byte()), b"\x02ab")
     assert type(value) is bytes
     assert value == b"ab"
 
 
 def test_prefixed_with_a_body_gives_what_the_body_parses(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.fixed(">H") + b.fixed(">H"))
+    grammar = prefixed(b.byte(), b.fixed(">H") + b.fixed(">H"))
     assert shape(run(grammar, b"\x04\x00\x01\x00\x02z")) == shape(
         run(b.fixed(">H") + b.fixed(">H"), b"\x00\x01\x00\x02")
     )
-    assert run(prefixed(b.byte, many(b.byte)), b"\x03abc") == [97, 98, 99]
-    assert run(prefixed(b.byte, b.token(rb"[a-z]+")), b"\x03abc") == b"abc"
+    assert run(prefixed(b.byte(), many(b.byte())), b"\x03abc") == [97, 98, 99]
+    assert run(prefixed(b.byte(), b.match(rb"[a-z]+")), b"\x03abc") == b"abc"
 
 
 def test_a_body_that_does_not_read_to_the_end_fails(run: Runner) -> None:
-    assert message(run, prefixed(b.byte, b.byte), b"\x02\x00\x00") == (
+    assert message(run, prefixed(b.byte(), b.byte()), b"\x02\x00\x00") == (
         "bytes left in the region: 0x00 at offset 0x2"
     )
-    assert message(run, prefixed(b.byte, b.token(rb"a")), b"\x02aa") == (
+    assert message(run, prefixed(b.byte(), b.match(rb"a")), b"\x02aa") == (
         "bytes left in the region: 0x61 at offset 0x2"
     )
 
 
 def test_a_body_that_reads_nothing_of_a_region_fails(run: Runner) -> None:
-    assert message(run, prefixed(b.byte, pure(1)), b"\x01a") == (
+    assert message(run, prefixed(b.byte(), pure(1)), b"\x01a") == (
         "bytes left in the region: 0x61 at offset 0x1"
     )
-    assert run(prefixed(b.byte, pure(1)), b"\x00") == 1
+    assert run(prefixed(b.byte(), pure(1)), b"\x00") == 1
 
 
 def test_a_body_with_end_sees_the_end_of_the_region(run: Runner) -> None:
-    grammar = prefixed(b.byte, many(b.byte) + b.end) + b.byte
+    grammar = prefixed(b.byte(), many(b.byte()) + finished) + b.byte()
     assert shape(run(grammar, b"\x02\x00\x00\x07")) == shape(([0, 0], None, 7))
-    assert message(run, prefixed(b.byte, b.byte + b.end), b"\x02\x00\x00\x07") == (
+    assert message(run, prefixed(b.byte(), b.byte() + finished), b"\x02\x00\x00\x07") == (
         "got unexpected token: 0x00 at offset 0x2, expected: end of input"
     )
-    assert message(run, prefixed(b.byte, b.end), b"\x01\x00") == (
+    assert message(run, prefixed(b.byte(), finished), b"\x01\x00") == (
         "got unexpected token: 0x00 at offset 0x1, expected: end of input"
     )
 
 
 def test_end_after_a_region_is_the_end_of_the_buffer(run: Runner) -> None:
-    assert shape(run(prefixed(b.byte) + b.end, b"\x01a")) == shape((b"a", None))
-    assert message(run, prefixed(b.byte) + b.end, b"\x01ab") == (
+    assert shape(run(prefixed(b.byte()) + finished, b"\x01a")) == shape((b"a", None))
+    assert message(run, prefixed(b.byte()) + finished, b"\x01ab") == (
         "got unexpected token: 0x62 at offset 0x2, expected: end of input"
     )
 
 
 def test_a_body_that_asks_for_more_than_the_region_has_fails_at_its_end(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.byte + b.byte)
+    grammar = prefixed(b.byte(), b.byte() + b.byte())
     assert message(run, grammar, b"\x01\x00\x00\x00") == (
         "not enough bytes: 0x00 at offset 0x2, expected: a byte"
     )
-    assert message(run, prefixed(b.byte, b.fixed(">H")), b"\x01\x00\x00\x00") == (
+    assert message(run, prefixed(b.byte(), b.fixed(">H")), b"\x01\x00\x00\x00") == (
         "not enough bytes: 0x00 at offset 0x1, expected: 2 bytes"
     )
-    assert message(run, prefixed(b.byte, b.literal(b"ab")), b"\x01aabb") == (
+    assert message(run, prefixed(b.byte(), b.literal(b"ab")), b"\x01aabb") == (
         "got unexpected token: 0x61 at offset 0x1, expected: b'ab'"
     )
 
 
 def test_a_token_in_a_region_cannot_read_past_it(run: Runner) -> None:
-    assert run(prefixed(b.byte, b.token(rb"a+")), b"\x02aaaa") == b"aa"
-    assert run(prefixed(b.byte, b.token(rb"a+")) + b.token(rb"a+"), b"\x02aaaa") == (b"aa", b"aa")
+    assert run(prefixed(b.byte(), b.match(rb"a+")), b"\x02aaaa") == b"aa"
+    assert run(prefixed(b.byte(), b.match(rb"a+")) + b.match(rb"a+"), b"\x02aaaa") == (b"aa", b"aa")
 
 
 def test_regions_nest(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.byte + prefixed(b.byte, many(b.byte)))
+    grammar = prefixed(b.byte(), b.byte() + prefixed(b.byte(), many(b.byte())))
     assert shape(run(grammar, b"\x04\x09\x02\x01\x02z")) == shape((9, [1, 2]))
-    deeper = prefixed(b.byte, prefixed(b.byte, prefixed(b.byte, many(b.byte))))
+    deeper = prefixed(b.byte(), prefixed(b.byte(), prefixed(b.byte(), many(b.byte()))))
     assert run(deeper, b"\x04\x03\x02\x01\x07\x08") == [1, 7]
     assert message(run, deeper, b"\x04\x03\x05\x01\x07") == (
         "length 5 runs past the end: 0x01 at offset 0x3"
@@ -618,7 +629,7 @@ def test_regions_nest(run: Runner) -> None:
 
 
 def test_a_region_of_a_region_that_asks_for_more_than_its_outer_one_has_fails(run: Runner) -> None:
-    grammar = prefixed(b.byte, prefixed(b.byte, many(b.byte)))
+    grammar = prefixed(b.byte(), prefixed(b.byte(), many(b.byte())))
     assert message(run, grammar, b"\x02\x05ab") == (
         "length 5 runs past the end: 0x61 at offset 0x2"
     )
@@ -631,23 +642,23 @@ def test_a_negative_length_from_a_signed_fixed_fails(run: Runner) -> None:
     assert message(run, prefixed(b.fixed(">h")), b"\xff\xfeab") == (
         "length -2 runs past the end: 0x61 at offset 0x2"
     )
-    assert message(run, prefixed(b.fixed("b"), many(b.byte)), b"\x80ab") == (
+    assert message(run, prefixed(b.fixed("b"), many(b.byte())), b"\x80ab") == (
         "length -128 runs past the end: 0x61 at offset 0x1"
     )
 
 
 def test_a_length_past_the_end_fails_where_its_bytes_start(run: Runner) -> None:
-    assert message(run, prefixed(b.byte), b"\x03ab") == (
+    assert message(run, prefixed(b.byte()), b"\x03ab") == (
         "length 3 runs past the end: 0x61 at offset 0x1"
     )
-    assert message(run, b.byte + prefixed(b.byte, many(b.byte)), b"\x00\x09ab") == (
+    assert message(run, b.byte() + prefixed(b.byte(), many(b.byte())), b"\x00\x09ab") == (
         "length 9 runs past the end: 0x61 at offset 0x2"
     )
-    assert run(prefixed(b.byte), b"\x02ab") == b"ab"
+    assert run(prefixed(b.byte()), b"\x02ab") == b"ab"
 
 
 def test_a_length_of_a_buffer_that_ends_before_it_fails(run: Runner) -> None:
-    assert message(run, prefixed(b.byte), b"") == (
+    assert message(run, prefixed(b.byte()), b"") == (
         "got unexpected end of input at offset 0x0, expected: a byte"
     )
     assert message(run, prefixed(b.fixed(">H")), b"\x00") == (
@@ -656,8 +667,8 @@ def test_a_length_of_a_buffer_that_ends_before_it_fails(run: Runner) -> None:
 
 
 def test_a_rule_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
-    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
-    grammar = b.byte + b.byte + prefixed(b.byte, big + big)
+    big = b.byte().validated(kept(lambda v: v > 5, "too small"))
+    grammar = b.byte() + b.byte() + prefixed(b.byte(), big + big)
     assert message(run, grammar, b"\x01\x02\x02\x01\x09") == "offset 0x3: too small"
     assert message(run, grammar, b"\x01\x02\x02\x09\x01") == "offset 0x4: too small"
     assert message(run, grammar, b"\x01\x02\x02\x01\x01") == (
@@ -666,22 +677,22 @@ def test_a_rule_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> Non
 
 
 def test_a_rule_in_a_nested_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
-    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
-    grammar = b.byte + prefixed(b.byte, b.byte + b.byte + prefixed(b.byte, big))
+    big = b.byte().validated(kept(lambda v: v > 5, "too small"))
+    grammar = b.byte() + prefixed(b.byte(), b.byte() + b.byte() + prefixed(b.byte(), big))
     assert message(run, grammar, b"\x00\x04\x00\x00\x01\x01") == "offset 0x5: too small"
     assert run(grammar, b"\xff\x04\x00\x00\x01\x09") == (255, (0, 0, 9))
 
 
 def test_a_rule_in_a_region_that_fails_after_it_keeps_both_errors(run: Runner) -> None:
-    big = b.byte.validated(kept(lambda v: v > 5, "too small"))
-    grammar = prefixed(b.byte, big + b.literal(b"x"))
+    big = b.byte().validated(kept(lambda v: v > 5, "too small"))
+    grammar = prefixed(b.byte(), big + b.literal(b"x"))
     assert message(run, grammar, b"\x02\x01y") == (
         "offset 0x1: too small\ngot unexpected token: 0x79 at offset 0x2, expected: b'x'"
     )
 
 
 def test_a_rule_failure_reports_the_offsets_of_the_region_it_ended_in(run: Runner) -> None:
-    grammar = many(prefixed(b.byte, b.byte.validated(kept(lambda v: v > 5, "too small"))))
+    grammar = many(prefixed(b.byte(), b.byte().validated(kept(lambda v: v > 5, "too small"))))
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x01\x01\x01\x02\x01\x07")
     assert [str(e) for e in caught.value.exceptions] == [
@@ -692,18 +703,20 @@ def test_a_rule_failure_reports_the_offsets_of_the_region_it_ended_in(run: Runne
 
 
 def test_an_error_in_a_region_reports_the_offset_in_the_buffer(run: Runner) -> None:
-    grammar = b.byte + prefixed(b.byte, b.byte + b.literal(b"x"))
+    grammar = b.byte() + prefixed(b.byte(), b.byte() + b.literal(b"x"))
     assert message(run, grammar, b"\x00\x02\x00\x00") == (
         "got unexpected token: 0x00 at offset 0x3, expected: b'x'"
     )
-    nested = b.byte + prefixed(b.byte, b.byte + prefixed(b.byte, b.byte + b.literal(b"x")))
+    nested = b.byte() + prefixed(
+        b.byte(), b.byte() + prefixed(b.byte(), b.byte() + b.literal(b"x"))
+    )
     assert message(run, nested, b"\x00\x05\x00\x02\x01\x01\x01") == (
         "got unexpected token: 0x01 at offset 0x5, expected: b'x'"
     )
 
 
 def test_the_error_of_a_region_carries_the_byte_and_the_offset_in_the_buffer(run: Runner) -> None:
-    grammar = b.byte + prefixed(b.byte, b.byte + b.literal(b"x"))
+    grammar = b.byte() + prefixed(b.byte(), b.byte() + b.literal(b"x"))
     with pytest.raises(NoParseError) as caught:
         run(grammar, b"\x00\x02\x00\x7a")
     assert int(loose(caught.value.token)) == 0x7A
@@ -714,22 +727,22 @@ def test_the_error_of_a_region_carries_the_byte_and_the_offset_in_the_buffer(run
 
 
 def test_the_context_of_a_region_reaches_its_errors(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.byte + b.literal(b"x")).context("record")
+    grammar = prefixed(b.byte(), b.byte() + b.literal(b"x")).context("record")
     assert message(run, grammar, b"\x02\x00\x00") == (
         "got unexpected token: 0x00 at offset 0x2, expected: b'x' in record"
     )
-    inner = prefixed(b.byte, (b.byte + b.literal(b"x")).context("entry")).context("record")
+    inner = prefixed(b.byte(), (b.byte() + b.literal(b"x")).context("entry")).context("record")
     assert message(run, inner, b"\x02\x00\x00") == (
         "got unexpected token: 0x00 at offset 0x2, expected: b'x' in entry in record"
     )
 
 
 def test_a_failure_after_a_region_reports_the_furthest_offset(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.byte) + b.literal(b"x")
+    grammar = prefixed(b.byte(), b.byte()) + b.literal(b"x")
     assert message(run, grammar, b"\x01a\x7a") == (
         "got unexpected token: 0x7a at offset 0x2, expected: b'x'"
     )
-    alt = (prefixed(b.byte, b.byte + b.byte) | prefixed(b.byte, b.byte)) + b.literal(b"x")
+    alt = (prefixed(b.byte(), b.byte() + b.byte()) | prefixed(b.byte(), b.byte())) + b.literal(b"x")
     assert (
         message(run, alt, b"\x01a\x7a")
         == "got unexpected token: 0x7a at offset 0x2, expected: a byte or b'x'"
@@ -737,52 +750,52 @@ def test_a_failure_after_a_region_reports_the_furthest_offset(run: Runner) -> No
 
 
 def test_a_failure_in_a_region_does_not_hide_a_failure_further_on(run: Runner) -> None:
-    far = b.byte + b.byte + b.literal(b"z")
-    grammar = far | prefixed(b.byte, b.literal(b"q"))
+    far = b.byte() + b.byte() + b.literal(b"z")
+    grammar = far | prefixed(b.byte(), b.literal(b"q"))
     assert message(run, grammar, b"\x01ab") == (
         "got unexpected token: 0x62 at offset 0x2, expected: b'z'"
     )
 
 
 def test_previous_takes_a_mask_of_an_int_subclass(run: Runner) -> None:
-    assert run(b.byte + b.previous(Mask.LOW), b"\x7f") == (0x7F, 0x0F)
+    assert run(b.byte() + b.previous(Mask.LOW), b"\x7f") == (0x7F, 0x0F)
 
 
 def test_previous_at_the_start_of_a_region_fails(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.previous() + b.byte)
+    grammar = prefixed(b.byte(), b.previous() + b.byte())
     assert message(run, grammar, b"\x01\x05") == (
         "got unexpected token: 0x05 at offset 0x1, expected: the byte before"
     )
-    assert message(run, prefixed(b.byte, b.previous()), b"\x00") == (
+    assert message(run, prefixed(b.byte(), b.previous()), b"\x00") == (
         "got unexpected end of input at offset 0x1, expected: the byte before"
     )
 
 
 def test_previous_inside_a_region_sees_the_byte_before_in_the_region(run: Runner) -> None:
-    assert shape(run(prefixed(b.byte, b.byte + b.previous()), b"\x01\x05")) == shape((5, 5))
+    assert shape(run(prefixed(b.byte(), b.byte() + b.previous()), b"\x01\x05")) == shape((5, 5))
     assert shape(
-        run(prefixed(b.byte, b.byte + b.byte + b.previous(0x0F)), b"\x02\x01\x7f")
+        run(prefixed(b.byte(), b.byte() + b.byte() + b.previous(0x0F)), b"\x02\x01\x7f")
     ) == shape((1, 0x7F, 0x0F))
 
 
 def test_previous_after_a_region_is_the_last_byte_of_it(run: Runner) -> None:
-    assert shape(run(prefixed(b.byte) + b.previous(), b"\x02ab")) == shape((b"ab", ord("b")))
-    assert shape(run(prefixed(b.byte, many(b.byte)) + b.previous(), b"\x02ab")) == shape(
+    assert shape(run(prefixed(b.byte()) + b.previous(), b"\x02ab")) == shape((b"ab", ord("b")))
+    assert shape(run(prefixed(b.byte(), many(b.byte())) + b.previous(), b"\x02ab")) == shape(
         ([97, 98], 98)
     )
 
 
 def test_previous_after_an_empty_region_is_the_byte_of_the_length(run: Runner) -> None:
-    assert shape(run(prefixed(b.byte) + b.previous(), b"\x00")) == shape((b"", 0))
-    assert shape(run(prefixed(b.byte, many(b.byte)) + b.previous(), b"\x00")) == shape(([], 0))
+    assert shape(run(prefixed(b.byte()) + b.previous(), b"\x00")) == shape((b"", 0))
+    assert shape(run(prefixed(b.byte(), many(b.byte())) + b.previous(), b"\x00")) == shape(([], 0))
 
 
 def test_many_regions_of_a_length_of_zero(run: Runner) -> None:
-    assert shape(run(many(prefixed(b.byte)), b"\x00\x00\x00")) == shape([b"", b"", b""])
-    assert shape(run(many(prefixed(b.byte, many(b.byte))), b"\x00\x01a\x00")) == shape(
+    assert shape(run(many(prefixed(b.byte())), b"\x00\x00\x00")) == shape([b"", b"", b""])
+    assert shape(run(many(prefixed(b.byte(), many(b.byte()))), b"\x00\x01a\x00")) == shape(
         [[], [97], []]
     )
-    assert shape(run(many(prefixed(b.byte, b.end)) + b.end, b"\x00\x00")) == shape(
+    assert shape(run(many(prefixed(b.byte(), finished)) + finished, b"\x00\x00")) == shape(
         ([None, None], None)
     )
 
@@ -793,18 +806,18 @@ def test_many_regions_of_a_length_that_reads_nothing(run: Runner) -> None:
 
 
 def test_a_region_sequence_stops_at_the_first_that_does_not_fit(run: Runner) -> None:
-    grammar = many(prefixed(b.byte)) + b.byte
+    grammar = many(prefixed(b.byte())) + b.byte()
     assert shape(run(grammar, b"\x01a\x01b\x09c")) == shape(([b"a", b"b"], 9))
 
 
 def test_an_alternative_after_a_failed_region_starts_where_it_began(run: Runner) -> None:
-    grammar = prefixed(b.byte, b.literal(b"xx")) | b.token(rb"\x02a+")
+    grammar = prefixed(b.byte(), b.literal(b"xx")) | b.match(rb"\x02a+")
     assert run(grammar, b"\x02aa") == b"\x02aa"
     assert run(grammar, b"\x02xx") == b"xx"
 
 
 def test_a_committed_region_that_fails_is_final(run: Runner) -> None:
-    grammar = commit(prefixed(b.byte, b.byte + b.literal(b"x"))) | pure("other")
+    grammar = commit(prefixed(b.byte(), b.byte() + b.literal(b"x"))) | pure("other")
     assert (
         message(run, grammar, b"\x01a")
         == "got unexpected end of input at offset 0x2, expected: b'x'"
@@ -818,8 +831,8 @@ def test_a_committed_region_that_fails_is_final(run: Runner) -> None:
 
 
 def test_a_region_recovers_with_the_rest_of_the_input(run: Runner) -> None:
-    record = prefixed(b.byte, b.byte + b.literal(b"x")).recover(b.literal(b"\n"))
-    grammar = many(record + -b.literal(b"\n")) + -b.end
+    record = prefixed(b.byte(), b.byte() + b.literal(b"x")).recover(b.literal(b"\n"))
+    grammar = many(record + -b.literal(b"\n")) + -finished
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x02ax\n\x02ay\n\x02bx\n\x02cz\n")
     errors = caught.value.exceptions
@@ -831,14 +844,14 @@ def test_a_region_recovers_with_the_rest_of_the_input(run: Runner) -> None:
 # prefixed(), counted() and switch() over Text and tokens
 
 
-number = plain.token(r"\d+") >> int
+number = plain.match(r"\d+") >> int
 
 
 def test_prefixed_over_text_reads_as_many_characters() -> None:
     assert plain_run(prefixed(number), "3abcd") == "abc"
-    assert plain_run(prefixed(number, plain.token(r"\w+")), "3abcd") == "abc"
+    assert plain_run(prefixed(number, plain.match(r"\w+")), "3abcd") == "abc"
     assert plain_run(prefixed(number), "0abcd") == ""
-    assert plain_run(prefixed(number, many(plain.token("[a-z]"))), "3abcd") == ["a", "b", "c"]
+    assert plain_run(prefixed(number, many(plain.match("[a-z]"))), "3abcd") == ["a", "b", "c"]
 
 
 def plain_run(grammar: P, text: str) -> Any:
@@ -883,12 +896,12 @@ def fast_text(grammar: P, text: str, tokenizer: Any = None) -> tuple[Any, int]:
 
 
 def test_generated_code_parses_prefixed_counted_and_switch_over_text() -> None:
-    letters = plain.token("[a-z]")
+    letters = plain.match("[a-z]")
     assert fast_text(prefixed(number), "3abcd") == ("abc", 4)
-    assert fast_text(prefixed(number, plain.token(r"\w+")), "3abcd") == ("abc", 4)
+    assert fast_text(prefixed(number, plain.match(r"\w+")), "3abcd") == ("abc", 4)
     assert fast_text(prefixed(number, many(letters)), "3abcd") == (["a", "b", "c"], 4)
     assert fast_text(counted(number, letters), "3abcd") == (["a", "b", "c"], 4)
-    assert fast_text(switch(letters, {"a": plain.token("1"), "b": plain.token("2")}), "b2") == (
+    assert fast_text(switch(letters, {"a": plain.match("1"), "b": plain.match("2")}), "b2") == (
         "2",
         2,
     )
@@ -896,7 +909,7 @@ def test_generated_code_parses_prefixed_counted_and_switch_over_text() -> None:
 
 
 def test_generated_code_rejects_prefixed_counted_and_switch_over_text() -> None:
-    letters = plain.token("[a-z]")
+    letters = plain.match("[a-z]")
     for grammar, text in (
         (prefixed(number), "9abc"),
         (prefixed(number, letters), "3abcd"),
@@ -923,34 +936,34 @@ def test_a_prefixed_over_tokens_stays_with_the_tokens_of_a_tokenizer() -> None:
 
 
 def test_a_body_over_text_sees_the_region_as_its_whole_input() -> None:
-    message = text_message(prefixed(number, plain.token("[a-z]")), "3abcd")
+    message = text_message(prefixed(number, plain.match("[a-z]")), "3abcd")
     assert message.startswith("1,3-1,3: bytes left in the region: ")
-    assert plain_run(prefixed(number, plain.token("[a-z]+") + plain.end), "3abcd") == ("abc", None)
+    assert plain_run(prefixed(number, plain.match("[a-z]+") + plain.end), "3abcd") == ("abc", None)
 
 
 def test_text_in_a_region_does_not_match_past_it() -> None:
-    assert plain_run(prefixed(number, plain.token(r"a+")), "2aaaa") == "aa"
-    assert plain_run(prefixed(number, plain.token(r"a+")) + plain.token("a+"), "2aaaa") == (
+    assert plain_run(prefixed(number, plain.match(r"a+")), "2aaaa") == "aa"
+    assert plain_run(prefixed(number, plain.match(r"a+")) + plain.match("a+"), "2aaaa") == (
         "aa",
         "aa",
     )
 
 
 def test_a_text_with_skip_in_a_region() -> None:
-    grammar = prefixed(skipping.token(r"\d+") >> int, many(skipping.token("[a-z]")))
+    grammar = prefixed(skipping.match(r"\d+") >> int, many(skipping.match("[a-z]")))
     assert plain_run(grammar, "5 a b c d") == ["a", "b", "c"]
 
 
 def test_counted_over_text() -> None:
-    assert plain_run(counted(number, plain.token("[a-z]")), "3abcd") == ["a", "b", "c"]
-    assert plain_run(counted(number, plain.token("[a-z]")), "0abcd") == []
-    assert text_message(counted(number, plain.token("[a-z]")), "3ab1") == (
+    assert plain_run(counted(number, plain.match("[a-z]")), "3abcd") == ["a", "b", "c"]
+    assert plain_run(counted(number, plain.match("[a-z]")), "0abcd") == []
+    assert text_message(counted(number, plain.match("[a-z]")), "3ab1") == (
         "1,4-1,4: got unexpected token: '1', expected: /[a-z]/"
     )
 
 
 def test_switch_over_text_with_keys_of_strings() -> None:
-    grammar = switch(plain.token("[a-z]"), {"a": plain.token("1"), "b": plain.token("2")})
+    grammar = switch(plain.match("[a-z]"), {"a": plain.match("1"), "b": plain.match("2")})
     assert plain_run(grammar, "a1") == "1"
     assert plain_run(grammar, "b2") == "2"
     assert text_message(grammar, "c2") == (
@@ -960,7 +973,7 @@ def test_switch_over_text_with_keys_of_strings() -> None:
 
 
 def test_switch_over_text_with_a_range_of_values_read_as_numbers() -> None:
-    grammar = switch(number, {range(1, 3): plain.token("a"), 5: plain.token("b")})
+    grammar = switch(number, {range(1, 3): plain.match("a"), 5: plain.match("b")})
     assert plain_run(grammar, "2a") == "a"
     assert plain_run(grammar, "5b") == "b"
     assert text_message(grammar, "3a").startswith("1,1-1,1: got unexpected token")
@@ -972,21 +985,23 @@ class Letter(StrEnum):
 
 
 def test_switch_with_a_str_enum_key_is_found_by_its_value() -> None:
-    grammar = switch(plain.token("[a-z]"), {Letter.A: plain.token("1"), Letter.B: plain.token("2")})
+    grammar = switch(plain.match("[a-z]"), {Letter.A: plain.match("1"), Letter.B: plain.match("2")})
     assert plain_run(grammar, "a1") == "1"
     assert plain_run(grammar, "b2") == "2"
 
 
 def test_switch_with_a_str_enum_value_gives_the_enum_member_a_str_key_matches() -> None:
     members = switch(
-        plain.token("[a-z]") >> Letter, loose({"a": plain.token("1"), Letter.B: plain.token("2")})
+        plain.match("[a-z]") >> Letter, loose({"a": plain.match("1"), Letter.B: plain.match("2")})
     )
     assert plain_run(members, "a1") == "1"
     assert plain_run(members, "b2") == "2"
 
 
 def test_switch_of_bytes_with_str_enum_keys(run: Runner) -> None:
-    grammar = switch(b.byte >> (lambda v: Letter(chr(v))), loose({Letter.A: pure(1), "b": pure(2)}))
+    grammar = switch(
+        b.byte() >> (lambda v: Letter(chr(v))), loose({Letter.A: pure(1), "b": pure(2)})
+    )
     assert run(grammar, b"a") == 1
     assert run(grammar, b"b") == 2
 
@@ -1138,50 +1153,50 @@ def test_prefixed_over_a_list_of_integers_is_a_list() -> None:
 
 
 def test_counted_reads_as_many_items_as_the_length_says(run: Runner) -> None:
-    assert run(counted(b.byte, b.fixed(">H")), b"\x02\x00\x01\x00\x02\x00\x03") == [1, 2]
-    assert run(counted(b.fixed(">H"), b.byte), b"\x00\x03abcd") == [97, 98, 99]
-    assert run(counted(b.byte, b.token(rb"[a-z]{2}")), b"\x02abcd") == [b"ab", b"cd"]
+    assert run(counted(b.byte(), b.fixed(">H")), b"\x02\x00\x01\x00\x02\x00\x03") == [1, 2]
+    assert run(counted(b.fixed(">H"), b.byte()), b"\x00\x03abcd") == [97, 98, 99]
+    assert run(counted(b.byte(), b.match(rb"[a-z]{2}")), b"\x02abcd") == [b"ab", b"cd"]
 
 
 def test_counted_zero_reads_no_item(run: Runner) -> None:
-    value = run(counted(b.byte, b.byte), b"\x00z")
+    value = run(counted(b.byte(), b.byte()), b"\x00z")
     assert value == []
     assert type(value) is list
-    assert run(counted(b.byte, b.byte) + b.byte, b"\x00z") == ([], ord("z"))
-    assert run(counted(b.byte, b.byte) + b.end, b"\x00") == ([], None)
+    assert run(counted(b.byte(), b.byte()) + b.byte(), b"\x00z") == ([], ord("z"))
+    assert run(counted(b.byte(), b.byte()) + finished, b"\x00") == ([], None)
 
 
 def test_counted_fails_where_an_item_fails_in_the_middle(run: Runner) -> None:
-    assert message(run, counted(b.byte, b.fixed(">H")), b"\x03\x00\x01\x00\x02\x00") == (
+    assert message(run, counted(b.byte(), b.fixed(">H")), b"\x03\x00\x01\x00\x02\x00") == (
         "not enough bytes: 0x00 at offset 0x5, expected: 2 bytes"
     )
-    assert message(run, counted(b.byte, b.literal(b"ab")), b"\x03ababcb") == (
+    assert message(run, counted(b.byte(), b.literal(b"ab")), b"\x03ababcb") == (
         "got unexpected token: 0x63 at offset 0x5, expected: b'ab'"
     )
-    assert message(run, counted(b.byte, b.byte), b"\x03ab") == (
+    assert message(run, counted(b.byte(), b.byte()), b"\x03ab") == (
         "got unexpected end of input at offset 0x3, expected: a byte"
     )
 
 
 def test_counted_fails_where_the_length_fails(run: Runner) -> None:
-    assert message(run, counted(b.byte, b.byte), b"") == (
+    assert message(run, counted(b.byte(), b.byte()), b"") == (
         "got unexpected end of input at offset 0x0, expected: a byte"
     )
-    assert message(run, counted(b.fixed(">H"), b.byte), b"\x01") == (
+    assert message(run, counted(b.fixed(">H"), b.byte()), b"\x01") == (
         "not enough bytes: 0x01 at offset 0x0, expected: 2 bytes"
     )
 
 
 def test_counted_of_a_huge_count_fails_where_the_input_ends(run: Runner) -> None:
-    assert message(run, counted(b.fixed(">I"), b.byte), b"\xff\xff\xff\xffab") == (
+    assert message(run, counted(b.fixed(">I"), b.byte()), b"\xff\xff\xff\xffab") == (
         "got unexpected end of input at offset 0x6, expected: a byte"
     )
 
 
-@pytest.mark.parametrize("item", [b.end, pure("x"), b.previous()])
+@pytest.mark.parametrize("item", [finished, pure("x"), b.previous()])
 def test_counted_of_an_item_that_reads_nothing_raises(run: Runner, item: P) -> None:
     with pytest.raises(ValueError, match="inside counted"):
-        run(counted(b.byte, item), b"\x03")
+        run(counted(b.byte(), item), b"\x03")
 
 
 def test_counted_recurses_through_forward_decl(run: Runner) -> None:
@@ -1193,7 +1208,7 @@ def test_counted_recurses_through_forward_decl(run: Runner) -> None:
 
 
 def test_counted_of_regions(run: Runner) -> None:
-    grammar = counted(b.byte, prefixed(b.byte, many(b.byte)))
+    grammar = counted(b.byte(), prefixed(b.byte(), many(b.byte())))
     assert run(grammar, b"\x02\x01a\x02bc") == [[97], [98, 99]]
     assert message(run, grammar, b"\x02\x01a\x05bc").startswith(
         "length 5 runs past the end: 0x62 at offset 0x4"
@@ -1201,7 +1216,7 @@ def test_counted_of_regions(run: Runner) -> None:
 
 
 def test_counted_keeps_the_values_in_a_list_of_the_item_type(run: Runner) -> None:
-    value = run(counted(b.byte, b.byte >> str), b"\x02\x01\x02")
+    value = run(counted(b.byte(), b.byte() >> str), b"\x02\x01\x02")
     assert shape(value) == shape(["1", "2"])
 
 
@@ -1209,14 +1224,14 @@ def test_counted_keeps_the_values_in_a_list_of_the_item_type(run: Runner) -> Non
 
 
 def test_switch_chooses_by_a_value(run: Runner) -> None:
-    grammar = switch(b.byte, {1: b.fixed(">H"), 2: b.token(rb"x+"), 3: pure("three")})
+    grammar = switch(b.byte(), {1: b.fixed(">H"), 2: b.match(rb"x+"), 3: pure("three")})
     assert run(grammar, b"\x01\x00\x07") == 7
     assert run(grammar, b"\x02xxy") == b"xx"
     assert run(grammar, b"\x03") == "three"
 
 
 def test_switch_chooses_by_a_range(run: Runner) -> None:
-    grammar = switch(b.byte, {range(1, 4): b.byte, range(10, 20, 5): pure("ten")})
+    grammar = switch(b.byte(), {range(1, 4): b.byte(), range(10, 20, 5): pure("ten")})
     for key in (1, 2, 3):
         assert run(grammar, bytes([key, 9])) == 9
     assert run(grammar, b"\x0a") == "ten"
@@ -1233,27 +1248,27 @@ def test_switch_of_a_range_with_a_negative_start(run: Runner) -> None:
 
 
 def test_switch_of_an_empty_range_has_no_case(run: Runner) -> None:
-    grammar = switch(b.byte, {range(3, 3): pure("never"), 1: pure("one")})
+    grammar = switch(b.byte(), {range(3, 3): pure("never"), 1: pure("one")})
     assert "one of the cases" in message(run, grammar, b"\x03")
     assert run(grammar, b"\x01") == "one"
 
 
 def test_switch_without_a_case_fails_for_any_key(run: Runner) -> None:
-    assert "one of the cases" in message(run, switch(b.byte, {}), b"\x05")
+    assert "one of the cases" in message(run, switch(b.byte(), {}), b"\x05")
 
 
 def test_overlapping_ranges_resolve_to_the_last_case_that_has_the_key(run: Runner) -> None:
-    grammar = switch(b.byte, {range(5): pure("a"), 2: pure("b"), range(1, 3): pure("c")})
+    grammar = switch(b.byte(), {range(5): pure("a"), 2: pure("b"), range(1, 3): pure("c")})
     assert run(grammar, b"\x00") == "a"
     assert run(grammar, b"\x01") == "c"
     assert run(grammar, b"\x02") == "c"
     assert run(grammar, b"\x03") == "a"
-    flipped = switch(b.byte, {2: pure("b"), range(5): pure("a")})
+    flipped = switch(b.byte(), {2: pure("b"), range(5): pure("a")})
     assert run(flipped, b"\x02") == "a"
 
 
 def test_switch_with_an_unknown_value_fails_at_the_start_of_the_key(run: Runner) -> None:
-    grammar = b.byte + switch(b.byte, {1: b.byte})
+    grammar = b.byte() + switch(b.byte(), {1: b.byte()})
     assert message(run, grammar, b"\x00\x07a") == (
         "got unexpected token: 0x07 at offset 0x1, expected: one of the cases of a byte"
     )
@@ -1265,15 +1280,15 @@ def test_switch_with_an_unknown_value_fails_at_the_start_of_the_key(run: Runner)
 
 
 def test_switch_does_not_try_another_case_when_one_fails(run: Runner) -> None:
-    grammar = switch(b.byte, {1: b.literal(b"a"), 2: b.literal(b"b")}) | b.literal(b"\x01b")
+    grammar = switch(b.byte(), {1: b.literal(b"a"), 2: b.literal(b"b")}) | b.literal(b"\x01b")
     assert run(grammar, b"\x01b") == b"\x01b"
-    assert message(run, switch(b.byte, {1: b.literal(b"a")}), b"\x01b") == (
+    assert message(run, switch(b.byte(), {1: b.literal(b"a")}), b"\x01b") == (
         "got unexpected token: 0x62 at offset 0x1, expected: b'a'"
     )
 
 
 def test_switch_with_a_name_reports_it(run: Runner) -> None:
-    grammar = switch(b.byte, {1: b.byte}).named("item")
+    grammar = switch(b.byte(), {1: b.byte()}).named("item")
     assert (
         message(run, grammar, b"\x07") == "got unexpected token: 0x07 at offset 0x0, expected: item"
     )
@@ -1281,14 +1296,14 @@ def test_switch_with_a_name_reports_it(run: Runner) -> None:
 
 
 def test_switch_without_a_name_says_what_it_chooses_by(run: Runner) -> None:
-    grammar = switch(b.fixed(">H"), {1: b.byte})
+    grammar = switch(b.fixed(">H"), {1: b.byte()})
     assert message(run, grammar, b"\x00\x02") == (
         "got unexpected token: 0x00 at offset 0x0, expected: one of the cases of 2 bytes"
     )
 
 
 def test_switch_labels_its_cases(run: Runner) -> None:
-    grammar = switch(b.byte, {1: b.byte.named("small"), 2: b.fixed(">H").named("wide")})
+    grammar = switch(b.byte(), {1: b.byte().named("small"), 2: b.fixed(">H").named("wide")})
     assert message(run, grammar, b"\x01") == (
         "got unexpected end of input at offset 0x1, expected: small"
     )
@@ -1298,7 +1313,7 @@ def test_switch_labels_its_cases(run: Runner) -> None:
 
 
 def test_a_switch_with_a_context_puts_it_on_the_errors_of_its_cases(run: Runner) -> None:
-    grammar = switch(b.byte, {1: b.byte + b.literal(b"x")}).context("record")
+    grammar = switch(b.byte(), {1: b.byte() + b.literal(b"x")}).context("record")
     assert message(run, grammar, b"\x01\x00\x00") == (
         "got unexpected token: 0x00 at offset 0x2, expected: b'x' in record"
     )
@@ -1308,7 +1323,7 @@ def test_a_switch_with_a_context_puts_it_on_the_errors_of_its_cases(run: Runner)
 
 
 def test_switch_with_an_unhashable_key_value_raises_what_a_lookup_raises() -> None:
-    grammar = switch(loose(b.byte >> (lambda v: [v])), {1: b.byte})
+    grammar = switch(loose(b.byte() >> (lambda v: [v])), {1: b.byte()})
     for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
         with pytest.raises(TypeError, match="unhashable"):
             parse(b"\x01\x02")
@@ -1316,18 +1331,18 @@ def test_switch_with_an_unhashable_key_value_raises_what_a_lookup_raises() -> No
 
 def test_switch_with_an_unhashable_case_key_raises_when_it_is_built() -> None:
     with pytest.raises(TypeError, match="unhashable"):
-        switch(b.byte, loose({(1, [2]): b.byte}))
+        switch(b.byte(), loose({(1, [2]): b.byte()}))
 
 
 def test_switch_matches_keys_that_are_equal(run: Runner) -> None:
-    assert run(switch(b.byte, {True: pure("yes")}), b"\x01") == "yes"
+    assert run(switch(b.byte(), {True: pure("yes")}), b"\x01") == "yes"
     assert run(switch(b.fixed(">f"), {1.5: pure("float")}), b"?\xc0\x00\x00") == "float"
-    assert run(switch(b.token(rb"[ab]"), {b"a": pure("A")}), b"a") == "A"
+    assert run(switch(b.match(rb"[ab]"), {b"a": pure("A")}), b"a") == "A"
 
 
 def test_switch_does_not_change_with_the_mapping_after_it_is_built(run: Runner) -> None:
     cases: dict[Any, P] = {1: pure("one")}
-    grammar = switch(b.byte, cases)
+    grammar = switch(b.byte(), cases)
     cases[2] = pure("two")
     assert run(grammar, b"\x01") == "one"
     assert "one of the cases" in message(run, grammar, b"\x02")
@@ -1335,7 +1350,7 @@ def test_switch_does_not_change_with_the_mapping_after_it_is_built(run: Runner) 
 
 def test_switch_of_a_case_that_is_a_forward_declaration(run: Runner) -> None:
     case: P = forward_decl()
-    grammar = switch(b.byte, {1: case})
+    grammar = switch(b.byte(), {1: case})
     case.define(b.fixed(">H"))
     assert run(grammar, b"\x01\x00\x05") == 5
 
@@ -1348,8 +1363,8 @@ def test_switch_recurses_through_forward_decl(run: Runner) -> None:
 
 def test_a_tag_that_holds_a_value_is_read_with_previous(run: Runner) -> None:
     grammar = switch(
-        b.byte,
-        {range(0x90, 0xA0): counted(b.previous(0x0F), b.byte), range(0xA0, 0xB0): pure("other")},
+        b.byte(),
+        {range(0x90, 0xA0): counted(b.previous(0x0F), b.byte()), range(0xA0, 0xB0): pure("other")},
     )
     assert run(grammar, b"\x92\x01\x02\x03") == [1, 2]
     assert run(grammar, b"\x90\x01") == []
@@ -1397,7 +1412,7 @@ def test_fixed_reads_every_struct_format_of_one_value(
 ) -> None:
     parsed = run(b.fixed(fmt), data + b"\x00")
     assert shape(parsed) == shape(value)
-    assert shape(run(b.fixed(fmt) + b.byte, data + b"\x07")) == shape((value, 7))
+    assert shape(run(b.fixed(fmt) + b.byte(), data + b"\x07")) == shape((value, 7))
 
 
 def test_fixed_names_the_bytes_it_reads(run: Runner) -> None:
@@ -1410,7 +1425,7 @@ def test_fixed_names_the_bytes_it_reads(run: Runner) -> None:
     assert message(run, b.fixed("b"), b"") == (
         "got unexpected end of input at offset 0x0, expected: 1 byte"
     )
-    assert message(run, b.byte + b.fixed(">I"), b"\x00\x01\x02\x03") == (
+    assert message(run, b.byte() + b.fixed(">I"), b"\x00\x01\x02\x03") == (
         "not enough bytes: 0x01 at offset 0x1, expected: 4 bytes"
     )
 
@@ -1426,7 +1441,7 @@ def test_fixed_of_a_format_that_does_not_read_one_value_raises(fmt: str) -> None
     with pytest.raises(ValueError, match="reads no single value") as caught:
         b.fixed(fmt)
     assert repr(fmt) in str(caught.value)
-    assert "Binary.fixed()" in "\n".join(getattr(caught.value, "__notes__", []))
+    assert "`fixed()`" in "\n".join(getattr(caught.value, "__notes__", []))
 
 
 @pytest.mark.parametrize("fmt", ["z", "<z", ">Hz", "2", "5"])
@@ -1440,37 +1455,37 @@ def test_fixed_of_a_repeated_string_is_one_value(run: Runner) -> None:
 
 
 def test_byte_gives_an_int(run: Runner) -> None:
-    value = run(b.byte, b"\x07")
+    value = run(b.byte(), b"\x07")
     assert value == 7
     assert type(value) is int
 
 
 def test_byte_fails_at_the_end_of_the_input(run: Runner) -> None:
     assert (
-        message(run, b.byte, b"") == "got unexpected end of input at offset 0x0, expected: a byte"
+        message(run, b.byte(), b"") == "got unexpected end of input at offset 0x0, expected: a byte"
     )
-    assert message(run, b.byte + b.byte, b"a") == (
+    assert message(run, b.byte() + b.byte(), b"a") == (
         "got unexpected end of input at offset 0x1, expected: a byte"
     )
 
 
 def test_token_gives_the_bytes_the_pattern_matches(run: Runner) -> None:
-    assert run(b.token(rb"[a-z]+"), b"abc1") == b"abc"
-    assert run(b.token(rb"\x00\x01"), b"\x00\x01\x02") == b"\x00\x01"
-    assert run(b.token(rb"[\x80-\xff]+"), b"\x80\xff\x01") == b"\x80\xff"
-    assert type(run(b.token(rb"a+"), b"aa")) is bytes
+    assert run(b.match(rb"[a-z]+"), b"abc1") == b"abc"
+    assert run(b.match(rb"\x00\x01"), b"\x00\x01\x02") == b"\x00\x01"
+    assert run(b.match(rb"[\x80-\xff]+"), b"\x80\xff\x01") == b"\x80\xff"
+    assert type(run(b.match(rb"a+"), b"aa")) is bytes
 
 
 def test_token_matches_where_the_parsing_is_and_not_at_the_start(run: Runner) -> None:
-    assert run(b.byte + b.token(rb"a+"), b"\x00aa") == (0, b"aa")
-    assert run(b.token(rb"^a"), b"a") == b"a"
-    assert message(run, b.byte + b.token(rb"^a"), b"\x00a") == (
+    assert run(b.byte() + b.match(rb"a+"), b"\x00aa") == (0, b"aa")
+    assert run(b.match(rb"^a"), b"a") == b"a"
+    assert message(run, b.byte() + b.match(rb"^a"), b"\x00a") == (
         "got unexpected token: 0x61 at offset 0x1, expected: b'^a'"
     )
 
 
 def test_token_does_not_search_ahead(run: Runner) -> None:
-    assert message(run, b.token(rb"b+"), b"ab") == (
+    assert message(run, b.match(rb"b+"), b"ab") == (
         "got unexpected token: 0x61 at offset 0x0, expected: b'b+'"
     )
 
@@ -1478,47 +1493,47 @@ def test_token_does_not_search_ahead(run: Runner) -> None:
 def test_token_with_flags(run: Runner) -> None:
     import re
 
-    grammar = b.token(rb"[a-z]+", re.IGNORECASE)
+    grammar = b.match(rb"[a-z]+", re.IGNORECASE)
     assert run(grammar, b"aBc1") == b"aBc"
-    assert message(run, b.token(rb"[a-z]+"), b"ABC") == (
+    assert message(run, b.match(rb"[a-z]+"), b"ABC") == (
         "got unexpected token: 0x41 at offset 0x0, expected: b'[a-z]+'"
     )
-    dotall = b.token(rb"a.b", re.DOTALL)
+    dotall = b.match(rb"a.b", re.DOTALL)
     assert run(dotall, b"a\nb") == b"a\nb"
-    assert message(run, b.token(rb"a.b"), b"a\nb") == (
+    assert message(run, b.match(rb"a.b"), b"a\nb") == (
         "got unexpected token: 0x61 at offset 0x0, expected: b'a.b'"
     )
-    assert run(b.token(rb"^b$", re.MULTILINE), b"b\n") == b"b"
+    assert run(b.match(rb"^b$", re.MULTILINE), b"b\n") == b"b"
 
 
 @pytest.mark.parametrize("pattern", [rb"a*", rb"", rb"(?:)", rb"a?", rb"$", rb"^"])
 def test_token_that_matches_no_bytes_raises(pattern: bytes) -> None:
     with pytest.raises(ValueError, match="matches no bytes") as caught:
-        b.token(pattern)
+        b.match(pattern)
     assert repr(pattern) in str(caught.value)
     assert "`+` rather than `*`" in "\n".join(getattr(caught.value, "__notes__", []))
 
 
 def test_a_token_of_a_zero_width_pattern_fails_where_it_matches(run: Runner) -> None:
     for pattern in (rb"\b", rb"(?=a)", rb"(?<=a)"):
-        grammar = b.token(pattern)
-        assert "expected: b" in message(run, b.byte + grammar, b"aa")
-        assert run(many(grammar) + b.byte, b"a") == ([], 97)
+        grammar = b.match(pattern)
+        assert "expected: b" in message(run, b.byte() + grammar, b"aa")
+        assert run(many(grammar) + b.byte(), b"a") == ([], 97)
 
 
 def test_a_token_whose_pattern_may_match_nothing_fails_where_it_does(run: Runner) -> None:
-    grammar = b.token(rb"a+|(?=b)")
+    grammar = b.match(rb"a+|(?=b)")
     assert run(grammar, b"aa") == b"aa"
     assert message(run, grammar, b"b") == (
         "got unexpected token: 0x62 at offset 0x0, expected: b'a+|(?=b)'"
     )
-    assert run(many(grammar) + b.byte, b"aab") == ([b"aa"], 98)
+    assert run(many(grammar) + b.byte(), b"aab") == ([b"aa"], 98)
 
 
 def test_literal_gives_its_value(run: Runner) -> None:
     assert run(b.literal(b"\x01\x02"), b"\x01\x02\x03") == b"\x01\x02"
     assert run(b.literal(b"\xff"), b"\xff") == b"\xff"
-    assert run(b.byte + b.literal(b"ab"), b"\x00ab") == (0, b"ab")
+    assert run(b.byte() + b.literal(b"ab"), b"\x00ab") == (0, b"ab")
     assert type(run(b.literal(b"a"), b"a")) is bytes
 
 
@@ -1537,7 +1552,7 @@ def test_literal_fails_where_the_bytes_differ_or_end(run: Runner) -> None:
 def test_literal_of_nothing_raises() -> None:
     with pytest.raises(ValueError, match="literal value is empty") as caught:
         b.literal(b"")
-    assert "A token consumes at least one byte." in "\n".join(
+    assert "A literal consumes at least one byte." in "\n".join(
         getattr(caught.value, "__notes__", [])
     )
 
@@ -1549,22 +1564,22 @@ def test_a_literal_is_bytes() -> None:
 
 
 def test_previous_gives_the_byte_just_read(run: Runner) -> None:
-    assert shape(run(b.byte + b.previous(), b"\x7f")) == shape((0x7F, 0x7F))
-    assert shape(run(b.byte + b.previous(0x0F), b"\x7f")) == shape((0x7F, 0x0F))
-    assert shape(run(b.byte + b.previous(0xF0), b"\x7f")) == shape((0x7F, 0x70))
-    assert shape(run(b.byte + b.previous(0x00), b"\x7f")) == shape((0x7F, 0))
+    assert shape(run(b.byte() + b.previous(), b"\x7f")) == shape((0x7F, 0x7F))
+    assert shape(run(b.byte() + b.previous(0x0F), b"\x7f")) == shape((0x7F, 0x0F))
+    assert shape(run(b.byte() + b.previous(0xF0), b"\x7f")) == shape((0x7F, 0x70))
+    assert shape(run(b.byte() + b.previous(0x00), b"\x7f")) == shape((0x7F, 0))
 
 
 def test_previous_reads_nothing(run: Runner) -> None:
-    assert shape(run(b.byte + b.previous() + b.byte, b"\x01\x02")) == shape((1, 1, 2))
-    assert shape(run(b.byte + b.previous() + b.previous(), b"\x05")) == shape((5, 5, 5))
+    assert shape(run(b.byte() + b.previous() + b.byte(), b"\x01\x02")) == shape((1, 1, 2))
+    assert shape(run(b.byte() + b.previous() + b.previous(), b"\x05")) == shape((5, 5, 5))
 
 
 def test_previous_sees_the_last_byte_of_what_ran_before_it(run: Runner) -> None:
     assert shape(run(b.fixed(">H") + b.previous(), b"\x01\x02")) == shape((0x0102, 2))
-    assert shape(run(b.token(rb"a+") + b.previous(), b"aab")) == shape((b"aa", 97))
+    assert shape(run(b.match(rb"a+") + b.previous(), b"aab")) == shape((b"aa", 97))
     assert shape(run(b.literal(b"xy") + b.previous(), b"xy")) == shape((b"xy", ord("y")))
-    assert shape(run(maybe(b.literal(b"z")) + b.byte + b.previous(), b"y")) == shape(
+    assert shape(run(maybe(b.literal(b"z")) + b.byte() + b.previous(), b"y")) == shape(
         (None, ord("y"), ord("y"))
     )
 
@@ -1576,68 +1591,68 @@ def test_previous_at_offset_zero_fails(run: Runner) -> None:
     assert message(run, b.previous(0x0F), b"") == (
         "got unexpected end of input at offset 0x0, expected: the byte before"
     )
-    assert run(b.previous() | b.byte, b"\x07") == 7
+    assert run(b.previous() | b.byte(), b"\x07") == 7
 
 
 def test_previous_after_what_read_nothing_at_offset_zero_fails(run: Runner) -> None:
     assert "the byte before" in message(
-        run, maybe(b.byte.when(lambda v: False)) + b.previous(), b"\x07"
+        run, maybe(b.byte().when(lambda v: False)) + b.previous(), b"\x07"
     )
     assert "the byte before" in message(run, pure(1) + b.previous(), b"\x07")
 
 
 def test_previous_reads_the_byte_before_whatever_ran_before_it(run: Runner) -> None:
-    grammar = b.byte + b.byte + (b.previous() >> same)
+    grammar = b.byte() + b.byte() + (b.previous() >> same)
     assert shape(run(grammar, b"\x01\x02")) == shape((1, 2, 2))
-    assert shape(run(b.byte + -b.byte + b.previous(), b"\x01\x02")) == shape((1, 2))
+    assert shape(run(b.byte() + -b.byte() + b.previous(), b"\x01\x02")) == shape((1, 2))
 
 
 def test_end_succeeds_at_the_end(run: Runner) -> None:
-    assert run(b.end, b"") is None
-    assert run(b.byte + b.end, b"a") == (97, None)
-    assert run(b.end + b.end, b"") == (None, None)
+    assert run(finished, b"") is None
+    assert run(b.byte() + finished, b"a") == (97, None)
+    assert run(finished + finished, b"") == (None, None)
     assert (
-        message(run, b.end, b"a")
+        message(run, finished, b"a")
         == "got unexpected token: 0x61 at offset 0x0, expected: end of input"
     )
-    assert message(run, b.byte + b.end, b"ab") == (
+    assert message(run, b.byte() + finished, b"ab") == (
         "got unexpected token: 0x62 at offset 0x1, expected: end of input"
     )
 
 
 def test_end_gives_none_and_reads_nothing(run: Runner) -> None:
-    assert run(many(b.byte) + b.end + b.end, b"ab") == ([97, 98], None, None)
-    assert run(b.byte + -b.end, b"a") == 97
+    assert run(many(b.byte()) + finished + finished, b"ab") == ([97, 98], None, None)
+    assert run(b.byte() + -finished, b"a") == 97
 
 
 def test_end_of_input_named(run: Runner) -> None:
     assert (
-        message(run, b.end.named("eof"), b"a")
+        message(run, finished.named("eof"), b"a")
         == "got unexpected token: 0x61 at offset 0x0, expected: eof"
     )
 
 
 def test_a_binary_parser_without_a_buffer_at_all(run: Runner) -> None:
-    assert run(many(b.byte), b"") == []
-    assert run(b.end, b"") is None
-    assert run(maybe(b.byte), b"") is None
-    assert run(counted(b.byte, b.byte) | pure("none"), b"") == "none"
+    assert run(many(b.byte()), b"") == []
+    assert run(finished, b"") is None
+    assert run(maybe(b.byte()), b"") is None
+    assert run(counted(b.byte(), b.byte()) | pure("none"), b"") == "none"
 
 
 # Errors
 
 
 def test_an_error_names_the_byte_in_hexadecimal_and_its_offset(run: Runner) -> None:
-    assert message(run, b.byte + b.literal(b"a"), b"\x00\xab") == (
+    assert message(run, b.byte() + b.literal(b"a"), b"\x00\xab") == (
         "got unexpected token: 0xab at offset 0x1, expected: b'a'"
     )
-    assert message(run, b.token(rb"a"), b"\x0a") == (
+    assert message(run, b.match(rb"a"), b"\x0a") == (
         "got unexpected token: 0x0a at offset 0x0, expected: b'a'"
     )
 
 
 def test_an_offset_past_255_is_in_hexadecimal(run: Runner) -> None:
-    grammar = counted(b.fixed(">H"), b.byte) + b.literal(b"z")
+    grammar = counted(b.fixed(">H"), b.byte()) + b.literal(b"z")
     data = b"\x01\x2c" + b"\x00" * 300 + b"y"
     assert (
         message(run, grammar, data) == "got unexpected token: 0x79 at offset 0x12e, expected: b'z'"
@@ -1649,7 +1664,7 @@ def test_an_offset_past_255_is_in_hexadecimal(run: Runner) -> None:
 
 def test_the_token_of_an_error_is_usable_as_an_int(run: Runner) -> None:
     with pytest.raises(NoParseError) as caught:
-        run(b.byte + b.literal(b"a"), b"\x00\xab")
+        run(b.byte() + b.literal(b"a"), b"\x00\xab")
     token = caught.value.token
     assert isinstance(token, int)
     assert token == 0xAB
@@ -1662,7 +1677,7 @@ def test_the_token_of_an_error_is_usable_as_an_int(run: Runner) -> None:
 
 def test_the_token_of_an_error_at_the_end_of_the_input_is_none(run: Runner) -> None:
     with pytest.raises(NoParseError) as caught:
-        run(b.byte + b.byte, b"\x00")
+        run(b.byte() + b.byte(), b"\x00")
     assert caught.value.token is None
     assert caught.value.state.pos == 1
     assert caught.value.description is None or caught.value.description.start is None
@@ -1670,14 +1685,14 @@ def test_the_token_of_an_error_at_the_end_of_the_input_is_none(run: Runner) -> N
 
 def test_the_description_of_an_error_has_no_place(run: Runner) -> None:
     with pytest.raises(NoParseError) as caught:
-        run(b.byte + b.literal(b"a"), b"\x00\xab")
+        run(b.byte() + b.literal(b"a"), b"\x00\xab")
     description = caught.value.description
     assert description is None or (description.start is None and description.end is None)
     assert caught.value.render() == str(caught.value)
 
 
 def test_the_error_at_the_end_of_the_input_has_the_offset_of_the_end(run: Runner) -> None:
-    assert message(run, counted(b.byte, b.byte), b"\x02\x01") == (
+    assert message(run, counted(b.byte(), b.byte()), b"\x02\x01") == (
         "got unexpected end of input at offset 0x2, expected: a byte"
     )
     assert message(run, b.literal(b"a") | b.literal(b"b"), b"") == (
@@ -1686,20 +1701,20 @@ def test_the_error_at_the_end_of_the_input_has_the_offset_of_the_end(run: Runner
 
 
 def test_an_error_says_what_every_alternative_expected(run: Runner) -> None:
-    assert message(run, b.byte + (b.literal(b"a") | b.literal(b"b")), b"\x00c") == (
+    assert message(run, b.byte() + (b.literal(b"a") | b.literal(b"b")), b"\x00c") == (
         "got unexpected token: 0x63 at offset 0x1, expected: b'a' or b'b'"
     )
-    assert "expected: b'a' or b'b+'" in message(run, b.literal(b"a") | b.token(rb"b+"), b"c")
+    assert "expected: b'a' or b'b+'" in message(run, b.literal(b"a") | b.match(rb"b+"), b"c")
 
 
 def test_a_rule_failure_in_a_byte_grammar_has_the_offset_in_hexadecimal(run: Runner) -> None:
-    grammar = b.byte + b.fixed(">H").validated(kept(lambda v: v < 10, "too big")) + b.byte
+    grammar = b.byte() + b.fixed(">H").validated(kept(lambda v: v < 10, "too big")) + b.byte()
     assert message(run, grammar, b"\x00\x01\x00\x07") == "offset 0x1: too big"
     assert run(grammar, b"\x00\x00\x09\x07") == (0, 9, 7)
 
 
 def test_a_rule_failure_that_spans_bytes_reports_the_start(run: Runner) -> None:
-    grammar = b.byte + b.fixed(">I").validated(kept(lambda v: v < 10, "too big"))
+    grammar = b.byte() + b.fixed(">I").validated(kept(lambda v: v < 10, "too big"))
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x00\x00\x00\x01\x00")
     (error,) = caught.value.exceptions
@@ -1708,7 +1723,7 @@ def test_a_rule_failure_that_spans_bytes_reports_the_start(run: Runner) -> None:
 
 
 def test_several_broken_rules_are_reported_in_order_of_offset(run: Runner) -> None:
-    item = b.byte.validated(kept(lambda v: v < 3, "too big"))
+    item = b.byte().validated(kept(lambda v: v < 3, "too big"))
     grammar = many(item)
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x01\x05\x02\x09")
@@ -1719,7 +1734,7 @@ def test_several_broken_rules_are_reported_in_order_of_offset(run: Runner) -> No
 
 
 def test_a_rule_failure_and_a_parse_failure_are_reported_together(run: Runner) -> None:
-    item = b.byte.validated(kept(lambda v: v < 3, "too big"))
+    item = b.byte().validated(kept(lambda v: v < 3, "too big"))
     grammar = item + item + b.literal(b"x")
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"\x09\x01\x7a")
@@ -1731,10 +1746,10 @@ def test_a_rule_failure_and_a_parse_failure_are_reported_together(run: Runner) -
 
 
 def test_named_replaces_what_a_byte_parser_expected(run: Runner) -> None:
-    assert message(run, b.byte.named("tag"), b"") == (
+    assert message(run, b.byte().named("tag"), b"") == (
         "got unexpected end of input at offset 0x0, expected: tag"
     )
-    assert message(run, b.token(rb"a+").named("As"), b"b") == (
+    assert message(run, b.match(rb"a+").named("As"), b"b") == (
         "got unexpected token: 0x62 at offset 0x0, expected: As"
     )
     assert message(run, b.fixed(">H").named("size"), b"\x01") == (
@@ -1744,7 +1759,7 @@ def test_named_replaces_what_a_byte_parser_expected(run: Runner) -> None:
         "got unexpected end of input at offset 0x0, expected: tag"
     )
     assert (
-        message(run, b.end.named("eof"), b"a")
+        message(run, finished.named("eof"), b"a")
         == "got unexpected token: 0x61 at offset 0x0, expected: eof"
     )
 
@@ -1761,7 +1776,7 @@ def test_context_labels_the_errors_of_a_byte_grammar(run: Runner) -> None:
     assert message(run, grammar, b"ac") == (
         "got unexpected token: 0x63 at offset 0x1, expected: b'b' in pair"
     )
-    nested = ((b.literal(b"a") + b.literal(b"b")).context("pair") + b.byte).context("record")
+    nested = ((b.literal(b"a") + b.literal(b"b")).context("pair") + b.byte()).context("record")
     assert message(run, nested, b"ac") == (
         "got unexpected token: 0x63 at offset 0x1, expected: b'b' in pair in record"
     )
@@ -1776,7 +1791,7 @@ def test_the_context_of_an_error_is_its_attribute(run: Runner) -> None:
 
 def test_recover_goes_on_in_a_byte_grammar(run: Runner) -> None:
     record = (b.literal(b"a") + b.literal(b"x")).recover(b.literal(b"\n"))
-    grammar = many(record + -b.literal(b"\n")) + -b.end
+    grammar = many(record + -b.literal(b"\n")) + -finished
     with pytest.raises(ParseErrors) as caught:
         run(grammar, b"ab\nac\n")
     errors = caught.value.exceptions
@@ -1789,7 +1804,7 @@ def test_recover_goes_on_in_a_byte_grammar(run: Runner) -> None:
 def test_a_recovered_error_names_the_byte_in_hexadecimal(run: Runner) -> None:
     record = (b.literal(b"a") + b.literal(b"x")).recover(b.literal(b"\n"))
     with pytest.raises(ParseErrors) as caught:
-        run(many(record + -b.literal(b"\n")) + -b.end, b"ab\n")
+        run(many(record + -b.literal(b"\n")) + -finished, b"ab\n")
     (error,) = caught.value.exceptions
     assert str(error) == "offset 0x1: got unexpected token: 0x62, expected: b'x'"
 
@@ -1807,23 +1822,23 @@ def test_recover_gives_up_where_until_is_never_found(run: Runner) -> None:
 
 
 def test_text_parsers_on_bytes_raise_what_re_raises() -> None:
-    for grammar in (plain.token("a"), plain.literal("a"), plain.token("a") + plain.end):
+    for grammar in (plain.match("a"), plain.literal("a"), plain.match("a") + plain.end):
         for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
             with pytest.raises(TypeError):
                 parse(b"a")
 
 
 def test_binary_parsers_on_text_raise_what_the_standard_library_raises() -> None:
-    for grammar in (b.token(rb"a"), b.literal(b"a"), b.fixed(">H"), b.byte + b.previous()):
+    for grammar in (b.match(rb"a"), b.literal(b"a"), b.fixed(">H"), b.byte() + b.previous()):
         for parse in (grammar.parse_text, grammar.compile().parse_text):
             with pytest.raises(TypeError):
                 parse("ab")
 
 
 def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
-    assert b.byte.parse_text("a") == "a"
-    assert b.end.parse_text("") is None
-    assert (b.byte + b.byte + b.end).parse_text("ab") == ("a", "b", None)
+    assert b.byte().parse_text("a") == "a"
+    assert finished.parse_text("") is None
+    assert (b.byte() + b.byte() + finished).parse_text("ab") == ("a", "b", None)
 
 
 @pytest.mark.interpreted_only
@@ -1835,9 +1850,11 @@ def test_tok_on_bytes_is_a_parser_of_tokens_that_bytes_are_not() -> None:
 
 
 def test_some_reads_bytes_as_integers_in_a_byte_grammar(run: Runner) -> None:
-    grammar = some(lambda v: v == 97) + b.byte
+    grammar = some(lambda v: v == 97) + b.byte()
     assert shape(run(grammar, b"ab")) == shape((97, 98))
-    assert shape(run(prefixed(b.byte, many(some(lambda v: v > 96))), b"\x02ab")) == shape([97, 98])
+    assert shape(run(prefixed(b.byte(), many(some(lambda v: v > 96))), b"\x02ab")) == shape(
+        [97, 98]
+    )
 
 
 def test_parse_of_bytes_is_a_parse_of_integers() -> None:
@@ -1849,7 +1866,7 @@ def test_parse_of_bytes_is_a_parse_of_integers() -> None:
 
 @pytest.mark.parametrize("kind", [bytes, bytearray])
 def test_parse_bytes_of_bytes_and_a_bytearray(kind: Callable[[bytes], Any]) -> None:
-    grammar = prefixed(b.byte, many(b.byte)) + b.fixed(">H")
+    grammar = prefixed(b.byte(), many(b.byte())) + b.fixed(">H")
     data = b"\x02ab\x00\x07"
     assert shape(grammar.parse_bytes(kind(data))) == shape(([97, 98], 7))
 
@@ -1863,7 +1880,7 @@ def test_a_memoryview_is_refused_rather_than_copied() -> None:
 
 
 def test_the_message_of_an_error_does_not_depend_on_the_data_type() -> None:
-    grammar = b.byte + b.literal(b"a")
+    grammar = b.byte() + b.literal(b"a")
     for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
         for data in (b"\x00b", bytearray(b"\x00b")):
             with pytest.raises(NoParseError, match="0x62 at offset 0x1"):
@@ -1876,17 +1893,19 @@ def test_the_message_of_an_error_does_not_depend_on_the_data_type() -> None:
 @pytest.mark.parametrize(
     "form",
     [
-        pytest.param(lambda: prefixed(b.byte), id="prefixed"),
-        pytest.param(lambda: prefixed(b.byte, many(b.literal(b"a"))), id="prefixed body"),
-        pytest.param(lambda: prefixed(b.byte, b.byte + b.literal(b"a")), id="prefixed body fails"),
-        pytest.param(lambda: counted(b.byte, b.literal(b"a")), id="counted"),
-        pytest.param(lambda: counted(b.byte, b.fixed(">H")), id="counted of fixed"),
-        pytest.param(lambda: switch(b.byte, {1: b.literal(b"a"), 2: b.byte}), id="switch"),
-        pytest.param(lambda: switch(b.byte, {range(3): b.literal(b"a")}), id="switch range"),
+        pytest.param(lambda: prefixed(b.byte()), id="prefixed"),
+        pytest.param(lambda: prefixed(b.byte(), many(b.literal(b"a"))), id="prefixed body"),
+        pytest.param(
+            lambda: prefixed(b.byte(), b.byte() + b.literal(b"a")), id="prefixed body fails"
+        ),
+        pytest.param(lambda: counted(b.byte(), b.literal(b"a")), id="counted"),
+        pytest.param(lambda: counted(b.byte(), b.fixed(">H")), id="counted of fixed"),
+        pytest.param(lambda: switch(b.byte(), {1: b.literal(b"a"), 2: b.byte()}), id="switch"),
+        pytest.param(lambda: switch(b.byte(), {range(3): b.literal(b"a")}), id="switch range"),
         pytest.param(lambda: b.fixed(">H"), id="fixed"),
-        pytest.param(lambda: b.byte + b.previous(), id="previous"),
-        pytest.param(lambda: b.byte + b.end, id="end"),
-        pytest.param(lambda: b.token(rb"a+"), id="token"),
+        pytest.param(lambda: b.byte() + b.previous(), id="previous"),
+        pytest.param(lambda: b.byte() + finished, id="end"),
+        pytest.param(lambda: b.match(rb"a+"), id="token"),
         pytest.param(lambda: tree, id="tree"),
         pytest.param(lambda: sized, id="recursive prefixed"),
         pytest.param(lambda: expression, id="recursive switch"),
@@ -1914,21 +1933,21 @@ def test_commit_around_a_form_parses_as_the_parser(form: Callable[[], P], data: 
     for grammar in (
         commit(form()),
         commit(form()) | pure("other"),
-        commit(form() + b.byte) | pure("other"),
+        commit(form() + b.byte()) | pure("other"),
         (b.literal(b"\x01") + commit(form())) | pure("other"),
-        many(commit(form())) + b.end,
+        many(commit(form())) + finished,
         maybe(commit(form())),
     ):
         assert outcome(grammar.compile().parse_bytes, data) == outcome(grammar.parse_bytes, data)
 
 
 def test_a_failure_after_a_commit_of_a_region_is_final(run: Runner) -> None:
-    grammar = (b.literal(b"\x01") + commit(prefixed(b.byte, b.literal(b"a")))) | pure("other")
+    grammar = (b.literal(b"\x01") + commit(prefixed(b.byte(), b.literal(b"a")))) | pure("other")
     assert run(grammar, b"\x01\x01a") == (b"\x01", b"a")
 
 
 def test_a_failure_after_a_commit_of_counted_is_final(run: Runner) -> None:
-    grammar = (b.literal(b"\x01") + commit(counted(b.byte, b.literal(b"a")))) | pure("other")
+    grammar = (b.literal(b"\x01") + commit(counted(b.byte(), b.literal(b"a")))) | pure("other")
     assert message(run, grammar, b"\x01\x02ab") == (
         "got unexpected token: 0x62 at offset 0x3, expected: b'a'"
     )
@@ -1936,7 +1955,7 @@ def test_a_failure_after_a_commit_of_counted_is_final(run: Runner) -> None:
 
 
 def test_a_failure_after_a_commit_of_a_switch_is_final(run: Runner) -> None:
-    grammar = (b.literal(b"\x01") + commit(switch(b.byte, {1: b.literal(b"a")}))) | pure("other")
+    grammar = (b.literal(b"\x01") + commit(switch(b.byte(), {1: b.literal(b"a")}))) | pure("other")
     assert message(run, grammar, b"\x01\x01b") == (
         "got unexpected token: 0x62 at offset 0x2, expected: b'a'"
     )
@@ -1949,8 +1968,8 @@ def test_a_failure_after_a_commit_of_a_switch_is_final(run: Runner) -> None:
 
 def test_a_region_declared_before_it_is_defined(run: Runner) -> None:
     declared: P = forward_decl()
-    grammar = prefixed(b.byte, declared)
-    declared.define(many(b.byte))
+    grammar = prefixed(b.byte(), declared)
+    declared.define(many(b.byte()))
     assert run(grammar, b"\x02ab") == [97, 98]
 
 
@@ -1958,13 +1977,13 @@ def test_a_recursive_grammar_of_the_three_forms(run: Runner) -> None:
     value: P = forward_decl()
     value.define(
         switch(
-            b.byte,
+            b.byte(),
             {
                 0: pure(None),
                 1: b.fixed(">H"),
-                2: prefixed(b.byte),
-                3: counted(b.byte, value),
-                4: prefixed(b.byte, many(value)),
+                2: prefixed(b.byte()),
+                3: counted(b.byte(), value),
+                4: prefixed(b.byte(), many(value)),
             },
         )
     )
@@ -1982,9 +2001,11 @@ def test_a_recursive_grammar_of_the_three_forms(run: Runner) -> None:
 
 
 def test_recover_at_its_first_token_fails_though_another_branch_got_further(run: Runner) -> None:
-    assert run(longest(b.byte, b.literal(b"q").recover(b.end)), b"ab") == 97
+    assert run(longest(b.byte(), b.literal(b"q").recover(finished)), b"ab") == 97
     grammar = (
-        (b.byte + b.literal(b"y")) | (b.literal(b"q").recover(b.literal(b";")) + b.byte) | b.byte
+        (b.byte() + b.literal(b"y"))
+        | (b.literal(b"q").recover(b.literal(b";")) + b.byte())
+        | b.byte()
     )
     assert run(grammar, b"x;") == 120
 
@@ -2003,12 +2024,12 @@ def test_a_rule_of_an_ignored_value_gives_it_to_a_context(run: Runner) -> None:
 
 def test_a_count_that_is_no_integer_raises(run: Runner) -> None:
     with pytest.raises(TypeError):
-        run(counted(b.fixed(">f"), b.byte), b"\x40\x00\x00\x00ab")
+        run(counted(b.fixed(">f"), b.byte()), b"\x40\x00\x00\x00ab")
 
 
 def test_a_negative_count_fails(run: Runner) -> None:
     with pytest.raises(NoParseError, match="count -1 is negative"):
-        run(counted(b.fixed(">b"), b.byte), b"\xffa")
+        run(counted(b.fixed(">b"), b.byte()), b"\xffa")
 
 
 def test_counted_of_what_reads_nothing_raises_at_once(run: Runner) -> None:
@@ -2018,24 +2039,24 @@ def test_counted_of_what_reads_nothing_raises_at_once(run: Runner) -> None:
 
 def test_a_commit_sees_the_length_read(run: Runner) -> None:
     with pytest.raises(NoParseError, match="length 9 runs past the end"):
-        run(commit(prefixed(b.byte)) | b.byte, b"\x09hi")
+        run(commit(prefixed(b.byte())) | b.byte(), b"\x09hi")
 
 
 def test_recover_sees_the_length_read(run: Runner) -> None:
-    grammar = many(prefixed(b.byte).recover(b.literal(b";")) + -b.literal(b";")) + -b.end
+    grammar = many(prefixed(b.byte()).recover(b.literal(b";")) + -b.literal(b";")) + -finished
     with pytest.raises(ParseErrors, match="1 parsing error"):
         run(grammar, b"\x09hi;")
 
 
 def test_what_a_closed_region_expected_is_no_part_of_the_next_error(run: Runner) -> None:
-    grammar = prefixed(b.byte, many(b.literal(b"a"))) + b.literal(b"z")
+    grammar = prefixed(b.byte(), many(b.literal(b"a"))) + b.literal(b"z")
     assert message(run, grammar, b"\x01aq") == (
         "got unexpected token: 0x71 at offset 0x2, expected: b'z'"
     )
 
 
 def test_what_the_length_left_expected_stays_in_the_error(run: Runner) -> None:
-    length = b.byte + -many(b.literal(b"\xaa"))
+    length = b.byte() + -many(b.literal(b"\xaa"))
     assert message(run, prefixed(length, b.literal(b"z")), b"\x01q") == (
         "got unexpected token: 0x71 at offset 0x1, expected: b'\\xaa' or b'z'"
     )
@@ -2043,14 +2064,14 @@ def test_what_the_length_left_expected_stays_in_the_error(run: Runner) -> None:
 
 def test_a_rule_on_a_length_stays_with_the_failure(run: Runner) -> None:
     with pytest.raises(ParseErrors) as caught:
-        run(prefixed(b.byte.validated(kept(lambda n: n < 5, "too long"))), b"\x09hi")
+        run(prefixed(b.byte().validated(kept(lambda n: n < 5, "too long"))), b"\x09hi")
     assert len(caught.value.exceptions) == 2
     with pytest.raises(ParseErrors) as caught:
-        run(switch(b.byte.validated(kept(lambda n: n < 5, "too big")), {1: b.byte}), b"\x09")
+        run(switch(b.byte().validated(kept(lambda n: n < 5, "too big")), {1: b.byte()}), b"\x09")
     assert len(caught.value.exceptions) == 2
 
 
 def test_a_region_left_unread_says_so(run: Runner) -> None:
-    assert message(run, prefixed(b.byte, b.literal(b"a")), b"\x02ab") == (
+    assert message(run, prefixed(b.byte(), b.literal(b"a")), b"\x02ab") == (
         "bytes left in the region: 0x62 at offset 0x2"
     )

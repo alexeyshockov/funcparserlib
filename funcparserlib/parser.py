@@ -781,7 +781,7 @@ class Parser[A, B]:
     def parse_text(self, text: str) -> B:
         """Parse the text, with the line and column of the text in errors.
 
-        It is for a grammar that reads text: the parsers of `funcparserlib.text.Text`, and `a()` and
+        It is for a grammar that reads text: the parsers of `funcparserlib.text`, and `a()` and
         `some()` of a character. A grammar of `tok()` reads tokens: give those to `Parser.parse()`,
         or a tokenizer to `Parser.compile()`.
 
@@ -799,7 +799,7 @@ class Parser[A, B]:
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
 
-        It is for a grammar of the parsers of `funcparserlib.binary.Binary`, and raises what
+        It is for a grammar of the parsers of `funcparserlib.binary`, and raises what
         `Parser.parse()` raises. Parsers read `bytes` methods and slices, so a `memoryview` raises
         `TypeError`: to parse one, make the copy with `bytes(view)`.
         """
@@ -841,8 +841,8 @@ class Parser[A, B]:
         `many()` of a parser that matches no tokens.
 
         Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
-        in less memory still. A grammar of `funcparserlib.text.Text` or
-        `funcparserlib.binary.Binary` needs no tokenizer.
+        in less memory still. A grammar of `funcparserlib.text` or `funcparserlib.binary` needs no
+        tokenizer.
 
         Given a `source_file`, the Python source of the generated functions is written there, and
         their frames report that file, so tracebacks, `pdb` and an IDE can show them. Given a
@@ -1680,17 +1680,16 @@ def prefixed(length: Parser[Any, int], body: Parser[Any, Any] | None = None) -> 
     It is the length field of a binary format: the bytes that follow, or with `body`, what `body`
     parses of them. `body` sees those bytes as its whole input, and has to read to their end. A
     length that is negative or runs past the input fails where those bytes start. What `skip` of a
-    `funcparserlib.text.Text` matches before `body` is not read for it.
+    `funcparserlib.text` matches before `body` is not read for it.
 
     Examples:
         ```pycon
-        >>> from funcparserlib.binary import Binary
-        >>> b = Binary()
-        >>> prefixed(b.byte).parse_bytes(b"\\x02hi")
+        >>> from funcparserlib import binary as b
+        >>> prefixed(b.byte()).parse_bytes(b"\\x02hi")
         b'hi'
-        >>> prefixed(b.byte, many(b.byte)).parse_bytes(b"\\x02hi")
+        >>> prefixed(b.byte(), many(b.byte())).parse_bytes(b"\\x02hi")
         [104, 105]
-        >>> prefixed(b.byte).parse_bytes(b"\\x09hi")
+        >>> prefixed(b.byte()).parse_bytes(b"\\x09hi")
         Traceback (most recent call last):
             ...
         funcparserlib.parser.NoParseError: length 9 runs past the end: 0x68 at offset 0x1
@@ -1725,9 +1724,8 @@ def counted[A, B](count: Parser[A, int], item: Parser[A, B]) -> Parser[A, list[B
 
     Examples:
         ```pycon
-        >>> from funcparserlib.binary import Binary
-        >>> b = Binary()
-        >>> counted(b.byte, b.fixed(">H")).parse_bytes(b"\\x02\\x00\\x01\\x00\\x02")
+        >>> from funcparserlib import binary as b
+        >>> counted(b.byte(), b.fixed(">H")).parse_bytes(b"\\x02\\x00\\x01\\x00\\x02")
         [1, 2]
 
         ```
@@ -1771,9 +1769,8 @@ def switch[A](key: Parser[A, Any], cases: Mapping[Any, Parser[A, Any]]) -> Parse
 
     Examples:
         ```pycon
-        >>> from funcparserlib.binary import Binary
-        >>> b = Binary()
-        >>> field = switch(b.byte, {1: b.fixed(">H"), range(2, 4): b.byte})
+        >>> from funcparserlib import binary as b
+        >>> field = switch(b.byte(), {1: b.fixed(">H"), range(2, 4): b.byte()})
         >>> field.parse_bytes(b"\\x01\\x00\\x07")
         7
         >>> field.parse_bytes(b"\\x03\\x07")

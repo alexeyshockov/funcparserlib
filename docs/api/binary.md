@@ -4,16 +4,12 @@
     options:
         show_root_heading: false
 
-::: funcparserlib.binary.Binary
+::: funcparserlib.binary.match
 
-::: funcparserlib.binary.Binary.token
+::: funcparserlib.binary.literal
 
-::: funcparserlib.binary.Binary.literal
+::: funcparserlib.binary.fixed
 
-::: funcparserlib.binary.Binary.fixed
+::: funcparserlib.binary.byte
 
-::: funcparserlib.binary.Binary.byte
-
-::: funcparserlib.binary.Binary.previous
-
-::: funcparserlib.binary.Binary.end
+::: funcparserlib.binary.previous

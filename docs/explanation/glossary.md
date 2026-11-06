@@ -10,11 +10,11 @@ grammar is itself one parser.
 **token grammar**: a grammar that reads the tokens a tokenizer made before parsing began. `tok()` reads a token by its
 type.
 
-**text grammar**: a grammar that reads text at the position parsing has reached, with no tokenizer. `Text` makes its
-parsers, and `Parser.parse_text()` runs it.
+**text grammar**: a grammar that reads text at the position parsing has reached, with no tokenizer. `funcparserlib.text`
+has its parsers, and `Parser.parse_text()` runs it.
 
-**byte grammar**: a grammar that reads bytes at the position parsing has reached. `Binary` makes its parsers, and
-`Parser.parse_bytes()` runs it.
+**byte grammar**: a grammar that reads bytes at the position parsing has reached. `funcparserlib.binary` has its parsers,
+and `Parser.parse_bytes()` runs it.
 
 **left recursion**: a rule that reaches itself before reading anything. It never ends, so a grammar has to read a token
 first.

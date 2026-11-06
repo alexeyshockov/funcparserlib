@@ -710,6 +710,6 @@ def test_a_parsing_function_can_tell_a_rejected_part() -> None:
 
 def test_try_parse_gives_none_for_a_rejected_value() -> None:
     text = Text()
-    p = text.token(r"\d").validated(odd).compile()
+    p = text.match(r"\d").validated(odd).compile()
     assert p.try_parse("3") == 3
     assert p.try_parse("2") is None

@@ -103,7 +103,7 @@ funcparserlib.parser.NoParseError: got unexpected token: 'y', expected: end of i
 
 ## Reading by a Number Just Read
 
-The parsers of a [`Binary`](binary.md) read what depends on a number just read: a length, a count, a type.
+The parsers of [`funcparserlib.binary`](binary.md) read what depends on a number just read: a length, a count, a type.
 
 ::: funcparserlib.parser.prefixed
 

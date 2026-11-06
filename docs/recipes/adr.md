@@ -3,7 +3,7 @@
 An architecture decision record in [Nygard's format](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions)
 has a title, a status, and the sections Context, Decision and Consequences. The post names those parts and leaves their
 Markdown open, so records in the wild differ, and a status is a closed set that can point at another record. This recipe
-reads them from the tokens of markdown-it-py, with `Text` grammars for what the lines say, and checks the
+reads them from the tokens of markdown-it-py, with text grammars for what the lines say, and checks the
 [records of this library](../adr/index.md). The whole program is `examples/adr.py`; every block below is included from it.
 
 ```pycon
@@ -48,7 +48,7 @@ does, and as the post does, and they share the number parser. `read_day()` makes
 
 ## Reading the tokens
 
-`reading()` joins the two grammars: `Parser.validated()` runs a `Text` grammar on the text of an `inline` token. When that
+`reading()` joins the two grammars: `Parser.validated()` runs a text grammar on the text of an `inline` token. When that
 grammar fails the token is rejected, so the error is on the line of the file and parsing goes on to the next field.
 `titled()` uses `Parser.when()` instead: a heading with another name is another part of the record, not an invalid one:
 

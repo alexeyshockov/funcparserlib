@@ -21,6 +21,7 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
+from funcparserlib import text
 from funcparserlib.parser import (
     Invalid,
     NoParseError,
@@ -31,7 +32,6 @@ from funcparserlib.parser import (
     many,
     some,
 )
-from funcparserlib.text import Text
 
 
 # --8<-- [start:tree]
@@ -84,14 +84,12 @@ def read_day(value: str) -> date:
         raise Invalid(f"no such day: {value}") from e
 
 
-text = Text()
-
-number = text.token(r"\d+").named("number") >> int
-day = text.token(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
+number = text.match(r"\d+").named("number") >> int
+day = text.match(r"\d{4}-\d{2}-\d{2}").named("a date").validated(read_day)
 
 plain_status = text.literal("Proposed") | text.literal("Accepted") | text.literal("Deprecated")
 written = -text.literal("Superseded by ADR ") + number
-linked = -text.literal("Superseded by [") + number + -text.token(r"[^\]]*\]\([^)]*\)")
+linked = -text.literal("Superseded by [") + number + -text.match(r"[^\]]*\]\([^)]*\)")
 superseded = written | linked
 status = (plain_status >> Status) | (superseded >> (lambda n: Status("Superseded", n)))
 
@@ -100,11 +98,11 @@ title_number = (
     | number + -text.literal(". ")
     | -text.literal("ADR ") + number + -text.literal(": ")
 )
-title = title_number + text.token(r".+") + -text.end >> (lambda p: Title(*p))
+title = title_number + text.match(r".+") + -finished >> (lambda p: Title(*p))
 
-listed_status = -text.literal("**Status:** ") + status + -text.end
-listed_date = -text.literal("**Date:** ") + day + -text.end
-plain_date = -text.literal("Date: ") + day + -text.end
+listed_status = -text.literal("**Status:** ") + status + -finished
+listed_date = -text.literal("**Date:** ") + day + -finished
+plain_date = -text.literal("Date: ") + day + -finished
 # --8<-- [end:parts]
 
 
@@ -189,7 +187,7 @@ listed = (
 adr_tools = (
     paragraph(plain_date, "Date: and a day of the calendar")
     + -titled("Status")
-    + paragraph(status + -text.end, STATUSES)
+    + paragraph(status + -finished, STATUSES)
 ) >> (lambda p: Details(p[1], p[0]))
 
 
