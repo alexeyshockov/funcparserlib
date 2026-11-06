@@ -2,118 +2,49 @@
 
 ## [Unreleased]
 
-Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib~=1.0`.
-
-The grammar-writing API of 1.0 keeps working: `tok`, `a`, `some`, `many`, `oneplus`, `maybe`, `skip`,
-`pure`, `finished`, `forward_decl`, `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `p.named()`, `p.parse()`,
-`p.bind()`, `make_tokenizer`, `TokenSpec`, `Token` and `pretty_tree`, with the same parsed values. Error
-messages name what was expected more precisely; see Changed.
+Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib~=1.0`. Grammars written for 1.0 keep
+working and parse to the same values; error messages are more precise.
 
 ### Added
 
-- Error messages name everything that was expected at the position parsing stopped: `(p1 + p2) | (p1 + p3)` failing
-  after `p1` expects `p2 or p3`, and `many(p) + -finished` expects `p or end of input`. A sequence is expected as its
-  first parser, not by its shape
-- A name given with `Parser.named()` is a label: when the parser fails at its first token, the error names it
-- `NoParseError.token`, `.expected`, `.context` and `.description`, and `NoParseError.render(source)`, which adds the
-  source line and a `^` marker under the token
-- `Parser.parse(tokens, describe=...)`, a function from a token to the `TokenDescription` an error shows, for tokens
-  that are not `funcparserlib.lexer.Token`
-- `commit(p)`: once `p` has read a token, its failure is final, and `|`, `many` and `maybe` do not backtrack from it
-- `Parser.context(label)`: errors inside the parser end with `in label`
-- `Parser.validated(f, expected=None)`: `f` makes the value or raises `Invalid`, and parsing goes on without a value for
-  what it rejects; `parse()` raises every error together as `ParseErrors`, an `ExceptionGroup` of `NoParseError`.
-  `State.rejected_since()` tells a parsing function about a rejected part
-- Support for Python 3.12, 3.13, 3.14 and 3.15, including the free-threaded 3.15t build
-- `Parser.compile()`: a grammar as generated Python functions, several times faster for the parses that succeed. A
-  `CompiledParser` gives the values and the errors of the parser it comes from
-- `make_tokenizer(specs, skip=...)` leaves token types such as whitespace out of the result, and returns a `Tokenizer`
-- `Parser.compile(tokenizer)` and `CompiledParser.parse_text(text)`: text parsed without making `Token` objects, as long
-  as the grammar reads tokens through `tok()`
-- `funcparserlib.binary.Binary`: parsers that read bytes at the position, and `Parser.parse_bytes(data)`, whose errors give
-  the byte and its offset in hexadecimal
-- `prefixed(length, body)`, `counted(count, item)` and `switch(key, cases)`: what depends on a number just read, in forms
-  generated code runs, where `bind()` leaves it to the interpreted parser
-- `funcparserlib.text.Text`: parsers that read text at the position parsing has reached, with no list of tokens, and
-  `Parser.parse_text(text)`, whose errors give the line and column
-- `longest(p1, p2, ...)`: the longest match of the parsers, whatever their order
-- `Parser.recover(until=None, default=None)`: give a broken part `default`; with `until`, also record a failure and go
-  on from where `until` matches, so one parse reports every error
-- `CompiledParser.try_parse(text)`: the value, or `None` without making an error
-- `Parser.compile(source_file=path)`: the generated source is written to `path`, and frames of generated code report
-  that file, so tracebacks, `pdb` and an IDE can show it
-- `LexerError.render()`, which shows the line with a `^` under the character no token spec matches, as
-  `NoParseError.render()` does
-- `Parser.map()` (the method behind `>>`), `Parser.starmap()`, `Parser.when()`, `Parser.but_not()`
-  and `~p` / `anything_but(p)`
-- `funcparserlib.util.expand_tuple_args()`, which adapts a function of N arguments to the tuple that
-  `p1 + ... + pN` produces
-- The `parser(name)` decorator, which makes a named `Parser` from a parsing function
-- `ParsingResult`, `ParsingSuccess` and `ParsingFailure`: the result a parsing function returns
-- `ForwardDeclParser`, the type `forward_decl()` returns, generic in the token and value types
-- Public type names for annotations: `Place`, `Spec` (lexer); `ParserFn`, `ParserObjOrFn`,
-  `IgnoredParser`, `Tuple2Parser` to `Tuple5Parser`, `EndOfInput`, `IgnoredEndOfInput`, `IgnoredValue`, `State`,
-  and the `State` fields' `Expectation` and `Problem` (parser)
-- `funcparserlib.__version__`
-- `Token` is hashable, consistently with `==`: by type and value, ignoring positions
+- **Better errors**: messages name everything expected at that position, and `render()` shows the source line. Labels
+  with `named()`, `context()`, `commit()`, and `describe=` for tokens of another library
+- **Every error in one run**: `validated()` and `Invalid` reject a value and go on, `recover()` gives a broken part a
+  value, and `ParseErrors` holds them all
+- **Compiled grammars**: `Parser.compile()` is several times faster on valid input, with the same values and errors,
+  and `try_parse()` skips making the error
+- **Parsing without tokens**: `funcparserlib.text.Text`, and `funcparserlib.binary.Binary` for binary formats, with
+  `prefixed()`, `counted()` and `switch()`
+- **Types**: what `p1 + p2`, `-p`, `many()` and the other combinators infer in mypy, pyright and ty
+- New combinators and helpers: `longest()`, `when()`, `but_not()`, `~p`, `starmap()`, `expand_tuple_args()`, `parser()`,
+  and `make_tokenizer(skip=...)`
+- Support for free-threaded Python
 
 ### Changed
 
-- Error messages that named a sequence by its shape (`expected: ('x', 'y') or 'z'`) name what failed at the position
-  instead (`expected: 'x' or 'z'`); `State` holds what failed there (`expected`), the active contexts and the recorded
-  errors, and a `ParsingFailure` can be `committed`
-- Dropped support for Python 2.7 and 3.7 to 3.11
-- A parsing function returns a `ParsingResult` instead of a `(value, state)` tuple and raising
-  `NoParseError`. A result still unpacks as `value, state = p.run(tokens, state)`, and a failed one
-  raises `NoParseError` when unpacked. A function written for 1.0 still works; see Deprecated.
-- `State(pos, max, expected=(), context=(), problems=())`: the third argument is `expected`, the parsers that failed at
-  `max`, and no longer `parser`. `State.parser` is still the last of them
-- The value of `-p` no longer carries the value of `p`: `-x + -y` and `maybe(-x)` parse to `IgnoredValue()`, where 1.0
-  gave `_Ignored('y')`
-- `TokenSpec` compares by its type, pattern and flags instead of by identity, and a `Token` compared with a non-token
-  is unequal instead of raising `AttributeError`
-- `finished.named(name)` returns a new end-of-input parser; `finished` keeps its name in every other grammar
-- `Token`, `TokenSpec`, `State` and the parsing results are immutable to type checkers. Every exported
-  class except `Parser` is `@final` to type checkers.
-- `Parser(f)` and `Parser.run` are public: a parsing function is what a grammar adds to the library. A subclass may
-  add to a parser, and overriding `run` is not supported
-- The type parameters use the Python 3.12 syntax, so `p1 + p2` and friends infer the same types in
-  mypy, pyright and ty
-- Built with uv and `uv_build`
-- A name the library composes from the names of parsers is cut at 200 characters, with `...`: `Parser.name`, the parsing
-  log and the `ValueError` of `many()` show the cut name. A name given with `Parser.named()` is kept whole
-- `|` tries a parser it holds more than once a single time where it dispatches on the next token, so a function given
-  to `>>` inside it can run fewer times. The value and the error stay the same
+- Support for Python 2.7 and 3.7 to 3.11 is dropped
+- Error messages name what failed, not the shape of a sequence: `expected: 'x' or 'z'`, not
+  `expected: ('x', 'y') or 'z'`
+- A parsing function returns a `ParsingResult`. One written for 1.0 still works; see Deprecated
+- `State()` takes `expected` third, not `parser`
+- `-x + -y` and `maybe(-x)` parse to `IgnoredValue()`, not `_Ignored('y')`
+- `TokenSpec` compares by value, and a `Token` compared with a non-token is unequal instead of raising `AttributeError`
 
 ### Deprecated
 
-- A parsing function that returns a `(value, state)` tuple or raises `NoParseError`, as in 1.0: `Parser(f)` and
-  `ForwardDeclParser.define()` read its tuple as a success and its `NoParseError` as a failure that
-  `|` backtracks from, and warn with a `DeprecationWarning` the first time each parser gets such a result
+- A parsing function that returns a `(value, state)` tuple or raises `NoParseError`
 
 ### Fixed
 
-- A `parse()` inside a `>>` function no longer has its error rewritten by the outer `parse()`, which named the outer
-  parse's token and repeated the message
-- `p + -finished` is typed: mypy and pyright inferred `Any` for it (as in 1.0), because `-finished` was an
-  `IgnoredParser[Any]` and matched both overloads of `+`. `finished` is an `EndOfInput` now, and `-finished` an
-  `IgnoredEndOfInput`, whose value `+` drops
-- A forward declaration defined as another one, `p.define(q)`, parses as `q` when `q` is defined later, instead of
-  raising `NotImplementedError`
-- A forward declaration defined as itself, `p.define(p)`, raises `ValueError` at `define()` instead of failing at
-  `parse()`
-- `many(p)` and `oneplus(p)` raise `ValueError` when `p` matches without consuming a token (`many(maybe(p))`,
-  `many(pure(x))`, `many(many(p))`), instead of looping forever
-- `make_tokenizer()` raises `ValueError` for a token spec that matches the empty string, and a tokenizer raises it for a
-  spec that matches the empty string at some position (such as `\b`), instead of yielding empty tokens forever
-- `LexerError.msg` is the line the error position counts: lines are split at `\n` only, as positions are, so a form
-  feed, a lone `\r` or a Unicode line separator in a token no longer shifts it or raises `IndexError`
+- `many(p)`, `make_tokenizer()` and `define()` raise `ValueError` where they looped forever or failed later
+- A `parse()` inside a `>>` function keeps its own error
+- `LexerError` reports the right line after a form feed or a lone `\r`
 
 ### Removed
 
-- `with_forward_decls()`, deprecated since 0.3.1: use `forward_decl()` and `p.define()`
-- `Parser.define()` outside forward declarations: `define()` is a method of `ForwardDeclParser`
-- `funcparserlib.parser.log`: configure the `"funcparserlib"` logger by its name
+- `with_forward_decls()`: use `forward_decl()` and `p.define()`
+- `Parser.define()` outside forward declarations
+- `funcparserlib.parser.log`: configure the `"funcparserlib"` logger
 
 ## [1.0.1] — 2022-11-04
 
