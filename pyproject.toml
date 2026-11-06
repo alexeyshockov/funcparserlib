@@ -81,10 +81,13 @@ markers = [
 filterwarnings = ["error"]
 
 # `just mutants`: the code whose bugs tests see least, as a broken fast path falls back to the same
-# result. The two deselected tests sit near the recursion limit, which mutmut's wrappers pass.
+# result, and the parsers of text, which both sides of that comparison are built from: `just
+# mutants` runs those names of `parser.py`. The two deselected tests sit near the recursion limit,
+# which mutmut's wrappers pass.
 [tool.mutmut]
 paths_to_mutate = [
     "funcparserlib/lexer.py",
+    "funcparserlib/parser.py",
     "funcparserlib/binary.py",
     "funcparserlib/_compile.py",
 ]
@@ -94,7 +97,6 @@ also_copy = [
     "funcparserlib/__init__.py",
     "funcparserlib/_commons.py",
     "funcparserlib/_version.py",
-    "funcparserlib/parser.py",
     "funcparserlib/util.py",
 ]
 pytest_add_cli_args_test_selection = [
