@@ -744,7 +744,7 @@ def test_msgpack_raises_what_unpackb_raises_for_a_string_and_a_key() -> None:
             unpack(data)
 
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parents[2]
 RECORD = (
     "# 0001 — A title\n\n"
     "- **Status:** Accepted\n"

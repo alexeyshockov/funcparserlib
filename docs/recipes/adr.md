@@ -112,7 +112,7 @@ would look like a gap, so these rules wait until every record parses:
 
 ## Checking this repository
 
-`tests/test_examples.py` runs `check()` on `docs/adr/`, so a broken rule there fails the tests. By hand, it is:
+`tests/examples/test_examples.py` runs `check()` on `docs/adr/`, so a broken rule there fails the tests. By hand, it is:
 
 ```shell
 python -m examples.adr docs/adr

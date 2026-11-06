@@ -28,7 +28,7 @@ tests/typesafety/         what a user's checker infers; pytest does not collect 
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
 docs/adr/                 the decision record
-examples/                 runnable programs using public APIs only; tests/test_examples.py runs each
+examples/                 runnable programs using public APIs only; tests/examples/test_examples.py runs each
 benchmarks/               pytest-benchmark micro-benchmarks, bench_*.py; results/ is local and untracked
 ```
 
@@ -69,4 +69,4 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
 - **A compiled parser gives what its parser gives.** The nox sessions `shadow` and `exhaustive`, and
   the property tests, which fail if a form of generated code is out of their reach (ADR 0002).
 - **The docs pages are tests.** A `>>>` session in `docs/` runs under pytest. `examples/` is
-  type-checked and run (`just types-examples`, `tests/test_examples.py`).
+  type-checked and run (`just types-examples`, `tests/examples/test_examples.py`).

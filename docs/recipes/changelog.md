@@ -125,8 +125,8 @@ of order.
 
 ## Checking this repository
 
-`tests/test_examples.py` runs the parser on this library's `CHANGELOG.md`, so a broken rule there fails the tests. By
-hand, it is:
+`tests/examples/test_examples.py` runs the parser on this library's `CHANGELOG.md`, so a broken rule there fails the
+tests. By hand, it is:
 
 ```shell
 python -m examples.changelog CHANGELOG.md
