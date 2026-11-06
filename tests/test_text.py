@@ -31,7 +31,7 @@ from funcparserlib.parser import (
 )
 from funcparserlib.parser import longest as typed_longest
 from funcparserlib.text import Text
-from tests.rules import kept
+from tests.rules import breakages, conversions, kept
 
 type P = Parser[Any, Any]
 type Runner = Callable[[P, str], Any]
@@ -98,18 +98,22 @@ def outcome(parse: Callable[[str], Any], text: str) -> tuple[object, ...]:
 
 
 def same(value: object) -> object:
+    """The value as it is: a conversion that changes nothing."""
     return value
 
 
 def wrap(value: object) -> tuple[str, object]:
+    """The value in a tuple: a conversion to another shape."""
     return ("wrapped", value)
 
 
 def short(value: object) -> bool:
+    """A rule that some values of any shape break."""
     return len(repr(value)) % 3 != 0
 
 
 def recursive(body: P) -> P:
+    """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
     declared.define(skipping.token("a") + maybe(body + declared))
     return declared
@@ -160,15 +164,13 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
         kids.map(lambda k: k + -skipping.end),
+        *conversions(kids, wrap),
     )
 
 
 def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
-    return st.one_of(
-        plain_combined(kids),
-        kids.map(commit),
-        kids.map(lambda k: k.validated(kept(short, "too long"))),
-    )
+    """What the grammars are made of, generated code deciding it or not."""
+    return st.one_of(plain_combined(kids), kids.map(commit), *breakages(kids, short))
 
 
 grammars = st.recursive(leaves, combined, max_leaves=10)
@@ -309,6 +311,7 @@ def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
     assert message(run, longest(lost, won), "ab") == "1,1-1,2: won"
 
 
+@pytest.mark.interpreted_only
 def test_the_function_after_arrows_of_each_alternative_runs() -> None:
     seen: list[str] = []
     grammar = longest(
@@ -912,6 +915,7 @@ def test_a_failed_parse_gives_the_character_as_its_token() -> None:
     assert caught.value.token == "?x"  # noqa: S105 — a parsed word
 
 
+@pytest.mark.interpreted_only
 def test_try_parse_runs_a_conversion_in_two_passes_at_most() -> None:
     seen: list[str] = []
     grammar = (plain.token(r"\d") >> seen.append).validated(kept(lambda _: False, "bad"))

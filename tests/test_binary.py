@@ -33,7 +33,7 @@ from funcparserlib.parser import (
 )
 from funcparserlib.parser import longest as typed_longest
 from funcparserlib.text import Text
-from tests.rules import kept
+from tests.rules import breakages, conversions, kept
 
 type P = Parser[Any, Any]
 type Runner = Callable[[P, bytes], Any]
@@ -134,14 +134,17 @@ def raised(parse: Callable[[Any], Any], data: Any) -> type[BaseException] | None
 
 
 def same(value: object) -> object:
+    """The value as it is: a conversion that changes nothing."""
     return value
 
 
 def wrap(value: object) -> tuple[str, object]:
+    """The value in a tuple: a conversion to another shape."""
     return ("wrapped", value)
 
 
 def short(value: object) -> bool:
+    """A rule that some values of any shape break."""
     return len(repr(value)) % 3 != 0
 
 
@@ -150,6 +153,7 @@ def small(value: int) -> int:
 
 
 def recursive(body: P) -> P:
+    """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
     declared.define(b.byte + maybe(body + declared))
     return declared
@@ -183,6 +187,7 @@ lengths: st.SearchStrategy[P] = st.sampled_from(
 
 
 def combined(kids: st.SearchStrategy[P], *, risky: bool) -> st.SearchStrategy[P]:
+    """What the grammars are made of, generated code deciding it or not."""
     pairs = st.tuples(kids, kids)
     forms = [
         pairs.map(lambda k: k[0] + k[1]),
@@ -202,6 +207,7 @@ def combined(kids: st.SearchStrategy[P], *, risky: bool) -> st.SearchStrategy[P]
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
         kids.map(lambda k: k + -b.end),
+        *conversions(kids, wrap),
         lengths.map(prefixed),
         st.tuples(lengths, kids).map(lambda lk: prefixed(*lk)),
         st.tuples(lengths, kids).map(lambda lk: prefixed(*lk) + prefixed(lk[0])),
@@ -217,7 +223,7 @@ def combined(kids: st.SearchStrategy[P], *, risky: bool) -> st.SearchStrategy[P]
     if risky:
         forms += [
             kids.map(commit),
-            kids.map(lambda k: k.validated(kept(short, "too long"))),
+            *breakages(kids, short),
             st.tuples(lengths, kids).map(lambda lk: commit(prefixed(*lk))),
             st.tuples(lengths, kids).map(lambda lk: commit(counted(*lk)) | pure("none")),
             st.tuples(lengths, kids, kids).map(
@@ -1820,6 +1826,7 @@ def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
     assert (b.byte + b.byte + b.end).parse_text("ab") == ("a", "b", None)
 
 
+@pytest.mark.interpreted_only
 def test_tok_on_bytes_is_a_parser_of_tokens_that_bytes_are_not() -> None:
     with pytest.raises(AttributeError, match="type"):
         tok("a").parse_bytes(b"a")

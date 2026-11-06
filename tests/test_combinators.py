@@ -260,6 +260,7 @@ def test_a_legacy_parsing_function_warns_once_per_function_by_default() -> None:
     assert len(record) == 1
 
 
+@pytest.mark.interpreted_only
 def test_a_skipped_parser_still_converts_its_value() -> None:
     seen: list[str] = []
     expr = -(a("x") >> seen.append) + a("y")

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from hypothesis import assume, given, settings
+from hypothesis import assume, find, given, settings
 from hypothesis import strategies as st
 
 from examples import kdl
@@ -38,7 +38,9 @@ from funcparserlib.parser import (
     tok,
 )
 from funcparserlib.text import Text
-from tests.rules import kept
+from tests.rules import breakages, conversions, kept
+from tests.test_binary import grammars as byte_grammars
+from tests.test_text import grammars as text_grammars
 
 from . import dot, json
 from .conftest import GeneratedCodeError
@@ -69,18 +71,22 @@ def shape(value: object) -> object:
 
 
 def wrap(value: object) -> tuple[str, object]:
+    """The value in a tuple: a conversion to another shape."""
     return ("wrapped", value)
 
 
 def same(value: object) -> object:
+    """The value as it is: a conversion that changes nothing."""
     return value
 
 
 def short(value: object) -> bool:
+    """A rule that some values of any shape break."""
     return len(repr(value)) % 3 != 0
 
 
 def recursive(body: P) -> P:
+    """A grammar that reads `body` inside itself."""
     declared: P = forward_decl()
     declared.define(tok("a") + maybe(body + declared))
     return declared
@@ -127,15 +133,14 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
         kids.map(lambda k: k + -finished),
+        *conversions(kids, wrap),
     )
 
 
 def combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
+    """What the grammars are made of, generated code deciding it or not."""
     return st.one_of(
-        plain_combined(kids),
-        kids.map(commit),
-        kids.map(lambda k: k.validated(kept(short, "too long"))),
-        kids.map(run_inner),
+        plain_combined(kids), kids.map(commit), *breakages(kids, short), kids.map(run_inner)
     )
 
 
@@ -277,6 +282,7 @@ def test_a_broken_rule_is_reported_as_the_parser_reports_it() -> None:
     assert [str(e) for e in caught.value.exceptions] == ["bad", "bad"]
 
 
+@pytest.mark.interpreted_only
 def test_a_rule_on_a_branch_backtracked_from_is_forgotten() -> None:
     seen: list[str] = []
     bad = (tok("a") >> seen.append).validated(kept(lambda _: False, "bad")) + tok("b")
@@ -571,6 +577,7 @@ def test_a_str_subclass_compiles_as_a_token_type_or_value(grammar: P) -> None:
         assert outcome(compiled.parse, toks) == outcome(grammar.parse, toks)
 
 
+@pytest.mark.interpreted_only
 @pytest.mark.parametrize(
     ("build", "text"),
     [
@@ -689,6 +696,7 @@ def test_a_successful_parse_calls_a_conversion_once() -> None:
     assert seen == ["x"]
 
 
+@pytest.mark.interpreted_only
 def test_a_failed_parse_calls_a_conversion_in_both_passes() -> None:
     seen: list[str] = []
     grammar = (tok("a") >> seen.append) + tok("b")
@@ -762,15 +770,12 @@ def plain_combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrate
         kids.map(lambda k: k.when(short)),
         kids.map(recursive),
         kids.map(lambda k: k + -finished),
+        *conversions(kids, wrap),
     )
 
 
 def combined_without_tokens(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
-    return st.one_of(
-        plain_combined_without_tokens(kids),
-        kids.map(commit),
-        kids.map(lambda k: k.validated(kept(short, "too long"))),
-    )
+    return st.one_of(plain_combined_without_tokens(kids), kids.map(commit), *breakages(kids, short))
 
 
 token_grammars = st.recursive(token_leaves(), combined_without_tokens, max_leaves=12)
@@ -884,6 +889,7 @@ def test_describe_reaches_an_error_of_parse_text() -> None:
         compiled.parse_text("b", describe=lambda t: parser_module.TokenDescription(f"<{t.value}>"))
 
 
+@pytest.mark.interpreted_only
 def test_a_failed_parse_of_text_calls_a_conversion_in_two_passes() -> None:
     seen: list[str] = []
     with pytest.raises(NoParseError):
@@ -1095,3 +1101,42 @@ def test_a_repeated_parser_that_matches_nothing_raises_as_the_interpreted_parser
         grammar.parse_text("a")
     with pytest.raises(ValueError, match="matched no tokens inside many"):
         grammar.compile().parse_text("a")
+
+
+def forms_of(p: P) -> set[str]:
+    """The forms in the grammar `p`, as the compiler reads them."""
+    found: set[str] = set()
+    seen: set[int] = set()
+    todo = [p]
+    while todo:
+        q = compile_module._target(todo.pop())
+        if id(q) not in seen:
+            seen.add(id(q))
+            found.add(compile_module._form(q)[0])
+            todo += compile_module._parts(q)
+    return found
+
+
+# What the compiler emits: a helper of `emit` is no form of a grammar.
+HELPERS = {"call", "conversion", "function_call", "groups", "loop", "opaque", "returning"}
+FORMS = {
+    name.removeprefix("emit_")
+    for name in vars(compile_module._Compiler)
+    if name.startswith("emit_")
+} - HELPERS
+
+
+def test_the_random_grammars_reach_every_form_of_generated_code() -> None:
+    every = st.one_of(grammars, token_grammars, text_grammars, byte_grammars)
+    reached: set[str] = set()
+
+    def has_them_all(grammar: P) -> bool:
+        """Whether the grammars so far, `grammar` included, reached every form."""
+        reached.update(forms_of(grammar))
+        return reached >= FORMS
+
+    find(
+        every,
+        has_them_all,
+        settings=settings(max_examples=5000, database=None, derandomize=True, deadline=None),
+    )

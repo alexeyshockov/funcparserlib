@@ -188,6 +188,7 @@ def test_a_failed_parse_joins_the_broken_rules() -> None:
     ]
 
 
+@pytest.mark.interpreted_only
 def test_a_rule_on_a_branch_backtracked_from_is_forgotten() -> None:
     assert ((SMALL + a("!")) | (DIGIT + a("?"))).parse("9?") == (9, "?")
 
@@ -483,12 +484,14 @@ def test_a_recovered_error_shows_a_token_as_describe_says() -> None:
 
 
 def odd(digit: str) -> int:
+    """The number of an odd digit; an even one is rejected."""
     if int(digit) % 2 == 0:
         raise Invalid(f"{digit} is even")
     return int(digit)
 
 
 def noted(digit: str) -> str:
+    """The digit, with an error for `2` that keeps it."""
     if digit == "2":
         raise Invalid("2 is noted", keep=True)
     return digit
@@ -500,6 +503,7 @@ both = pytest.mark.parametrize("build", [lambda p: p, lambda p: p.compile()], id
 
 
 def messages(p: Any, tokens: Any) -> list[str]:
+    """The messages of the errors of a parse that raises `ParseErrors`."""
     with pytest.raises(ParseErrors) as e:
         p.parse(tokens)
     return [error.msg for error in e.value.exceptions]
@@ -530,6 +534,7 @@ def test_a_rejection_in_a_list_reaches_no_function_over_the_list() -> None:
     assert seen == []
 
 
+@pytest.mark.interpreted_only
 def test_a_kept_value_goes_on_to_what_comes_after() -> None:
     seen: list[Any] = []
     p = digit.validated(noted).validated(odd) >> seen.append
@@ -656,6 +661,7 @@ def test_recover_gives_a_rejected_part_its_default(build: Compiled) -> None:
     assert messages(build(p + -finished), list("2314")) == ["2 is even"]
 
 
+@pytest.mark.interpreted_only
 def test_a_function_runs_above_a_recovered_part() -> None:
     seen: list[Any] = []
     p = digit.validated(odd).recover(default=0) + digit >> seen.append

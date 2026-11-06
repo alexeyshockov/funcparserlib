@@ -59,6 +59,13 @@ def tests(session: nox.Session, member: str) -> None:
     session.run("pytest", *session.posargs)
 
 
+@nox.session(python=FLOOR, tags=["ci", "local"])
+def shadow(session: nox.Session) -> None:
+    """The suite with every parse also run by the compiled parser: see `tests/shadow.py`."""
+    sync(session)
+    session.run("pytest", "-p", "tests.shadow", *session.posargs)
+
+
 # The micro-benchmarks (`just bench::micro`), where the project has them: one session per
 # interpreter. The one tagged `bench` is what `just bench::micro` runs: the newest, unless a
 # dependency the benchmarks build has no wheel for it yet, in which case the tag moves to another
