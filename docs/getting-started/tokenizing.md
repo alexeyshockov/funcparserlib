@@ -23,7 +23,7 @@ Parsing is usually split into two steps:
 ## Tokenizing with `make_tokenizer()`
 
 One of the most common ways to define tokens and tokenizing rules is via regular expressions. `funcparserlib` comes with
-the module [`funcparserlib.lexer`](../api/lexer.md) for creating regexp-based tokenizers.
+the module [`funcparserlib.lexer`](../api/lexer.md) for creating regex-based tokenizers.
 
 /// note
 
@@ -73,7 +73,7 @@ The tokenizer itself:
 
 /// warning
 
-Be careful with ordering your token specs and your regexps so that larger tokens come first before their smaller
+Be careful with ordering your token specs and your regexes so that larger tokens come first before their smaller
 subparts. In our token specs:
 
 * _Float_ tokens should come before _int_ tokens

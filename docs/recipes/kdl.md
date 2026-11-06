@@ -34,13 +34,13 @@ Most recipes drop whitespace tokens before parsing. KDL needs them: a newline en
 because two values have no whitespace between them. So the token stream keeps two kinds of it, `ws` for what may sit
 inside a node and `nl` for what ends one.
 
-The spec's character classes come first. It defines whitespace and newlines by code point, wider than the regexp `\s`:
+The spec's character classes come first. It defines whitespace and newlines by code point, wider than the regex `\s`:
 
 ```python
 --8<-- "examples/kdl.py:characters"
 ```
 
-A `/* */` comment nests, which a regexp cannot count. `block_comment()` writes the nesting out to a fixed depth, so a
+A `/* */` comment nests, which a regex cannot count. `block_comment()` writes the nesting out to a fixed depth, so a
 comment holding comments more than 8 levels deep fails with `LexerError`. This is the one place the parser falls short
 of the spec:
 

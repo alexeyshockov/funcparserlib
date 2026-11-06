@@ -7,7 +7,7 @@
 
 With a grammar compiled as in ADR 0002, the tokenizer was the larger cost. On the 21 MB KDL
 benchmark it took 4.39 s of 7.60 s, and the tokens held most of the 1.67 GB the program peaked at.
-On a 2 MB slice the regexp engine took 0.10 s of 0.34 s: the rest went to `Token` objects, their
+On a 2 MB slice the regex engine took 0.10 s of 0.34 s: the rest went to `Token` objects, their
 positions, and the garbage collections those allocations set off.
 
 Generated code reads the type and the value of a token, and nothing else, as long as the grammar
@@ -18,11 +18,11 @@ parser.
 
 `Parser.compile(tokenizer)` generates a second set of functions, over two lists instead of tokens: the
 values and the types. `CompiledParser.parse_text(text)` fills the lists from the tokenizer's joined
-regexp and runs those functions. Whenever that does not succeed, it runs the tokenizer and the
+regex and runs those functions. Whenever that does not succeed, it runs the tokenizer and the
 interpreted parser on the text, and what they return or raise is the result, as in ADR 0002.
 
 A grammar that reads a token any other way, with `some()`, `a()` or a parsing function, needs `Token`
-objects, and so do specs that do not join into one regexp. `parse_text()` then tokenizes and calls
+objects, and so do specs that do not join into one regex. `parse_text()` then tokenizes and calls
 `CompiledParser.parse()`.
 
 Compiled without a tokenizer, a grammar that reads no `tok()` gets those functions too, reading what
@@ -31,7 +31,7 @@ it reads, so it is the call that says.
 
 The types to leave out, usually whitespace and comments, have to be known without a wrapper around the
 tokenizer, so they are an argument of the tokenizer: `make_tokenizer(specs, skip=...)`. It returns a
-`Tokenizer`, the object `compile()` reads the regexp from.
+`Tokenizer`, the object `compile()` reads the regex from.
 
 Measured on Python 3.12 on an arm64 laptop, the 21 MB KDL benchmark, wall clock, one run:
 

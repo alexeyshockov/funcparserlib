@@ -46,7 +46,7 @@ from funcparserlib.parser import (
 
 ENCODING = "UTF-8"
 # noinspection SpellCheckingInspection
-regexps = {
+regexes = {
     "escaped": r"""
         \\                                  # Escape
           ((?P<standard>["\\/bfnrt])        # Standard escapes
@@ -56,7 +56,7 @@ regexps = {
         [^"\\]                              # Unescaped: avoid ["\\]
         """,
 }
-re_esc = re.compile(regexps["escaped"], VERBOSE)
+re_esc = re.compile(regexes["escaped"], VERBOSE)
 T = TypeVar("T")
 JsonValue = None | bool | dict | list | int | float | str
 JsonMember = tuple[str, JsonValue]
@@ -72,7 +72,7 @@ def _tokenizer() -> Tokenizer:
     """The JSON tokenizer."""
     specs = [
         TokenSpec("space", r"[ \t\r\n]+"),
-        TokenSpec("string", r'"({unescaped} | {escaped})*"'.format(**regexps), VERBOSE),
+        TokenSpec("string", r'"({unescaped} | {escaped})*"'.format(**regexes), VERBOSE),
         TokenSpec(
             "number",
             r"""

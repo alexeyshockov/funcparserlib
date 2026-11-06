@@ -997,7 +997,7 @@ def test_a_value_crosses_the_function_of_a_rule_used_twice(last: P, tail: str) -
         assert outcome(grammar.compile().parse, document) == outcome(grammar.parse, document)
 
 
-# What a regexp can start with
+# What a regex can start with
 
 
 def chars(text: str, *, negated: bool = False) -> compile_module._Chars:
@@ -1033,33 +1033,33 @@ def chars(text: str, *, negated: bool = False) -> compile_module._Chars:
         (r"[\x00-\U0010ffff]", None),
     ],
 )
-def test_the_first_characters_of_a_regexp(
+def test_the_first_characters_of_a_regex(
     pattern: str, expected: compile_module._Chars | None
 ) -> None:
-    assert compile_module._regexp_chars(re.compile(pattern)) == expected
+    assert compile_module._regex_chars(re.compile(pattern)) == expected
 
 
-def test_a_regexp_with_a_flag_has_no_first_characters() -> None:
-    assert compile_module._regexp_chars(re.compile("a", re.IGNORECASE)) is None
+def test_a_regex_with_a_flag_has_no_first_characters() -> None:
+    assert compile_module._regex_chars(re.compile("a", re.IGNORECASE)) is None
 
 
-def test_a_private_parser_that_changed_leaves_a_regexp_without_first_characters(
+def test_a_private_parser_that_changed_leaves_a_regex_without_first_characters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def broken(*_: object) -> None:
         raise AttributeError
 
     monkeypatch.setattr("re._parser.parse", broken)
-    assert compile_module._regexp_chars(re.compile("a")) is None
+    assert compile_module._regex_chars(re.compile("a")) is None
 
 
-regexp_atoms = st.sampled_from(
+regex_atoms = st.sampled_from(
     ["a", "b", "A", "[ab]", "[^a]", "[a-c]", ".", r"\d", r"\w", "(?=b)", "(?!a)", "(?<=a)", r"\b"]
     + ["^", "$", r"\Z", "(?i:a)", "(?s:.)"]
 )
 
 
-def regexp_forms(kids: st.SearchStrategy[str]) -> st.SearchStrategy[str]:
+def regex_forms(kids: st.SearchStrategy[str]) -> st.SearchStrategy[str]:
     pairs = st.tuples(kids, kids)
     return st.one_of(
         pairs.map("".join),
@@ -1079,16 +1079,16 @@ def regexp_forms(kids: st.SearchStrategy[str]) -> st.SearchStrategy[str]:
 
 
 @settings(max_examples=500, deadline=None)
-@given(st.recursive(regexp_atoms, regexp_forms, max_leaves=6), st.text("abcAB1 \n", max_size=6))
-def test_a_match_of_a_regexp_starts_with_one_of_its_first_characters(
+@given(st.recursive(regex_atoms, regex_forms, max_leaves=6), st.text("abcAB1 \n", max_size=6))
+def test_a_match_of_a_regex_starts_with_one_of_its_first_characters(
     pattern: str, text: str
 ) -> None:
-    regexp = re.compile(pattern)
-    first = compile_module._regexp_chars(regexp)
+    regex = re.compile(pattern)
+    first = compile_module._regex_chars(regex)
     assume(first is not None)
     assert first is not None
     for start in range(len(text)):
-        m = regexp.match(text, start)
+        m = regex.match(text, start)
         if m is not None and m.end() > start:
             assert (text[start] in first.chars) != first.negated
 

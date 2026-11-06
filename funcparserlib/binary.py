@@ -38,20 +38,20 @@ def regex(pattern: bytes, flags: int = 0) -> Parser[int, bytes]:
     Give it a name with `Parser.named()` for its errors. Raises `ValueError` for a pattern that
     matches no bytes.
     """
-    regexp = re.compile(pattern, flags)
-    if regexp.match(b""):
+    compiled = re.compile(pattern, flags)
+    if compiled.match(b""):
         raise with_hint(
             ValueError(f"pattern {pattern!r} matches no bytes"),
             "A match consumes at least one byte: repeat with `+` rather than `*`.",
         )
 
     def run(data: Any, s: State) -> ParsingResult[bytes]:
-        m = regexp.match(data, s.pos)
+        m = compiled.match(data, s.pos)
         if m is None or m.end() == s.pos:
             return ParsingFailure(s.expect(p))
         return ParsingSuccess(m.group(), s.reset_pos(m.end()))
 
-    p = Parser._made_leaf(repr(pattern), run, ("text", regexp.match, None, None))
+    p = Parser._made_leaf(repr(pattern), run, ("text", compiled.match, None, None))
     return p
 
 

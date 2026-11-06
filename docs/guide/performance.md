@@ -62,7 +62,7 @@ Compile a grammar once, when your program starts, and keep the result.
 ## Skip the Tokens
 
 Given the tokenizer, a compiled grammar parses text itself. As long as the grammar reads tokens through `tok()` and the
-specs of the tokenizer join into one regexp, this makes no `Token` objects, which takes less time and much less memory.
+specs of the tokenizer join into one regex, this makes no `Token` objects, which takes less time and much less memory.
 Specs with their own flags, or with a global flag such as `(?i)` inside, do not join, and such a grammar makes the tokens
 as usual:
 

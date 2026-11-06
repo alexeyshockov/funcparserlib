@@ -54,13 +54,13 @@ class Text:
         """Make parsers that skip what the regex `skip`, with its `flags`, matches."""
         self._skip: Pattern[str] | None = None
         if skip is not None:
-            regexp = re.compile(skip, flags)
-            if regexp.match(""):
+            regex = re.compile(skip, flags)
+            if regex.match(""):
                 raise with_hint(
                     ValueError(f"skip pattern {skip!r} matches the empty string"),
                     "A skip pattern consumes at least one character: repeat with `+`.",
                 )
-            end = "\n" if regexp.flags & re.VERBOSE else ""
+            end = "\n" if regex.flags & re.VERBOSE else ""
             try:
                 self._skip = re.compile(f"(?:{skip}{end})+", flags)
             except re.error as e:
@@ -75,7 +75,7 @@ class Text:
         return pos
 
     def _reading(
-        self, name: str, read: Any, regexp: Pattern[str] | None, value: str | None
+        self, name: str, read: Any, regex: Pattern[str] | None, value: str | None
     ) -> Parser[str, str]:
         def run(text: Any, s: State) -> ParsingResult[str]:
             end = read(text, s.pos)
@@ -83,7 +83,7 @@ class Text:
                 return ParsingFailure(s.expect(p))
             return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
 
-        form = ("text", regexp.match if regexp else None, value, self._skip)
+        form = ("text", regex.match if regex else None, value, self._skip)
         p: Parser[Any, str] = Parser._made_leaf(name, run, form)
         return p
 
@@ -93,18 +93,18 @@ class Text:
         Give it a name with `Parser.named()` for its errors. Raises `ValueError` for a pattern that
         matches the empty string.
         """
-        regexp = re.compile(pattern, flags)
-        if regexp.match(""):
+        compiled = re.compile(pattern, flags)
+        if compiled.match(""):
             raise with_hint(
                 ValueError(f"pattern {pattern!r} matches the empty string"),
                 "A match consumes at least one character: repeat with `+` rather than `*`.",
             )
 
         def read(text: str, start: int) -> int | None:
-            m = regexp.match(text, start)
+            m = compiled.match(text, start)
             return m.end() if m is not None and m.end() > start else None
 
-        return self._reading(f"/{pattern}/", read, regexp, None)
+        return self._reading(f"/{pattern}/", read, compiled, None)
 
     def lit(self, value: str) -> Parser[str, str]:
         """A parser of the text `value`, which it reads where a longer word starts with it too.

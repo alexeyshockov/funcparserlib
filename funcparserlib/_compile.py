@@ -57,7 +57,7 @@ _MAX_START_TESTS = 16
 """A `commit()` with more token tests at its start leaves its failures to the interpreted parser."""
 
 _MAX_CLASS_RANGE = 8192
-"""A wider range of a character class leaves the regexp without a first-character test."""
+"""A wider range of a character class leaves the regex without a first-character test."""
 
 _READS_INPUT = ("text", "text_end", "byte", "fixed", "previous")
 """The forms of parsers that read text or bytes, and no tokens."""
@@ -162,17 +162,17 @@ def _sequence_chars(nodes: Iterable[tuple[Any, Any]], names: Any) -> tuple[_Char
     return chars, True
 
 
-def _regexp_chars(regexp: Pattern[str]) -> _Chars | None:
-    """The characters a non-empty match of `regexp` can start with, `None` when unknown.
+def _regex_chars(regex: Pattern[str]) -> _Chars | None:
+    """The characters a non-empty match of `regex` can start with, `None` when unknown.
 
     `re._parser` is private, and a construct or a version it does not read as this function expects
-    gives `None`: the regexp then runs at every position.
+    gives `None`: the regex then runs at every position.
     """
-    if regexp.flags & IGNORECASE:
+    if regex.flags & IGNORECASE:
         return None
     try:
         parser, names = import_module("re._parser"), import_module("re._constants")
-        return _sequence_chars(parser.parse(regexp.pattern, regexp.flags), names)[0]
+        return _sequence_chars(parser.parse(regex.pattern, regex.flags), names)[0]
     except Exception:  # noqa: BLE001 — a private module may change in any way
         return None
 
@@ -438,11 +438,11 @@ class _Compiler:
 
     def _first_chars(self) -> dict[int, _Chars | None]:
         """The characters each parser can start with, the least fixed point of `_chars_of`."""
-        regexps: dict[int, _Chars | None] = {}
+        regexes: dict[int, _Chars | None] = {}
         for p in self.nodes.values():
             match _form(p):
                 case ("text", match, None, _) if isinstance(match.__self__.pattern, str):
-                    regexps[id(p)] = _regexp_chars(match.__self__)
+                    regexes[id(p)] = _regex_chars(match.__self__)
                 case _:
                     pass
         known: dict[int, _Chars | None] = dict.fromkeys(self.nodes, _NO_CHARS)
@@ -450,7 +450,7 @@ class _Compiler:
         while changed:
             changed = False
             for i, p in self.nodes.items():
-                new = self._chars_of(p, known, regexps)
+                new = self._chars_of(p, known, regexes)
                 if new != known[i]:
                     known[i] = new
                     changed = True
@@ -460,7 +460,7 @@ class _Compiler:
         self,
         p: Parser[Any, Any],
         known: dict[int, _Chars | None],
-        regexps: dict[int, _Chars | None],
+        regexes: dict[int, _Chars | None],
     ) -> _Chars | None:
         def of(q: Parser[Any, Any]) -> _Chars | None:
             return known[id(_target(q))]
@@ -470,7 +470,7 @@ class _Compiler:
             case ("text", _, str(literal), _):
                 result = _Chars(frozenset(literal[0]))
             case ("text", _, None, _):
-                result = regexps.get(id(p))
+                result = regexes.get(id(p))
             case ("seq", left, right):
                 nullable = self.first[id(_target(left))][1]
                 result = _union(of(left), of(right)) if nullable else of(left)

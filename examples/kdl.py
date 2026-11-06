@@ -1,10 +1,10 @@
-"""A KDL 2.0 parser: a regexp tokenizer, and a grammar that follows the spec rule by rule.
+"""A KDL 2.0 parser: a regex tokenizer, and a grammar that follows the spec rule by rule.
 
 The tokenizer keeps whitespace, because KDL needs it: a newline ends a node, and two arguments must
 have whitespace between them. The grammar reads those tokens and builds a tree of `Node`. Strings
 and numbers get their values in the `>>` functions of the grammar.
 
-The parser covers the whole language but for the nesting of comments: a regexp cannot count, so a
+The parser covers the whole language but for the nesting of comments: a regex cannot count, so a
 `/* */` comment holds comments up to 8 levels deep. Text the tokens do not cover fails with
 `LexerError`, text the grammar does not cover with `NoParseError`, and a string with a bad escape or
 indent with `ParseErrors`, which holds every such string of the document.
@@ -76,7 +76,7 @@ END = rf"(?!{IDENT_CHAR})"
 
 # --8<-- [start:comments]
 def block_comment(levels: int) -> str:
-    """The regexp of a `/* */` comment with up to `levels` levels of comments nested in it."""
+    """The regex of a `/* */` comment with up to `levels` levels of comments nested in it."""
     plain = r"[^*/]|\*(?!/)|/(?!\*)"
     body = plain
     for _ in range(levels):

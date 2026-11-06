@@ -1,4 +1,4 @@
-# `funcparserlib.lexer` — Regexp-based tokenizer
+# `funcparserlib.lexer` — Regex-based tokenizer
 
 ::: funcparserlib.lexer.make_tokenizer
 

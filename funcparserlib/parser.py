@@ -770,7 +770,7 @@ class Parser[A, B]:
             `str` which is a sequence of `str` chars), **the recommended way** is
             parsing sequences of `Token` objects.
 
-            You **should** use a regexp-based tokenizer `make_tokenizer()` defined in
+            You **should** use a regex-based tokenizer `make_tokenizer()` defined in
             `funcparserlib.lexer` to convert your text into a sequence of `Token`
             objects before parsing it. You will get more readable parsing error messages
             (as `Token` objects contain their position in the source file) and good
@@ -1492,8 +1492,8 @@ class CompiledParser[A, B]:
         It gives what `Parser.parse()` gives for the tokens of `text`. Where the tokenizer stops at
         text no token spec matches, the error is a mistake among the tokens before it, or what the
         grammar expected in place of that text. A grammar that reads tokens only through `tok()`,
-        with a tokenizer whose specs join into one regexp, runs on the text without making a
-        `Token`: for any other, this is `CompiledParser.parse()` of the tokens.
+        with a tokenizer whose specs join into one regex, runs on the text without making a `Token`:
+        for any other, this is `CompiledParser.parse()` of the tokens.
 
         Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, `LexerError`
         for text past where a grammar without `finished` stops, `ValueError` when a grammar of
@@ -2495,7 +2495,7 @@ def a[A](value: A) -> Parser[A, A]:
             `str` which is a sequence of `str` chars), **the recommended way** is
             parsing sequences of `Token` objects.
 
-            You **should** use a regexp-based tokenizer `make_tokenizer()` defined in
+            You **should** use a regex-based tokenizer `make_tokenizer()` defined in
             `funcparserlib.lexer` to convert your text into a sequence of `Token` objects
             before parsing it. You will get more readable parsing error messages (as `Token`
             objects contain their position in the source file) and good separation of the
@@ -2551,7 +2551,7 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
         !!! Note
 
             In order to convert your text to parse into a sequence of `Token` objects,
-            use a regexp-based tokenizer `make_tokenizer()` defined in
+            use a regex-based tokenizer `make_tokenizer()` defined in
             `funcparserlib.lexer`. You will get more readable parsing error messages (as
             `Token` objects contain their position in the source file) and good separation
             of the lexical and syntactic levels of the grammar.

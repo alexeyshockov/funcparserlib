@@ -440,7 +440,7 @@ def test_kdl_tokenizer_rejects_what_is_no_token(text: str) -> None:
         kdl.parse(text)
 
 
-def test_kdl_comments_nest_up_to_the_level_of_the_regexp() -> None:
+def test_kdl_comments_nest_up_to_the_level_of_the_regex() -> None:
     def nested(levels: int) -> str:
         return "a " + "/*" * levels + "*/" * levels
 

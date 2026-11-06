@@ -51,7 +51,7 @@ spaces = text.regex(rf"[{SPACE}]+")
 line_comment = text.regex(LINE_COMMENT)
 newline_char = text.regex(NL)
 
-# A comment holds comments, which a regexp cannot count and a rule can.
+# A comment holds comments, which a regex cannot count and a rule can.
 block_comment: ForwardDeclParser[str, Any] = forward_decl().named("comment")
 block_comment.define(
     text.lit("/*")

@@ -6,8 +6,8 @@
 ## Context
 
 The parser side of the library is composed from combinators, while the tokenizer is an ordered list of
-regexps where the first match wins. Three things are hard with such a list: specs that fit together,
-seeing what the tokenizer did, and tokens whose meaning depends on where they are. A regexp cannot
+regexes where the first match wins. Three things are hard with such a list: specs that fit together,
+seeing what the tokenizer did, and tokens whose meaning depends on where they are. A regex cannot
 count, which is why the KDL recipe limits the nesting of comments, and the YAML and Markdown recipes
 take their tokens from other libraries. Errors matter as much: what the tokenizer rejects gets
 `cannot tokenize data`, with nothing about what was expected.
@@ -80,12 +80,12 @@ earlier mistake, as a tokenizer stops at the first text it cannot read, past any
 it.
 
 Generated code tests the first character before it runs an alternative of `|` or `longest()` that starts
-with a regexp, as a failed regexp costs a call and a failed character test does not. What a regexp can
+with a regex, as a failed regex costs a call and a failed character test does not. What a regex can
 start with comes from `re._parser`, which is private, so anything read differently than expected, such as
 a category like `\d`, a case-insensitive flag or a change in a later Python, leaves that alternative
 without a test. A wrong test would skip an alternative and could return another's value, with no fallback,
-so `tests/test_compile.py` compares the characters against real matches of random regexps. The tests are
-for `str`: a `bytes` input goes to the interpreted parser, where a `str` regexp raises. When `|` is all a
+so `tests/test_compile.py` compares the characters against real matches of random regexes. The tests are
+for `str`: a `bytes` input goes to the interpreted parser, where a `str` regex raises. When `|` is all a
 function does, each alternative returns from it, without a flag for the ones after it.
 
 Measured with `just bench::micro`, Python 3.15 on an arm64 laptop, minimum:
@@ -101,8 +101,8 @@ Generating the KDL text grammar takes 13 ms against 6 ms, most of it the charact
 Rejected:
 
 - **First-character tests from literals alone.** No private module, and 1.00x to 1.03x on KDL text, as its
-  alternatives start with regexps.
-- **A regexp of each terminal and the skip after it.** At most 1.05x on JSON text, and nothing on KDL text,
+  alternatives start with regexes.
+- **A regex of each terminal and the skip after it.** At most 1.05x on JSON text, and nothing on KDL text,
   which skips nothing.
 - **Token values in the first sets of token grammars.** The hand-written bound for JSON tokens, with branches
   on type and value, was 1.06x, of which returning from alternatives already gives 1.02x.

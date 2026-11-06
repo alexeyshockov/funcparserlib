@@ -1,4 +1,4 @@
-"""Regexp-based tokenizers: turn text into a sequence of `Token` objects for the parser."""
+"""Regex-based tokenizers: turn text into a sequence of `Token` objects for the parser."""
 
 __all__ = ["make_tokenizer", "Tokenizer", "TokenSpec", "Token", "LexerError", "Place", "Spec"]
 
@@ -22,7 +22,7 @@ type Spec = tuple[str, tuple[Any, ...]]
 _CompiledSpec = tuple[str, Pattern[str]]
 
 # What `_renumbered()` reads: an escape, and the brackets of a character class.
-_REGEXP_PIECE = re.compile(r"\\[0-9]+|\\.|\[\^?\]?|\]", re.DOTALL)
+_REGEX_PIECE = re.compile(r"\\[0-9]+|\\.|\[\^?\]?|\]", re.DOTALL)
 
 # The flags a group can scope, `(?i:...)`; any other flag keeps a spec out of a joined pattern.
 _NAMED_GROUP = re.compile(r"\(\?P<\w+>")
@@ -38,7 +38,7 @@ def _renumbered(pattern: str, offset: int, *, movable: bool) -> str | None:
     in_class = False
     parts = []
     end = 0
-    for m in _REGEXP_PIECE.finditer(pattern):
+    for m in _REGEX_PIECE.finditer(pattern):
         piece = m.group()
         if piece.startswith("["):
             in_class = not piece.endswith("]") or not in_class
@@ -58,27 +58,27 @@ def _is_octal(digits: str) -> bool:
     return digits[0] == "0" or (len(digits) >= 3 and set(digits[:3]) <= set("01234567"))
 
 
-def _joined_part(regexp: Pattern[str], group: int) -> str | None:
-    """The part of a joined pattern for `regexp`, wrapped in the group numbered `group`.
+def _joined_part(regex: Pattern[str], group: int) -> str | None:
+    """The part of a joined pattern for `regex`, wrapped in the group numbered `group`.
 
     A spec's named groups become non-capturing, as a token is the whole match. `None` when the spec
     cannot be joined: it refers to a group by name or in a condition, it refers to one by number
     where a name or a comment gets in the way of moving the number, or it has a flag a group cannot
     scope.
     """
-    pattern = regexp.pattern
-    flags = regexp.flags & ~re.UNICODE
+    pattern = regex.pattern
+    flags = regex.flags & ~re.UNICODE
     # A comment can hold what reads as a bracket, which `_renumbered()` would follow.
     has_comment = bool(flags & re.VERBOSE) or "(?#" in pattern
     if (
         re.search(r"\(\?P=|\(\?\(", pattern)
         # Each `(?P<` is a group only if they number as many as the groups the pattern names.
-        or len(_NAMED_GROUP.findall(pattern)) != len(regexp.groupindex)
+        or len(_NAMED_GROUP.findall(pattern)) != len(regex.groupindex)
         or (has_comment and re.search(r"\\[1-9]", pattern))
         or flags & ~sum(_SCOPED_FLAGS)
     ):
         return None
-    renumbered = _renumbered(pattern, group, movable=not regexp.groupindex)
+    renumbered = _renumbered(pattern, group, movable=not regex.groupindex)
     if renumbered is None:
         return None
     letters = "".join(letter for flag, letter in _SCOPED_FLAGS.items() if flags & flag)
@@ -95,12 +95,12 @@ def _combined(specs: Sequence[_CompiledSpec]) -> tuple[Pattern[str], list[str]] 
     """
     parts = []
     types = [""]
-    for token_type, regexp in specs:
-        part = _joined_part(regexp, len(types))
+    for token_type, regex in specs:
+        part = _joined_part(regex, len(types))
         if part is None:
             return None
         parts.append(part)
-        types += [token_type, *[""] * (regexp.groups - len(regexp.groupindex))]
+        types += [token_type, *[""] * (regex.groups - len(regex.groupindex))]
     try:
         return (re.compile("|".join(parts)), types) if parts else None
     except re.error:
@@ -143,9 +143,9 @@ class TokenSpec:
     type: str
     """User-defined type of the token (e.g. `"name"`, `"number"`, `"operator"`)"""
     pattern: str
-    """Regexp for matching this token type"""
+    """Regex for matching this token type"""
     flags: int = 0
-    """Regexp flags, the second argument of `re.compile()`"""
+    """Regex flags, the second argument of `re.compile()`"""
 
     def __repr__(self) -> str:
         """The spec as the call that builds it: `TokenSpec('name', '[a-z]+', 0)`."""
@@ -217,8 +217,8 @@ class Tokenizer:
         self._types: list[str] = combined[1] if combined is not None else []
 
     def _first_match(self, s: str, i: int) -> tuple[str, re.Match[str] | None]:
-        for token_type, regexp in self._specs:
-            if m := regexp.match(s, i):
+        for token_type, regex in self._specs:
+            if m := regex.match(s, i):
                 return token_type, m
         return "", None
 
@@ -286,7 +286,7 @@ class Tokenizer:
 
 def make_tokenizer(specs: Sequence[TokenSpec | Spec], *, skip: Collection[str] = ()) -> Tokenizer:
     # noinspection GrazieInspection
-    """Make a function that tokenizes text based on the regexp specs.
+    """Make a function that tokenizes text based on the regex specs.
 
     A token spec is `TokenSpec` instance.
 
@@ -325,16 +325,16 @@ def make_tokenizer(specs: Sequence[TokenSpec | Spec], *, skip: Collection[str] =
     def compile_specs() -> Iterable[_CompiledSpec]:
         for spec in specs:
             if isinstance(spec, TokenSpec):
-                token_type, regexp = spec.type, re.compile(spec.pattern, spec.flags)
+                token_type, regex = spec.type, re.compile(spec.pattern, spec.flags)
             else:
                 token_type, args = spec
-                regexp = re.compile(*args)
-            if regexp.match(""):
+                regex = re.compile(*args)
+            if regex.match(""):
                 raise with_hint(
                     ValueError(f"the pattern of token {token_type!r} matches the empty string"),
                     "A token consumes at least one character: repeat with `+` rather than `*`.",
                 )
-            yield token_type, regexp
+            yield token_type, regex
 
     compiled = tuple(compile_specs())
     unknown = set(skip) - {token_type for token_type, _ in compiled}

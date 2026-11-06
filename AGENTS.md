@@ -2,7 +2,7 @@
 
 A recursive descent parsing library for Python 3.12+ based on functional combinators: a grammar is
 written as Python expressions over parsers (`p1 + p2`, `p1 | p2`, `p >> f`, `many(p)`), and a
-regexp-based lexer turns text into the tokens they read. The flat-layout package is
+regex-based lexer turns text into the tokens they read. The flat-layout package is
 `funcparserlib/`; tests are `tests/`.
 
 The general rules (tooling, types, source, exception messages, specs, commits) are
