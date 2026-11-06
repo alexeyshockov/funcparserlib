@@ -106,8 +106,8 @@ away, whether that is a node, an entry or a block of children, so a slashdashed 
 --8<-- "examples/kdl.py:grammar"
 ```
 
-`separated()` parses a node once. The spec says a node ends in a terminator, and the last one in a block may omit it,
-so writing that as two rules would parse the last node twice, at each level of nesting.
+`separated(trailing=True)` parses a node once. The spec says a node ends in a terminator, and the last one in a block
+may omit it, so writing that as two rules would parse the last node twice, at each level of nesting.
 
 `string_entry` does the same for an entry. The spec says an entry is a property or a value, and both can start with a
 string, so `prop | value` would read a string, find no `=` and read it again as a value. Reading the string first and
@@ -206,7 +206,7 @@ and `multiline` are alternatives of `longest()`, which keeps the longer match, s
 ```
 
 The rest of the grammar is the grammar above with parsers of the text for the `ws`, `nl` and `op` tokens. A parser that
-takes text takes a `str`, so `dropped()` and `separated()` are typed for that:
+takes text takes a `str`, so `dropped()` is typed for that:
 
 ```python
 --8<-- "examples/kdl_text.py:grammar"

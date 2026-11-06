@@ -26,6 +26,7 @@ from funcparserlib.parser import (
     forward_decl,
     many,
     maybe,
+    separated,
     tok,
 )
 
@@ -205,11 +206,6 @@ def dropped(p: Parser[Token, Any]) -> Parser[Token, None]:
     return slashdash + -p >> (lambda _: None)
 
 
-def separated[B](p: Parser[Token, B], end: Parser[Token, Any]) -> Parser[Token, list[B]]:
-    """Any number of `p`, with an `end` between two of them and optionally after the last."""
-    return maybe(p + many(-end + p) + -maybe(end)) >> (lambda r: [] if r is None else [r[0], *r[1]])
-
-
 def make_node(parts: tuple[Any, ...]) -> Node:
     """A node from its type, name, entries and children."""
     type_, name, entries, nested = parts
@@ -261,7 +257,8 @@ body = (
 node = dropped(body) | body
 terminator = (newline | op(";")) + line_space
 nodes.define(
-    line_space + separated(node, terminator) >> (lambda ns: [n for n in ns if n is not None])
+    line_space + separated(node, terminator, trailing=True)
+    >> (lambda ns: [n for n in ns if n is not None])
 )
 document = nodes + -finished
 # --8<-- [end:grammar]

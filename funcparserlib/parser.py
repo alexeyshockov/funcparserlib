@@ -38,6 +38,7 @@ __all__ = [
     "maybe",
     "many",
     "oneplus",
+    "separated",
     "skip",
     "finished",
     "forward_decl",
@@ -2718,6 +2719,40 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
 
     _oneplus._form = ("oneplus", p)
     return _oneplus
+
+
+def separated[A, B](
+    p: Parser[A, B], sep: Parser[A, Any], *, trailing: bool = False
+) -> Parser[A, list[B]]:
+    """Return a parser of any number of `p` with a `sep` between two of them, as a list of their
+    values, without the values of `sep`.
+
+    A value of `p` stays one item of the list, also when it is a tuple. A `sep` that no `p` follows
+    is left unread, so it fails what comes next, unless `trailing` is true, which reads one after
+    the last item.
+
+    Examples:
+        ```pycon
+        >>> item = a("x") + a("y")
+        >>> expr = separated(item, a(","))
+        >>> expr.parse("xy,xy")
+        [('x', 'y'), ('x', 'y')]
+        >>> expr.parse("")
+        []
+        >>> (expr + -finished).parse("xy,")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected end of input, expected: 'x'
+        >>> (separated(item, a(","), trailing=True) + -finished).parse("xy,")
+        [('x', 'y')]
+
+        ```
+    """
+    first: Parser[A, list[B]] = p >> (lambda value: [value])
+    items = first + many(-sep + p)
+    if trailing:
+        items = items + -maybe(sep)
+    return maybe(items) >> (lambda r: [] if r is None else [*r[0], *r[1]])
 
 
 @final

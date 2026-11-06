@@ -25,6 +25,7 @@ from funcparserlib.parser import (
     oneplus,
     parser,
     pure,
+    separated,
     some,
     tok,
 )
@@ -151,6 +152,37 @@ def test_oneplus_is_many_without_the_empty_case(n: int) -> None:
     else:
         with pytest.raises(NoParseError):
             oneplus(a("x")).parse("")
+
+
+@given(st.integers(min_value=0, max_value=20))
+def test_separated_gives_each_item_once(n: int) -> None:
+    assert separated(a("x"), a(",")).parse(",".join("x" * n)) == ["x"] * n
+
+
+@given(st.integers(min_value=1, max_value=20))
+def test_separated_keeps_a_tuple_as_one_item(n: int) -> None:
+    pair = a("x") + a("y")
+    assert separated(pair, a(",")).parse(",".join(["xy"] * n)) == [("x", "y")] * n
+
+
+def test_separated_leaves_a_trailing_separator_unless_told_to_read_it() -> None:
+    assert (separated(a("x"), a(",")) + a(",")).parse("x,x,") == (["x", "x"], ",")
+    assert (separated(a("x"), a(","), trailing=True) + -finished).parse("x,x,") == ["x", "x"]
+
+
+def test_separated_reads_only_one_trailing_separator() -> None:
+    with pytest.raises(NoParseError):
+        (separated(a("x"), a(","), trailing=True) + -finished).parse("x,,")
+
+
+def test_separated_gives_back_a_separator_when_the_item_after_it_fails_inside() -> None:
+    items = separated(a("x") + a("y"), a(","))
+    assert (items + a(",") + a("x")).parse("xy,x") == ([("x", "y")], ",", "x")
+
+
+def test_separated_reads_no_lone_separator() -> None:
+    with pytest.raises(NoParseError):
+        (separated(a("x"), a(","), trailing=True) + -finished).parse(",")
 
 
 @given(CHARS)

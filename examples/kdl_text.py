@@ -44,6 +44,7 @@ from funcparserlib.parser import (
     maybe,
     oneplus,
     regex,
+    separated,
 )
 
 # --8<-- [start:whitespace]
@@ -106,11 +107,6 @@ def dropped(p: Parser[str, Any]) -> Parser[str, None]:
     return slashdash + -p >> (lambda _: None)
 
 
-def separated[B](p: Parser[str, B], end: Parser[str, Any]) -> Parser[str, list[B]]:
-    """Any number of `p`, with an `end` between two of them and optionally after the last."""
-    return maybe(p + many(-end + p) + -maybe(end)) >> (lambda r: [] if r is None else [r[0], *r[1]])
-
-
 annotation = -lit("(") + space + string + space + -lit(")")
 literal = string | numeric >> number | keyword >> KEYWORDS.__getitem__
 value = maybe(annotation) + space + literal >> (lambda r: Value(r[1], r[0]))
@@ -137,7 +133,8 @@ body = (
 node = dropped(body) | body
 terminator = (newline | lit(";")) + line_space
 nodes.define(
-    line_space + separated(node, terminator) >> (lambda ns: [n for n in ns if n is not None])
+    line_space + separated(node, terminator, trailing=True)
+    >> (lambda ns: [n for n in ns if n is not None])
 )
 document: Parser[str, list[Node]] = nodes + -finished
 # --8<-- [end:grammar]

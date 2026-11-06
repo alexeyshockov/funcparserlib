@@ -32,6 +32,7 @@ from funcparserlib.parser import (
     oneplus,
     prefixed,
     regex,
+    separated,
     skip,
     skipping,
     switch,
@@ -87,6 +88,8 @@ _ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
 _ = assert_type(many(n), Parser[Token, list[int]])
 _ = assert_type(oneplus(n), Parser[Token, list[int]])
+_ = assert_type(separated(n, n), Parser[Token, list[int]])
+_ = assert_type(separated(x + x, x, trailing=True), Parser[str, list[tuple[str, str]]])
 _ = assert_type(maybe(n), Parser[Token, int | None])
 
 decl: ForwardDeclParser[str, str] = forward_decl()

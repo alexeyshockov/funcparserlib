@@ -52,6 +52,7 @@ from funcparserlib.parser import (
     forward_decl,
     many,
     maybe,
+    separated,
     some,
 )
 
@@ -154,13 +155,6 @@ def anchored[N: Scalar | Sequence | Mapping](anchor_and_node: tuple[Any, N]) -> 
     return node if anchor is None else dc.replace(node, anchor=anchor.value)
 
 
-def separated[A, B](p: Parser[A, B], comma: Parser[A, Any]) -> Parser[A, list[B]]:
-    """Any number of `p`, separated by `comma`, with an optional one after the last."""
-    return maybe(p + many(-comma + p) + -maybe(comma)) >> (
-        lambda r: [] if r is None else [r[0], *r[1]]
-    )
-
-
 def null(node: Node | None) -> Node:
     """The node, or the empty scalar that a missing node means."""
     return Scalar("", True, (0, 0)) if node is None else node
@@ -183,14 +177,14 @@ value = -colon + optional_node
 flow_pair = -maybe(key_mark) + key + (maybe(value) >> null) >> (lambda kv: Pair(*kv))
 flow_map = (
     -token(FlowMappingStartToken, "'{'")
-    + separated(flow_pair, comma)
+    + separated(flow_pair, comma, trailing=True)
     + -token(FlowMappingEndToken, "'}'")
     >> Mapping
 )
 single_pair = -key_mark + key + value >> (lambda kv: Mapping([Pair(*kv)]))
 flow_seq = (
     -token(FlowSequenceStartToken, "'['")
-    + separated(single_pair | node, comma)
+    + separated(single_pair | node, comma, trailing=True)
     + -token(FlowSequenceEndToken, "']'")
     >> Sequence
 )

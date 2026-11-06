@@ -35,7 +35,7 @@ tokens first.
 **primitive parser**: a parser that is not made of other parsers: `tok()`, `a()`, `some()`, `finished`.
 
 **combinator**: a function or operator that makes a parser out of parsers: `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `many()`,
-`maybe()`, `oneplus()`.
+`maybe()`, `oneplus()`, `separated()`.
 
 **alternative**: one of the parsers of a choice, such as `p1` in `p1 | p2`. `p1 | p2` keeps the first that succeeds, and
 `longest()` the longest match.

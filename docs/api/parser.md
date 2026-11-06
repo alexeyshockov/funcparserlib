@@ -109,6 +109,8 @@ what may sit between tokens, such as whitespace and comments.
 
 ::: funcparserlib.parser.oneplus
 
+::: funcparserlib.parser.separated
+
 ::: funcparserlib.parser.longest
 
 ::: funcparserlib.parser.skip
