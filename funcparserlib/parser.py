@@ -785,11 +785,12 @@ class Parser[A, B]:
         `some()` of a character. A grammar of `tok()` reads tokens: give those to `Parser.parse()`,
         or a tokenizer to `Parser.compile()`.
 
-        It raises what `Parser.parse()` raises.
+        It raises what `Parser.parse()` raises, and `TypeError` for anything but a `str`.
         """
         # Imported here: the module reads the classes of this one.
         from ._compile import leading_skip  # noqa: PLC0415
 
+        _require_text(text)
         skip = leading_skip(self)
         m = skip.match(text) if skip is not None else None
         start = m.end() if m is not None else 0
@@ -800,10 +801,11 @@ class Parser[A, B]:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
 
         It is for a grammar of the parsers of `funcparserlib.binary`, and raises what
-        `Parser.parse()` raises. Parsers read `bytes` methods and slices, so a `memoryview` raises
-        `TypeError`: to parse one, make the copy with `bytes(view)`.
+        `Parser.parse()` raises, and `TypeError` for anything but `bytes` or a `bytearray`. Parsers
+        read `bytes` methods and slices, so to parse a `memoryview`, make the copy with
+        `bytes(view)`.
         """
-        _refuse_memoryview(data)
+        _require_bytes(data)
         res = self.run(cast("Any", data), State(0, 0))
         return self._result(res, _Offsets(data), _describe)
 
@@ -1494,9 +1496,20 @@ class CompiledParser[A, B]:
         `Token`: for any other, this is `CompiledParser.parse()` of the tokens.
 
         Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, `LexerError`
-        for text past where a grammar without `finished` stops, and `ValueError` when a grammar of
-        tokens has no tokenizer. `describe` is for tokens, so a grammar of text does not use it.
+        for text past where a grammar without `finished` stops, `ValueError` when a grammar of
+        tokens has no tokenizer, and `TypeError` for anything but a `str`. `describe` is for tokens,
+        so a grammar of text does not use it.
         """
+        _require_text(text)
+        return self._read(text, describe)
+
+    def parse_bytes(self, data: bytes | bytearray) -> B:
+        """Parse the bytes, as `Parser.parse_bytes()` does."""
+        _require_bytes(data)
+        return self._read(cast("Any", data), None)
+
+    def _read(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
+        """The result of `text` or bytes, through the functions generated for text if there are."""
         res = None
         if self._fast_text is not None and not debug:
             try:
@@ -1504,11 +1517,6 @@ class CompiledParser[A, B]:
             except _Undecided:
                 res = None
         return res[0] if res is not None else self._interpreted(text, describe)
-
-    def parse_bytes(self, data: bytes | bytearray) -> B:
-        """Parse the bytes, as `Parser.parse_bytes()` does."""
-        _refuse_memoryview(data)
-        return self.parse_text(cast("Any", data))
 
     def _interpreted(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
         """The result of `text` without the functions generated for text."""
@@ -1554,9 +1562,13 @@ class CompiledParser[A, B]:
         stops there, which can be several times faster than making its error. A rejected value or a
         failed `commit()` leaves the generated code, so it takes the time of `parse_text()`. A
         grammar whose value can be `None` cannot tell that from a failure this way. Text nested too
-        deeply gives `None` too, as a `RecursionError`. What a function after `>>` raises it raises.
+        deeply gives `None` too, as a `RecursionError`. What a function after `>>` raises it raises,
+        and it raises `TypeError` for anything but text or bytes.
         """
-        _refuse_memoryview(text)
+        if isinstance(text, bytes | bytearray | memoryview):
+            _require_bytes(text)
+        else:
+            _require_text(text)
         if self._fast_text is not None and not debug:
             try:
                 res = self._fast_text(cast("str", text))
@@ -1598,12 +1610,26 @@ def _nested(
     return tuple(Problem(e.msg, start, end, context, False, True, e) for e in errors)
 
 
-def _refuse_memoryview(data: object) -> None:
-    """Raise `TypeError` for a `memoryview`, which only its owner can decide to copy."""
+def _require_text(text: object) -> None:
+    """Raise `TypeError` for anything but a `str`."""
+    if not isinstance(text, str):
+        raise with_hint(
+            TypeError(f"{type(text).__name__} cannot be parsed as text"),
+            "Pass tokens to `Parser.parse()`, and bytes to `Parser.parse_bytes()`.",
+        )
+
+
+def _require_bytes(data: object) -> None:
+    """Raise `TypeError` for anything but bytes; only the owner of a `memoryview` can copy it."""
     if isinstance(data, memoryview):
         raise with_hint(
             TypeError("a memoryview cannot be parsed"),
             "Parsers read `bytes` methods and slices: pass `bytes(view)` to make the copy.",
+        )
+    if not isinstance(data, bytes | bytearray):
+        raise with_hint(
+            TypeError(f"{type(data).__name__} cannot be parsed as bytes"),
+            "Pass tokens to `Parser.parse()`, and text to `Parser.parse_text()`.",
         )
 
 

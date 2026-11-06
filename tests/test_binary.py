@@ -18,6 +18,7 @@ from funcparserlib.parser import (
     ParseErrors,
     Parser,
     _Undecided,
+    a,
     commit,
     counted,
     finished,
@@ -2075,3 +2076,12 @@ def test_a_region_left_unread_says_so(run: Runner) -> None:
     assert message(run, prefixed(b.byte(), b.literal(b"a")), b"\x02ab") == (
         "bytes left in the region: 0x62 at offset 0x2"
     )
+
+
+@pytest.mark.parametrize("value", [["y"], ("y",), 1, None, "y"])
+def test_only_bytes_are_parsed_as_bytes(value: object) -> None:
+    grammar = many(a(1)) + -finished
+    with pytest.raises(TypeError, match="cannot be parsed as bytes"):
+        grammar.parse_bytes(loose(value))
+    with pytest.raises(TypeError, match="cannot be parsed as bytes"):
+        grammar.compile().parse_bytes(loose(value))

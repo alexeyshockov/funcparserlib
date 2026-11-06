@@ -1036,11 +1036,27 @@ def test_a_first_character_test_keeps_what_the_alternatives_match(
     assert grammar.compile().parse_text(text) == value
 
 
-@pytest.mark.parametrize("call", ["parse_text", "try_parse"])
-def test_bytes_given_to_a_grammar_of_text_raise_as_in_its_parser(call: str) -> None:
-    code = (plain.match("a") | pure("x")).compile()
+def test_bytes_given_to_a_grammar_of_text_raise_as_in_its_parser() -> None:
+    grammar = plain.match("a") | pure("x")
     with pytest.raises(TypeError, match="string pattern"):
-        getattr(code, call)(loose(b"a"))
+        grammar.parse_bytes(b"a")
+    with pytest.raises(TypeError, match="string pattern"):
+        grammar.compile().try_parse(b"a")
+
+
+@pytest.mark.parametrize("value", [["y"], ("y",), 1, None, b"y", bytearray(b"y")])
+def test_only_a_str_is_parsed_as_text(value: object) -> None:
+    grammar = many(a("x")) + -finished
+    with pytest.raises(TypeError, match="cannot be parsed as text"):
+        grammar.parse_text(loose(value))
+    with pytest.raises(TypeError, match="cannot be parsed as text"):
+        grammar.compile().parse_text(loose(value))
+
+
+@pytest.mark.parametrize("value", [["y"], ("y",), 1, None])
+def test_try_parse_refuses_what_is_neither_text_nor_bytes(value: object) -> None:
+    with pytest.raises(TypeError, match="cannot be parsed as text"):
+        (many(a("x")) + -finished).compile().try_parse(loose(value))
 
 
 def test_alternatives_read_the_first_character_once(tmp_path: Path) -> None:
