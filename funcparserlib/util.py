@@ -76,8 +76,9 @@ def expand_tuple_args[T1, T2, T3, T4, T5, A](
 def expand_tuple_args[A](f: Callable[..., A]) -> Callable[..., A]:
     """Adapt `f` to take its positional arguments as one tuple, the value of `p1 + ... + pN`.
 
-    A function whose first parameter is `self` or `cls` keeps it and takes the tuple second, so a
-    method decorated with it works with `>>` as well.
+    A method, whose first parameter is `self` or `cls`, keeps it and takes the tuple second, so a
+    method decorated with it works with `>>` as well. A function defined outside a class is no
+    method, whatever its parameters are called.
 
     Examples:
         ```pycon
@@ -97,8 +98,15 @@ def expand_tuple_args[A](f: Callable[..., A]) -> Callable[..., A]:
     def _unwrap_method(cls_or_self: type | object, args: tuple[Any, ...]) -> A:
         return f(cls_or_self, *args)
 
-    sig = signature(f)
-    if (params := tuple(sig.parameters.keys())) and params[0] in {"self", "cls"}:
-        return _unwrap_method
-    else:
-        return _unwrap_fn
+    return _unwrap_method if _is_method(f) else _unwrap_fn
+
+
+def _is_method(f: Callable[..., Any]) -> bool:
+    """Whether `f` is defined in a class and takes `self` or `cls`; a built-in has no signature."""
+    scope = getattr(f, "__qualname__", "").rpartition(".")[0]
+    if not scope or scope.endswith("<locals>"):
+        return False
+    try:
+        return next(iter(signature(f).parameters), None) in {"self", "cls"}
+    except (TypeError, ValueError):
+        return False

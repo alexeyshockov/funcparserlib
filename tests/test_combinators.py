@@ -394,3 +394,16 @@ def test_a_repeated_alternative_changes_no_error() -> None:
     with pytest.raises(NoParseError) as expected:
         (x | y | z).parse("q")
     assert str(got.value) == str(expected.value)
+
+
+def test_expand_tuple_args_of_a_built_in() -> None:
+    built_in: Any = max
+    assert expand_tuple_args(built_in)((1, 3, 2)) == 3
+
+
+def test_expand_tuple_args_of_a_function_with_a_parameter_called_cls() -> None:
+    def named(cls: str, name: str) -> str:
+        return cls + name
+
+    assert expand_tuple_args(named)(("a", "b")) == "ab"
+    assert expand_tuple_args(lambda cls, name: cls + name)(("a", "b")) == "ab"
