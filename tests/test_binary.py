@@ -1849,9 +1849,10 @@ def test_parse_bytes_of_a_bytearray_and_a_memoryview() -> None:
 
 def test_the_message_of_an_error_does_not_depend_on_the_data_type() -> None:
     grammar = b.byte + b.literal(b"a")
-    for data in (b"\x00b", bytearray(b"\x00b")):
-        with pytest.raises(NoParseError, match="0x62 at offset 0x1"):
-            grammar.parse_bytes(loose(data))
+    for parse in (grammar.parse_bytes, grammar.compile().parse_bytes):
+        for data in (b"\x00b", bytearray(b"\x00b")):
+            with pytest.raises(NoParseError, match="0x62 at offset 0x1"):
+                parse(loose(data))
 
 
 # commit()

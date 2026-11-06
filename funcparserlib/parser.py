@@ -1506,7 +1506,7 @@ class CompiledParser[A, B]:
                     "Pass the tokenizer of the grammar to `Parser.compile()`:"
                     " `grammar.compile(tokenize)`.",
                 )
-            if isinstance(text, bytes):
+            if isinstance(text, bytes | bytearray):
                 return self._parser.parse_bytes(text)
             return self._parser.parse_text(text)
         tokens: list[Any] = []
