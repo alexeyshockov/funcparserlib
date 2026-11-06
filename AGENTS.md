@@ -24,6 +24,7 @@ funcparserlib/_compile.py Parser.compile(): a grammar as generated Python functi
 funcparserlib/util.py     pretty_tree, expand_tuple_args
 funcparserlib/_commons.py the generated helpers: valueclass, refclass, with_hint
 tests/test_*.py           unit tests; tests/dot.py and tests/json.py are example grammars they drive
+tests/shadow.py           pytest plugin: every parse of the suite also runs compiled, and must agree
 tests/typesafety/         what a user's checker infers; pytest does not collect it
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
@@ -41,7 +42,7 @@ just check [FILES]       # read-only: every applicable hook, + ty for Python pat
 just fix [FILES]         # apply the fixers
 just types               # mypy over the package, the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
-just tests               # the noxfile's local sessions: the 3.12 floor and free-threaded 3.15t
+just tests               # the noxfile's local sessions: 3.12, free-threaded 3.15t, shadow, exhaustive
 just docs-build          # the site into site/
 just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
 just bench::compare      # the last two saved runs side by side
@@ -66,5 +67,7 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   type checkers and assign their fields directly at runtime. The conventions runner, CON513.
 - **`Parser` is the one exported class open to subclassing**; everything else exported is `@final`.
   `[tool.conventions.subclassable]`, CON200.
+- **A compiled parser gives what its parser gives.** The nox sessions `shadow` and `exhaustive`, and
+  the property tests, which fail if a form of generated code is out of their reach (ADR 0002).
 - **The docs pages are tests.** A `>>>` session in `docs/` runs under pytest. `examples/` is
   type-checked and run (`just types-examples`, `tests/test_examples.py`).
