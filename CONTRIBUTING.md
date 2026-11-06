@@ -43,6 +43,13 @@ tokenizer, and `tests/test_errors.py` error reporting: what an error expects, la
 `Parser.validated()`, `describe=` and `render()`. `tests/test_json.py` and `tests/test_dot.py` drive the example grammars
 in `tests/json.py` and `tests/dot.py`, and `tests/test_examples.py` runs `examples/`.
 
+Compiled and interpreted parsers have to agree, and three things check that. The property tests in
+`tests/test_compile.py`, `tests/test_text.py` and `tests/test_binary.py` draw random grammars, and a test fails if a form
+of generated code is out of their reach, so a new combinator goes into those generators. `tests/shadow.py` runs every
+parse of the suite on the compiled parser as well: mark a test `interpreted_only` if it counts what a parse calls.
+`tests/test_exhaustive.py` walks every small grammar, for the shapes random grammars rarely draw. A failure Hypothesis
+finds goes into a test of its own, as `.hypothesis` is local.
+
 Properties go in the same modules, written with [Hypothesis](https://hypothesis.readthedocs.io/): the tokens
 reassemble the text and know their positions, a sequence keeps what it does not skip, the error names the first token
 that differs, and the example JSON grammar reads what `json.dumps` writes as `json.loads` does. A failing property

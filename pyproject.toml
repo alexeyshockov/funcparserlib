@@ -71,8 +71,11 @@ timeout = 30
 testpaths = ["tests", "funcparserlib", "docs"]
 # `-p no:benchmark`: `.venv` holds pytest-benchmark for `just bench::micro`, and loaded here it
 # creates `.benchmarks/`.
-addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark"]
-markers = ["interpreted_only: left alone by `tests.shadow`: it counts calls, or differs on purpose"]
+addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark", "-m", "not exhaustive"]
+markers = [
+    "interpreted_only: left alone by `tests.shadow`: it counts calls, or differs on purpose",
+    "exhaustive: every small grammar, a session of its own in the noxfile",
+]
 filterwarnings = ["error"]
 
 # `just mutants`: the code whose bugs tests see least, as a broken fast path falls back to the same
