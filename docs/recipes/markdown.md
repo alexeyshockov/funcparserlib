@@ -92,8 +92,8 @@ funcparserlib.parser.NoParseError: got unexpected token: image on line 2, expect
 
 The tree above is built from a whole document. A migration needs the other way round: find each construct wherever it
 is, rewrite it, and keep every other character of the file. `examples/notes.py` turns notes into GitHub alerts. A note is
-written as a paragraph that starts with `Note:` or `**Note:**`, or as a `Note` heading followed by paragraphs, and a
-heading that says `Note` has to be followed by one:
+written as a paragraph that starts with `Note:` or `**Note:**`, as a block quote whose first paragraph is one, or as a
+`Note` heading followed by paragraphs, and a heading that says `Note` has to be followed by one:
 
 ```python
 --8<-- "examples/notes.py:grammar"
@@ -109,7 +109,8 @@ block in `map`, and a close token has none, so `span` takes the lines of the tok
 
 markdown-it gives the text of a block without the prefix each of its lines has in a container, `-` in a list item or
 `>` in a block quote. The new text gets it back: the first line takes the prefix of the block's first line, and the
-lines after it are indented as far:
+lines after it are indented as far. A note that was a block quote is the alert itself, so its own `>` is no part of the
+prefix. Lines end as markdown-it ends them, so a file with `\r\n` keeps them:
 
 ```python
 --8<-- "examples/notes.py:prefix"

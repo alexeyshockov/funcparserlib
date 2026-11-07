@@ -866,7 +866,8 @@ class Parser[A, B]:
         A grammar that fails at an index has no match there, unless a `commit()` failed or
         `Parser.validated()` rejected a value: then the iterator raises what `Parser.parse()`
         raises, with `describe` for the tokens. It raises `ValueError` for a match that reads no
-        tokens, as it would have no end.
+        tokens, as it would have no end, and for a `span` that ends before it starts, and
+        `TypeError` for a `str` or `bytes`, which `Parser.scan_text()` reads.
 
         Examples:
             ```pycon
@@ -878,6 +879,11 @@ class Parser[A, B]:
 
             ```
         """
+        if isinstance(tokens, str | bytes | bytearray):
+            raise with_hint(
+                TypeError(f"{type(tokens).__name__} is no sequence of tokens to scan"),
+                "Scan text with `Parser.scan_text()`, which reads it with its line and column.",
+            )
         return self._scan_tokens(tokens, describe or _describe, span)
 
     def _scan_tokens(
@@ -902,6 +908,14 @@ class Parser[A, B]:
                     " pure() wraps.",
                 )
             start, stop = (index, end) if span is None else span(tokens, index, end)
+            if stop < start:
+                raise with_hint(
+                    ValueError(
+                        f"span gave an end of {stop}, before its start of {start},"
+                        f" for tokens {index} to {end}"
+                    ),
+                    "`span` gives the start and then the end of the text the tokens came from.",
+                )
             yield Located(res.value, start, stop)
             index = end
 

@@ -10,6 +10,7 @@ import msgpack
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from markdown_it.token import Token as MarkdownToken
 from ruamel.yaml.error import YAMLError
 
 from examples import (
@@ -1322,7 +1323,9 @@ def test_notes_become_alerts_and_the_rest_stays() -> None:
     [
         ("- a\n- **Note:** b\n  c\n- d\n", "- a\n- > [!NOTE]\n  > b\n  > c\n- d\n"),
         ("1. a\n2. Note: b\n   c\n", "1. a\n2. > [!NOTE]\n   > b\n   > c\n"),
-        ("> Note: b\n> c\n", "> > [!NOTE]\n> > b\n> > c\n"),
+        ("> Note: b\n> c\n", "> [!NOTE]\n> b\n> c\n"),
+        ("- > Note: b\n  > c\n", "- > [!NOTE]\n  > b\n  > c\n"),
+        ("> intro\n>\n> Note: b\n", "> intro\n>\n> > [!NOTE]\n> > b\n"),
     ],
 )
 def test_a_note_in_a_container_keeps_the_prefix_of_its_lines(text: str, expected: str) -> None:
@@ -1337,3 +1340,20 @@ def test_a_note_heading_without_a_paragraph_stops_the_migration_at_its_line() ->
 def test_a_migrated_file_migrates_to_itself() -> None:
     once = notes.migrate("Note: a\n\n- Note: b\n")
     assert notes.migrate(once) == once
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Note: a", "> [!NOTE]\n> a"),
+        ("x\r\n\r\nNote: a\r\nb\r\n", "x\r\n\r\n> [!NOTE]\r\n> a\r\n> b\r\n"),
+        ("x\r\rNote: a\r", "x\r\r> [!NOTE]\r> a\r"),
+    ],
+)
+def test_a_note_keeps_its_line_endings_and_the_end_of_the_file(text: str, expected: str) -> None:
+    assert notes.migrate(text) == expected
+
+
+def test_a_span_of_tokens_without_lines_says_so() -> None:
+    with pytest.raises(ValueError, match="no token from 0 to 1 has the lines"):
+        notes.lines_of([MarkdownToken("paragraph_close", "", 0)], 0, 1)

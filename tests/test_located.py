@@ -441,3 +441,15 @@ def test_a_failed_commit_in_a_scan_of_tokens_raises_with_the_description() -> No
 def test_a_scan_of_tokens_refuses_a_match_that_reads_none() -> None:
     with pytest.raises(ValueError, match="matched no tokens at index 0"):
         list(maybe(tok("name")).scan(list(tokenize("= a"))))
+
+
+@pytest.mark.parametrize("text", ["foo bar", b"foo bar"])
+def test_a_scan_of_tokens_refuses_text(text: Any) -> None:
+    with pytest.raises(TypeError, match="no sequence of tokens to scan") as caught:
+        list(word.scan(text))
+    assert "scan_text()" in caught.value.__notes__[0]
+
+
+def test_a_span_that_ends_before_it_starts_is_refused() -> None:
+    with pytest.raises(ValueError, match="span gave an end of 0, before its start of 4"):
+        list(pair.scan(list(tokenize("a = b")), span=lambda tokens, start, end: (4, 0)))

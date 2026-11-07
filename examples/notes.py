@@ -5,13 +5,16 @@ Goal: a whole-file rewrite where a construct is a sequence of markdown-it blocks
 a file, list items and block quotes included, and the text around the constructs is kept to the
 character.
 
-A note is written one of two ways: a paragraph that starts with `Note:` or `**Note:**`, or a `Note`
-heading followed by paragraphs. Each one becomes a GitHub alert, `> [!NOTE]`, with its paragraphs. A
-`Note` heading with no paragraph after it is a broken note, and stops the migration at its line.
+A note is written one of three ways: a paragraph that starts with `Note:` or `**Note:**`, a block
+quote whose first paragraph is one, or a `Note` heading followed by paragraphs. Each one becomes a
+GitHub alert, `> [!NOTE]`, with its paragraphs. A `Note` heading with no paragraph after it is a
+broken note, and stops the migration at its line.
 
 `Parser.scan()` finds the notes in markdown-it's tokens, and its `span` function turns the tokens of
 a note into the lines of the file they came from. markdown-it gives the text of a block without the
 prefix each of its lines has in a container, `- ` or `> `, so the new text gets the prefix back.
+
+The line endings of a note are kept, and so is the end of a file without one.
 
 Run it on a file: `python -m examples.notes README.md`.
 """
@@ -27,15 +30,16 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from funcparserlib.parser import Parser, TokenDescription, commit, oneplus, some
+from funcparserlib.parser import Parser, TokenDescription, commit, many, oneplus, some
 
 
 # --8<-- [start:grammar]
 @dataclass(frozen=True)
 class Note:
-    """A note: its paragraphs, each a text of lines."""
+    """A note: its paragraphs, each a text of lines, and whether it was a block quote."""
 
     paragraphs: Sequence[str]
+    quoted: bool = False
 
 
 NOTE = re.compile(r"(?:\*\*Note:\*\*|Note:)[ \t]*(.+)", re.DOTALL)
@@ -70,19 +74,35 @@ titled = -block("heading_open") + -inline(re.compile(r"(Note)"), "Note")
 # Once a heading says `Note`, what follows has to be a note.
 under = commit(-block("heading_close") + oneplus(paragraph))
 
-note = (noted >> (lambda text: Note([text]))) | (titled + under >> Note)
+quote = -block("blockquote_open") + noted + many(paragraph) + -block("blockquote_close")
+
+note = (
+    (quote >> (lambda p: Note([p[0], *p[1]], quoted=True)))
+    | (noted >> (lambda text: Note([text])))
+    | (titled + under >> Note)
+)
 # --8<-- [end:grammar]
 
 
 # --8<-- [start:span]
+BREAK = re.compile(r"\r\n|\r|\n")
+LAST_BREAK = re.compile(r"(?:\r\n|\r|\n)\Z")
+
+
 def line_starts(text: str) -> list[int]:
-    """The offset each line of `text` starts at, and its length after the last."""
-    return [0, *(i + 1 for i, c in enumerate(text) if c == "\n"), len(text)]
+    """The offset each line of `text` starts at, and its length after the last.
+
+    Lines end as markdown-it ends them, at `\\r\\n`, `\\r` or `\\n`.
+    """
+    return [0, *(m.end() for m in BREAK.finditer(text)), len(text)]
 
 
 def lines_of(tokens: Sequence[Token], start: int, end: int) -> tuple[int, int]:
     """The first line of the tokens from `start` to `end`, and the line after their last."""
     maps = [t.map for t in tokens[start:end] if t.map is not None]
+    if not maps:
+        msg = f"no token from {start} to {end} has the lines it came from"
+        raise ValueError(msg)
     return maps[0][0], max(m[1] for m in maps)
 
 
@@ -93,13 +113,16 @@ def lines_of(tokens: Sequence[Token], start: int, end: int) -> tuple[int, int]:
 CONTAINER = re.compile(r"(?:[ \t]*(?:>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+))*[ \t]*")
 
 
-def prefixes(line: str) -> tuple[str, str]:
+def prefixes(line: str, *, quoted: bool) -> tuple[str, str]:
     """The prefix of the first line of a block in a container, and of the lines after it.
 
-    A list marker stands on the first line only: the lines after it are indented as far.
+    A list marker stands on the first line only: the lines after it are indented as far. The quote
+    of a `quoted` note is the note's own, and no part of its prefix.
     """
     first = CONTAINER.match(line)
     head = first[0] if first else ""
+    if quoted:
+        head = re.sub(r">[ \t]?(?=[^>]*$)", "", head, count=1)
     rest = re.sub(r"[-*+]|\d+[.)]", lambda m: " " * len(m[0]), head)
     return head, rest
 
@@ -132,10 +155,14 @@ def migrate(text: str) -> str:
     done = 0
     for m in note.scan(tokens, describe=describe, span=lines_of):
         start, end = starts[m.start], starts[m.end]
-        head, rest = prefixes(text[start:end])
+        region = text[start:end]
+        head, rest = prefixes(region, quoted=m.value.quoted)
         lines = alert(m.value)
         new = [head + lines[0], *(rest + line for line in lines[1:])]
-        parts += [text[done:start], "\n".join(new), "\n"]
+        # The note keeps its own line ending, and has none after its last line where it had none.
+        first, last = BREAK.search(region), LAST_BREAK.search(region)
+        eol = first[0] if first else "\n"
+        parts += [text[done:start], eol.join(new), last[0] if last else ""]
         done = end
     parts.append(text[done:])
     return "".join(parts)
