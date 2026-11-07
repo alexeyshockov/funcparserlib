@@ -36,7 +36,6 @@ You are **not** supposed to understand it now. Just look at its shape and try to
 By the end of this guide, **you will fully understand this code** and will be able to write parsers for your own needs.
 
 ```pycon
->>> from typing import List, Tuple, Union
 >>> from dataclasses import dataclass
 >>> from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
 >>> from funcparserlib.parser import tok, Parser, many, forward_decl, finished
@@ -49,10 +48,10 @@ By the end of this guide, **you will fully understand this code** and will be ab
 ...     right: "Expr"
 
 
->>> Expr = Union[BinaryExpr, int, float]
+>>> type Expr = BinaryExpr | int | float
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     specs = [
 ...         TokenSpec("whitespace", r"\s+"),
 ...         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),
@@ -63,7 +62,7 @@ By the end of this guide, **you will fully understand this code** and will be ab
 ...     return [t for t in tokenizer(s) if t.type != "whitespace"]
 
 
->>> def parse(tokens: List[Token]) -> Expr:
+>>> def parse(tokens: list[Token]) -> Expr:
 ...     int_num = tok("int") >> int
 ...     float_num = tok("float") >> float
 ...     number = int_num | float_num
@@ -85,7 +84,7 @@ By the end of this guide, **you will fully understand this code** and will be ab
 ...     return tok("op", name)
 
 
->>> def to_expr(args: Tuple[Expr, List[Tuple[str, Expr]]]) -> Expr:
+>>> def to_expr(args: tuple[Expr, list[tuple[str, Expr]]]) -> Expr:
 ...     first, rest = args
 ...     result = first
 ...     for op, expr in rest:

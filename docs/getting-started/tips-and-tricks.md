@@ -3,12 +3,11 @@
 Let's use the tokenizer we have defined previously for our examples in this chapter:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
 >>> from funcparserlib.parser import tok, Parser, many, forward_decl, finished
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     specs = [
 ...         TokenSpec("whitespace", r"\s+"),
 ...         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),
@@ -50,7 +49,6 @@ If there were several parsing alternatives, the parser will report an error afte
 sequence:
 
 ```pycon
-
 >>> expr.parse(tokenize("1 + 2"))
 Traceback (most recent call last):
     ...

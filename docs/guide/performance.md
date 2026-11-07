@@ -7,7 +7,6 @@ it is, and you can stop at any step.
 Let's use a tokenizer for numeric expressions again:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 >>> from funcparserlib.parser import Parser, finished, many, maybe, tok
 
@@ -21,7 +20,7 @@ Let's use a tokenizer for numeric expressions again:
 ... )
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     return list(tokenizer(s))
 
 

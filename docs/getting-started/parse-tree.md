@@ -3,12 +3,11 @@
 So far we have defined the parser for our calculator expressions language:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
 >>> from funcparserlib.parser import tok, Parser, many, forward_decl, finished
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     specs = [
 ...         TokenSpec("whitespace", r"\s+"),
 ...         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),
@@ -83,11 +82,8 @@ Try it:
 Let's redefine our `number` parser so that it returns either `int` or `float`:
 
 ```pycon
->>> from typing import Union
-
-
 >>> float_num: Parser[Token, float] = tok("float") >> float
->>> number: Parser[Token, Union[int, float]] = int_num | float_num
+>>> number: Parser[Token, int | float] = int_num | float_num
 
 ```
 
@@ -220,7 +216,7 @@ Since we don't use a common base class for our expressions, we have to define `E
 types:
 
 ```text
->>> Expr = Union[BinaryExpr, int, float]
+>>> type Expr = BinaryExpr | int | float
 
 ```
 
@@ -230,10 +226,7 @@ look at our parsers of various binary expressions. You can infer that each of th
 a function `to_expr(args)` and applying `>> to_expr` to our expression parsers:
 
 ```pycon
->>> from typing import Tuple
-
-
->>> def to_expr(args: Tuple[Expr, List[Tuple[str, Expr]]]) -> Expr:
+>>> def to_expr(args: tuple[Expr, list[tuple[str, Expr]]]) -> Expr:
 ...     first, rest = args
 ...     result = first
 ...     for op, expr in rest:
@@ -272,7 +265,7 @@ Let's pretty-print it using the [`pretty_tree(x, kids, show)`](../api/util.md#fu
 
 >>> def pretty_expr(expr: Expr) -> str:
 ...
-...     def kids(expr: Expr) -> List[Expr]:
+...     def kids(expr: Expr) -> list[Expr]:
 ...         if isinstance(expr, BinaryExpr):
 ...             return [expr.left, expr.right]
 ...         else:

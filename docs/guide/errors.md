@@ -6,7 +6,6 @@ funcparserlib tells you about a mistake, and how to make that better for your us
 Let's use a tokenizer for numeric expressions again, this time with lines:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
 >>> from funcparserlib.parser import NoParseError, ParseErrors, Parser, finished, forward_decl, many, maybe, tok
 
@@ -21,7 +20,7 @@ Let's use a tokenizer for numeric expressions again, this time with lines:
 ... )
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     return list(tokenizer(s))
 
 

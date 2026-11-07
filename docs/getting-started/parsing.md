@@ -3,11 +3,10 @@
 So far we have defined the tokenizer for our calculator expressions language:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
 
 
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     specs = [
 ...         TokenSpec("whitespace", r"\s+"),
 ...         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),

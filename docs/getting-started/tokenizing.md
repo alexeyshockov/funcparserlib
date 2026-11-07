@@ -10,7 +10,7 @@ Parsing is usually split into two steps:
 
 ```text
          ┌────────────┐               ┌─────────┐
-   str   │            │  List[Token]  │         │   Expr
+   str   │            │  list[Token]  │         │   Expr
 ─────────► tokenize() ├───────────────► parse() ├─────────►
          │            │               │         │
          └────────────┘               └─────────┘
@@ -51,7 +51,6 @@ whitespace tokens from the result with `skip`, since we don't need them.
 Some imports first:
 
 ```pycon
->>> from typing import List
 >>> from funcparserlib.lexer import make_tokenizer, TokenSpec, Token
 
 ```
@@ -59,7 +58,7 @@ Some imports first:
 The tokenizer itself:
 
 ```pycon
->>> def tokenize(s: str) -> List[Token]:
+>>> def tokenize(s: str) -> list[Token]:
 ...     specs = [
 ...         TokenSpec("whitespace", r"\s+"),
 ...         TokenSpec("float", r"[+\-]?\d+\.\d*([Ee][+\-]?\d+)*"),
