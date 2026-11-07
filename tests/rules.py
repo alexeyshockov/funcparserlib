@@ -7,16 +7,16 @@ from hypothesis import strategies as st
 
 from funcparserlib.parser import Invalid, Parser, pure
 
-_T = TypeVar("_T")
+T = TypeVar("T")
 
 P = Parser[Any, Any]
 Grammars = st.SearchStrategy[P]
 
 
-def kept(pred: Callable[[_T], bool], message: str) -> Callable[[_T], _T]:
+def kept(pred: Callable[[T], bool], message: str) -> Callable[[T], T]:
     """A function for `Parser.validated()` that reports `message` and keeps the value."""
 
-    def rule(value: _T) -> _T:
+    def rule(value: T) -> T:
         """The value, with an error when `pred` is false for it."""
         if not pred(value):
             raise Invalid(message, keep=True)
@@ -25,10 +25,10 @@ def kept(pred: Callable[[_T], bool], message: str) -> Callable[[_T], _T]:
     return rule
 
 
-def rejected(pred: Callable[[_T], bool], message: str) -> Callable[[_T], _T]:
+def rejected(pred: Callable[[T], bool], message: str) -> Callable[[T], T]:
     """A function for `Parser.validated()` that rejects a value `pred` is false for."""
 
-    def rule(value: _T) -> _T:
+    def rule(value: T) -> T:
         """The value, rejected when `pred` is false for it."""
         if not pred(value):
             raise Invalid(message)

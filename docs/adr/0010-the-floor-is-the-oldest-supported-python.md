@@ -17,10 +17,13 @@ needs to run. The docs teach the newest syntax, and that does not depend on the 
 - **`requires-python` starts from the oldest CPython still supported**, and the test matrix runs every
   version from there to the newest, plus the newest free-threaded build. Today that is 3.11. When
   3.11 reaches its end of life, the floor becomes 3.12 by this rule.
-- **The package and its tests are written for the floor.** Below 3.12 that means module-level,
-  private `TypeVar`s and `TypeAlias` annotations. Each class's type variables have the variance PEP
-  695 inferred for it, as mypy reported it (a probe that assigns `C[Sub]` to `C[Base]` and back for
-  each parameter): `ParsingResult`, `ParsingSuccess` and `Located` are covariant, and every parser
+- **The package and its tests are written for the floor.** Below 3.12 that means module-level
+  `TypeVar`s and `TypeAlias` annotations. A type variable has the name its type parameter had and
+  will have again, with no underscore and no variance suffix, so the API reference reads the same
+  on either side of 3.12; only two variables that would share a name keep apart, as `B` and
+  `B_co`. Each class's type variables have the variance PEP 695 inferred for it, as mypy reported
+  it (a probe that assigns `C[Sub]` to `C[Base]` and back for each parameter): `ParsingResult`,
+  `ParsingSuccess` and `Located` are covariant, and every parser
   class is invariant in every parameter. An alias that names a class defined later in its module
   comes after that class, so a public alias stays a subscriptable object at runtime.
 - **The examples, the docs and the README teach the newest syntax**, whatever the floor. ruff's

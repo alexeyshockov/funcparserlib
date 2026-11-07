@@ -8,12 +8,12 @@ from typing import Any, TypeVar, final, overload
 from ._commons import with_hint
 from .lexer import Place
 
-_A = TypeVar("_A")
-_T1 = TypeVar("_T1")
-_T2 = TypeVar("_T2")
-_T3 = TypeVar("_T3")
-_T4 = TypeVar("_T4")
-_T5 = TypeVar("_T5")
+A = TypeVar("A")
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+T3 = TypeVar("T3")
+T4 = TypeVar("T4")
+T5 = TypeVar("T5")
 
 __all__ = ["Lines", "pretty_tree", "expand_tuple_args"]
 
@@ -78,7 +78,7 @@ class Lines:
         return offset
 
 
-def pretty_tree(x: _A, kids: Callable[[_A], Sequence[_A]], show: Callable[[_A], str]) -> str:
+def pretty_tree(x: A, kids: Callable[[A], Sequence[A]], show: Callable[[A], str]) -> str:
     """Return a pseudo-graphic tree representation of the object `x` similar to the `tree` command
     in Unix.
 
@@ -104,7 +104,7 @@ def pretty_tree(x: _A, kids: Callable[[_A], Sequence[_A]], show: Callable[[_A], 
     """
     (MID, END, CONT, LAST, ROOT) = ("|-- ", "`-- ", "|   ", "    ", "")
 
-    def rec(obj: _A, indent: str, sym: str) -> str:
+    def rec(obj: A, indent: str, sym: str) -> str:
         line = indent + sym + show(obj)
         obj_kids = kids(obj)
         if len(obj_kids) == 0:
@@ -124,26 +124,24 @@ def pretty_tree(x: _A, kids: Callable[[_A], Sequence[_A]], show: Callable[[_A], 
 
 
 @overload
-def expand_tuple_args(f: Callable[[_T1, _T2], _A]) -> Callable[[tuple[_T1, _T2]], _A]: ...
+def expand_tuple_args(f: Callable[[T1, T2], A]) -> Callable[[tuple[T1, T2]], A]: ...
 
 
 @overload
-def expand_tuple_args(f: Callable[[_T1, _T2, _T3], _A]) -> Callable[[tuple[_T1, _T2, _T3]], _A]: ...
+def expand_tuple_args(f: Callable[[T1, T2, T3], A]) -> Callable[[tuple[T1, T2, T3]], A]: ...
 
 
 @overload
-def expand_tuple_args(
-    f: Callable[[_T1, _T2, _T3, _T4], _A],
-) -> Callable[[tuple[_T1, _T2, _T3, _T4]], _A]: ...
+def expand_tuple_args(f: Callable[[T1, T2, T3, T4], A]) -> Callable[[tuple[T1, T2, T3, T4]], A]: ...
 
 
 @overload
 def expand_tuple_args(
-    f: Callable[[_T1, _T2, _T3, _T4, _T5], _A],
-) -> Callable[[tuple[_T1, _T2, _T3, _T4, _T5]], _A]: ...
+    f: Callable[[T1, T2, T3, T4, T5], A],
+) -> Callable[[tuple[T1, T2, T3, T4, T5]], A]: ...
 
 
-def expand_tuple_args(f: Callable[..., _A]) -> Callable[..., _A]:
+def expand_tuple_args(f: Callable[..., A]) -> Callable[..., A]:
     """Adapt `f` to take its positional arguments as one tuple, the value of `p1 + ... + pN`.
 
     A method, whose first parameter is `self` or `cls`, keeps it and takes the tuple second, so a
@@ -161,11 +159,11 @@ def expand_tuple_args(f: Callable[..., _A]) -> Callable[..., _A]:
     """
 
     @wraps(f)
-    def _unwrap_fn(args: tuple[Any, ...]) -> _A:
+    def _unwrap_fn(args: tuple[Any, ...]) -> A:
         return f(*args)
 
     @wraps(f)
-    def _unwrap_method(cls_or_self: type | object, args: tuple[Any, ...]) -> _A:
+    def _unwrap_method(cls_or_self: type | object, args: tuple[Any, ...]) -> A:
         return f(cls_or_self, *args)
 
     return _unwrap_method if _is_method(f) else _unwrap_fn
