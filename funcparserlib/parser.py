@@ -951,21 +951,20 @@ class Parser[A, B]:
             ```
         """
         # Imported here: the module reads the classes of this one.
-        from ._compile import reads_tokens  # noqa: PLC0415
+        from ._compile import leading_tokenizer, reads_tokens  # noqa: PLC0415
 
         _require_text(text)
         if reads_tokens(self):
             raise _reads_tokens_error("text")
-        return self._scan_text(text, None)
+        return self._scan_text(text, None, leading_tokenizer(self))
 
-    def _scan_text(self, text: str, generated: _Generated | None) -> Iterator[Located[B]]:
-        # Imported here: the module reads the classes of this one.
-        from ._compile import leading_tokenizer  # noqa: PLC0415
-
+    def _scan_text(
+        self, text: str, generated: _Generated | None, tokenizer: Tokenizer | None
+    ) -> Iterator[Located[B]]:
+        """The matches of `text`, tried only where a token of `tokenizer` starts, given one."""
         offset = 0
         outer = _chains.get()
         shared: dict[tuple[int, int], _Chain] = {} if outer is None else outer
-        tokenizer = leading_tokenizer(self)
         starts = None
         if tokenizer is not None:
             starts = _TokenStarts(_shared_chain(shared, text, tokenizer))
@@ -1688,7 +1687,15 @@ class CompiledParser[A, B]:
     Users get it from `Parser.compile()`; its constructor is internal.
     """
 
-    __slots__ = ("_bound", "_fast", "_fast_text", "_parser", "_reads_tokens", "_scanners")
+    __slots__ = (
+        "_bound",
+        "_fast",
+        "_fast_text",
+        "_parser",
+        "_reads_tokens",
+        "_scanners",
+        "_text_scan",
+    )
 
     def __init__(
         self,
@@ -1711,6 +1718,7 @@ class CompiledParser[A, B]:
         self._bound = bound
         self._reads_tokens = reads_tokens
         self._scanners: dict[bool, _Generated | None] = {}
+        self._text_scan: tuple[bool, Tokenizer | None] | None = None
 
     def _scanner(self, text: bool) -> _Generated | None:
         """Generated code of `located()` of the grammar, for a scan of text or of tokens."""
@@ -1803,13 +1811,16 @@ class CompiledParser[A, B]:
         Generated code tries the grammar where `Parser.scan_text()` does, and the parser decides
         where it cannot.
         """
-        # Imported here: the module reads the classes of this one.
-        from ._compile import reads_tokens  # noqa: PLC0415
-
         _require_text(text)
-        if reads_tokens(self._parser):
+        if self._text_scan is None:
+            # Imported here: the module reads the classes of this one.
+            from ._compile import leading_tokenizer, reads_tokens  # noqa: PLC0415
+
+            self._text_scan = reads_tokens(self._parser), leading_tokenizer(self._parser)
+        tokens_read, tokenizer = self._text_scan
+        if tokens_read:
             raise _reads_tokens_error("text")
-        return self._parser._scan_text(text, self._scanner(text=True))
+        return self._parser._scan_text(text, self._scanner(text=True), tokenizer)
 
     def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
         """The `text` with its matches replaced, as `Parser.replace_text()` gives it."""

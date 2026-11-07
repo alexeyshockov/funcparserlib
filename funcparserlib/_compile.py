@@ -1594,18 +1594,24 @@ def leading_tokenizer(root: Parser[Any, Any]) -> Any:
 
 
 def _scanned_nodes(root: Parser[Any, Any]) -> dict[int, Parser[Any, Any]]:
-    """The parsers of the grammar, those of its bound parts' grammars included."""
+    """The parsers of the grammar, those of its bound parts' grammars included, each after its
+    parts, but where a cycle reaches it again.
+    """
     nodes: dict[int, Parser[Any, Any]] = {}
-    stack = [_target(root)]
+    entered: set[int] = set()
+    stack: list[tuple[Parser[Any, Any], bool]] = [(_target(root), False)]
     while stack:
-        p = stack.pop()
-        if id(p) not in nodes:
+        p, done = stack.pop()
+        if done:
             nodes[id(p)] = p
+        elif id(p) not in entered:
+            entered.add(id(p))
+            stack.append((p, True))
             match _form(p):
                 case ("tokenized", grammar, _, _):
-                    stack.append(_target(grammar))
+                    stack.append((_target(grammar), False))
                 case _:
-                    stack += _parts(p)
+                    stack += [(q, False) for q in reversed(_parts(p))]
     return nodes
 
 
