@@ -16,6 +16,7 @@ code, and a `str` constant is `ast.Constant`.
 from __future__ import annotations
 
 import ast
+import sys
 from collections.abc import Callable, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from importlib import import_module
@@ -255,12 +256,13 @@ def _undecided() -> ast.Raise:
 def _function(name: str, body: list[ast.stmt]) -> ast.FunctionDef:
     """`def name(T, Y, p0):`."""
     args = [ast.arg("T"), ast.arg("Y"), ast.arg("p0")]
-    return ast.FunctionDef(
-        name=name,
-        args=ast.arguments(posonlyargs=[], args=args, kwonlyargs=[], kw_defaults=[], defaults=[]),
-        body=body,
-        decorator_list=[],
-    )
+    arguments = ast.arguments(posonlyargs=[], args=args, kwonlyargs=[], kw_defaults=[], defaults=[])
+    # `type_params` exists from 3.12, and typeshed requires it there.
+    if sys.version_info >= (3, 12):
+        return ast.FunctionDef(
+            name=name, args=arguments, body=body, decorator_list=[], type_params=[]
+        )
+    return ast.FunctionDef(name=name, args=arguments, body=body, decorator_list=[])
 
 
 @valueclass
