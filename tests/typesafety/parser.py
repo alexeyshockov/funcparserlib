@@ -4,7 +4,7 @@ The assertions are static, made by `just types-api`; see this directory's confte
 """
 
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, assert_type
+from typing import Any, TypeAlias, assert_type
 
 from funcparserlib import binary as b
 from funcparserlib.lexer import Token, make_tokenizer
@@ -82,7 +82,7 @@ _ = assert_type(n.compile(), CompiledParser[Token, int])
 _ = assert_type(n.compile().parse([]), int)
 _ = assert_type(n.recover(n), Parser[Token, int | None])
 _ = assert_type(n.recover(default=0), Parser[Token, int])
-_ = assert_type(n.recover(n, default="broken"), Parser[Token, int | str])
+_ = assert_type(n.recover(n, default="broken"), Parser[Token, int | str])  # ty: ignore[type-assertion-failure] -- ty keeps the literal of `default`, a subtype
 _ = assert_type(n.validated(str), Parser[Token, str])
 _ = assert_type(n.validated(str, "a number"), Parser[Token, str])
 _ = assert_type(longest(x, x + x), Parser[str, str | tuple[str, str]])
@@ -228,3 +228,30 @@ _ = assert_type(located_number.replace_text("1", lambda m: str(m.value + 1)), st
 _ = assert_type(n.scan([]), Iterator[Located[int]])
 _ = assert_type(n.compile().scan([], span=lambda ts, s, e: (s, e)), Iterator[Located[int]])
 _ = assert_type(located_number.compile().replace_text("1", lambda m: str(m.value + 1)), str)
+
+# A parser is covariant in its value (ADR 0001).
+Json: TypeAlias = "bool | int | float | str | list[Json] | dict[str, Json] | None"
+
+
+def to_object(_: str) -> dict[str, Json]:
+    return {}
+
+
+def to_array(_: str) -> list[Json]:
+    return []
+
+
+json: ForwardDeclParser[Token, Json] = forward_decl()
+json.define((tok("o") >> to_object) | (tok("a") >> to_array) | tok("s"))
+_ = assert_type(-tok("op") + (json | tok("s")), Parser[Token, Json | str])
+
+
+# A parser of a value is a parser of a wider one; annotated, so no expected type steers inference.
+narrow: Parser[Token, bool] = tok("b") >> bool
+wide: Parser[Token, int] = narrow
+narrow_pair: Tuple2Parser[Token, bool, str] = narrow + tok("s")
+wide_pair: Tuple2Parser[Token, int, str] = narrow_pair
+narrow_compiled: CompiledParser[Token, bool] = narrow.compile()
+wide_compiled: CompiledParser[Token, int] = narrow_compiled
+# A forward declaration is one of its value exactly, as `define()` takes one.
+widened: ForwardDeclParser[str, str | int] = decl  # type: ignore[assignment]  # ty: ignore[invalid-assignment]  # pyright: ignore[reportAssignmentType]

@@ -94,6 +94,7 @@ from os import PathLike
 from pathlib import Path
 from typing import (
     Any,
+    Final,
     Generic,
     NoReturn,
     Protocol,
@@ -113,7 +114,8 @@ from .util import Lines
 
 A = TypeVar("A")
 B = TypeVar("B")
-# `Located`'s value: covariant, where every parser's `B` is invariant, so a name of its own.
+# A parser class's value: covariant (ADR 0001), where a function's `B` and `ForwardDeclParser`'s are
+# invariant, so a name of its own.
 B_co = TypeVar("B_co", covariant=True)
 C = TypeVar("C")
 D = TypeVar("D")
@@ -121,11 +123,11 @@ E = TypeVar("E")
 P = TypeVar("P", bound="Parser[Any, Any]")
 R = TypeVar("R", covariant=True)
 T = TypeVar("T")
-T1 = TypeVar("T1")
-T2 = TypeVar("T2")
-T3 = TypeVar("T3")
-T4 = TypeVar("T4")
-T5 = TypeVar("T5")
+T1 = TypeVar("T1", covariant=True)
+T2 = TypeVar("T2", covariant=True)
+T3 = TypeVar("T3", covariant=True)
+T4 = TypeVar("T4", covariant=True)
+T5 = TypeVar("T5", covariant=True)
 
 _log = logging.getLogger("funcparserlib")
 
@@ -594,7 +596,7 @@ ParserFn: TypeAlias = Callable[[Sequence[A], State], ParsingResult[B]]
 """A parsing function: the tokens and the state in, a parsing result out."""
 
 
-class Parser(Generic[A, B]):
+class Parser(Generic[A, B_co]):
     """A parser object that can parse a sequence of tokens or can be combined with other parsers
     using `+`, `|`, `>>`, `many()`, and other parsing combinators.
 
@@ -602,8 +604,10 @@ class Parser(Generic[A, B]):
     decorator does with a name, and that function is what a grammar adds to the library. A subclass
     may add to a parser, as `forward_decl()` does; overriding `run` is not supported.
 
-    The generic variables in the type are: `A` — the type of the tokens in the sequence to parse,`B`
-    — the type of the parsed value.
+    The generic variables in the type are: `A` — the type of the tokens in the sequence to parse,
+    `B_co` — the type of the parsed value. A parser of a value is a parser of any wider value, as a
+    parser of `bool` is one of `int`. `ForwardDeclParser` is a parser of its value exactly, as
+    `define()` takes one.
 
     In order to define a parser for your grammar:
 
@@ -615,24 +619,7 @@ class Parser(Generic[A, B]):
        your grammar
     """
 
-    run: ParserFn[A, B]
-    """Run the parser against the tokens with the specified parsing state.
-
-    The parsing state includes the current position in the sequence being parsed, and the position
-    of the rightmost token that has been consumed while parsing for better error messages.
-
-    It returns a `ParsingSuccess` with the parsed value and the state after it, or a
-    `ParsingFailure` if the parser fails; it does not raise `NoParseError`.
-
-    A parsing function calls it to run other parsers; see `parser()`. `Parser.named()` and
-    `ForwardDeclParser.define()` replace it, so read `p.run` at each call instead of keeping it.
-    `Parser(p)` and `define(p)` keep the `run` that `p` has then, so a later `p.named()` does not
-    reach them. To parse a whole input, use `Parser.parse(tokens)`, which raises an error for a
-    failure.
-    """
-
     name: str | None = None
-    _fn: ParserFn[A, B]
     _label: bool = False
     _leaf: bool = False
     _shape: bool = False
@@ -643,14 +630,31 @@ class Parser(Generic[A, B]):
     # What the parser is built from, for `compile()`: a tag and its operands.
     _form: tuple[Any, ...] | None = None
 
-    def __init__(self, p: ParserObjOrFn[A, B]) -> None:
+    def __init__(self, p: ParserObjOrFn[A, B_co]) -> None:
         """Wrap the parser function `p` into a `Parser` object.
 
         A function written for 1.0, which returns a `(value, state)` tuple or raises `NoParseError`,
         still works: its tuple is a success, its `NoParseError` a failure `|` backtracks from. The
         first such result emits a `DeprecationWarning`.
         """
-        self._define(p)
+        self._fn: Final[ParserFn[A, B_co]] = _function_of(self, p)
+        self.run: Final[ParserFn[A, B_co]] = _update_run(self)
+        """Run the parser against the tokens with the specified parsing state.
+
+        The parsing state includes the current position in the sequence being parsed, and the
+        position of the rightmost token that has been consumed while parsing for better error
+        messages.
+
+        It returns a `ParsingSuccess` with the parsed value and the state after it, or a
+        `ParsingFailure` if the parser fails; it does not raise `NoParseError`.
+
+        A parsing function calls it to run other parsers; see `parser()`. `Parser.named()` and
+        `ForwardDeclParser.define()` replace it, so read `p.run` at each call instead of keeping it.
+        `Parser(p)` and `define(p)` keep the `run` that `p` has then, so a later `p.named()` does
+        not reach them. To parse a whole input, use `Parser.parse(tokens)`, which raises an error
+        for a failure.
+        """
+        _named_from(self, p)
 
     @staticmethod
     def _made_leaf(name: str, run: Any, form: tuple[Any, ...]) -> Parser[Any, Any]:
@@ -702,86 +706,13 @@ class Parser(Generic[A, B]):
         self.name = name
         self._label = name is not None
         self._shape = False
-        self._update_run()
+        _update_run(self)
         return self
 
     def _rename(self, name: str | None) -> Self:
         """Set the name the library gives a parser it builds, without making it a label."""
         self.name = name
         return self
-
-    def _named_from(self, p: ParserObjOrFn[A, B]) -> Self:
-        if not self._label and (name := getattr(p, "name", p.__doc__)) is not None:
-            self._shape = getattr(p, "_shape", False)
-            return self._rename(name)
-        return self
-
-    def _update_run(self) -> None:
-        f = self._fn
-        if self._label and not self._leaf:
-            f = self._labelled(f)
-        self.run = self._wrap_for_debug(f) if debug else f
-
-    def _labelled(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
-        def run_labelled(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-            res = f(tokens, s)
-            if isinstance(res, ParsingFailure) and res.state.max == s.pos:
-                # Nothing got past this parser's start: it, not its parts, is what was expected.
-                st = res.state
-                expected = (*s.expected, (self, s.context))
-                failed = State(st.pos, st.max, expected, st.context, st.problems, st._skipped)
-                return ParsingFailure(failed, res.message, res.committed)
-            return res
-
-        return run_labelled
-
-    def _define(self, p: ParserObjOrFn[A, B], *, adapt: bool = True) -> None:
-        """Define the parser created earlier as a forward declaration.
-
-        Use `p = forward_decl()` in combination with `p.define(...)` to define recursive parsers.
-
-        See the examples in the docs for `forward_decl()`.
-        """
-        self._form = ("ref", p) if isinstance(p, Parser) else None
-        if not isinstance(p, Parser):
-            self._fn = self._adapted(p) if adapt else p
-        elif isinstance(p, ForwardDeclParser):
-            fwd = p
-
-            # Looked up on each run: `fwd` may be defined after this parser is.
-            def run_declared(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-                return fwd.run(tokens, s)
-
-            self._fn = run_declared
-        else:
-            self._fn = p.run
-        self._update_run()
-        self._named_from(p)
-
-    def _adapted(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
-        """`f`, reading a 1.0 result as a `ParsingResult`, with a warning for the first one."""
-        warned = False
-
-        def run_adapted(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-            nonlocal warned
-            try:
-                res: object = f(tokens, s)
-            except NoParseError as e:
-                # A failure unpacked inside `f` is taken as one at these tokens. A `NoParseError`
-                # from a nested `parse()` carries none, and fails at this parser.
-                res = e._result or ParsingFailure(s.expect(self), e.msg)
-                legacy = True
-            else:
-                legacy = isinstance(res, tuple)
-                if legacy:
-                    value, state = cast("tuple[B, State]", res)
-                    res = ParsingSuccess(value, state)
-            if legacy and not warned:
-                warned = True
-                _warn_legacy(f)
-            return cast("ParsingResult[B]", res)
-
-        return run_adapted
 
     def _fused(self, conv: Callable[[Any], C]) -> Parser[A, C]:
         """This token test giving `conv` of the token: one parser where `>>` or `-p` wraps it."""
@@ -799,16 +730,9 @@ class Parser(Generic[A, B]):
         p._first = self._first
         return p
 
-    def _wrap_for_debug(self, f: ParserFn[A, B]) -> ParserFn[A, B]:
-        def run_parser_verbose(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-            _log.debug("trying %s", self.name)
-            return f(tokens, s)
-
-        return run_parser_verbose
-
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
-    ) -> B:
+    ) -> B_co:
         """Parse the sequence of tokens and return the parsed value.
 
         It takes a sequence of tokens of arbitrary type `A` and returns the parsed value of
@@ -834,9 +758,9 @@ class Parser(Generic[A, B]):
             (as `Token` objects contain their position in the source file) and good
             separation of the lexical and syntactic levels of the grammar.
         """
-        return self._result(self.run(tokens, State(0, 0)), tokens, describe or _describe)
+        return _result(self.run(tokens, State(0, 0)), tokens, describe or _describe)
 
-    def parse_text(self, text: str) -> B:
+    def parse_text(self, text: str) -> B_co:
         """Parse the text, with the line and column of the text in errors.
 
         It is for a grammar that reads text: `lit()`, `regex()`, the parsers of `skipping()`, and
@@ -854,13 +778,13 @@ class Parser(Generic[A, B]):
         _require_text(text)
         skip = leading_skip(self)
 
-        def run() -> ParsingResult[B]:
+        def run() -> ParsingResult[B_co]:
             m = skip.match(text) if skip is not None else None
             return self._run_input(text, m.end() if m is not None else 0, "text")
 
-        return self._result(_sharing_tokens(run), _TextPlaces(text), _describe)
+        return _result(_sharing_tokens(run), _TextPlaces(text), _describe)
 
-    def parse_bytes(self, data: bytes | bytearray) -> B:
+    def parse_bytes(self, data: bytes | bytearray) -> B_co:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
 
         It is experimental, as `funcparserlib.binary` is, whose grammars it runs. It raises what
@@ -869,7 +793,7 @@ class Parser(Generic[A, B]):
         slices, so to parse a `memoryview`, make the copy with `bytes(view)`.
         """
         _require_bytes(data)
-        return self._result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
+        return _result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
 
     def scan(
         self,
@@ -877,7 +801,7 @@ class Parser(Generic[A, B]):
         *,
         describe: Callable[[A], TokenDescription] | None = None,
         span: Callable[[Sequence[A], int, int], tuple[int, int]] | None = None,
-    ) -> Iterator[Located[B]]:
+    ) -> Iterator[Located[B_co]]:
         """The parts of `tokens` this grammar reads, from left to right, without overlaps.
 
         The grammar is tried at each index of the tokens, as `Parser.scan_text()` tries it at each
@@ -911,7 +835,7 @@ class Parser(Generic[A, B]):
         describe: Callable[[A], TokenDescription],
         span: Callable[[Sequence[A], int, int], tuple[int, int]] | None,
         generated: _Generated | None,
-    ) -> Iterator[Located[B]]:
+    ) -> Iterator[Located[B_co]]:
         index = 0
         at = None if generated is None else generated(tokens)
         while _has_token(tokens, index):
@@ -922,13 +846,13 @@ class Parser(Generic[A, B]):
             if found is _UNDECIDED:
                 res = self.run(tokens, State(index, index))
                 if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
-                    self._result(res, tokens, describe)
+                    _result(res, tokens, describe)
                 if isinstance(res, ParsingFailure):
                     index += 1
                     continue
                 value, end = res.value, res.state.pos
             else:
-                value, end = cast("tuple[Located[B], int]", found)[0].value, found[1]
+                value, end = cast("tuple[Located[B_co], int]", found)[0].value, found[1]
             if end == index:
                 raise with_hint(
                     ValueError(f"{self.name} matched no tokens at index {index}"),
@@ -947,7 +871,7 @@ class Parser(Generic[A, B]):
             yield Located(value, start, stop)
             index = end
 
-    def scan_text(self, text: str) -> Iterator[Located[B]]:
+    def scan_text(self, text: str) -> Iterator[Located[B_co]]:
         """The parts of `text` this grammar reads, from left to right, without overlaps.
 
         The grammar is tried at each offset of the text, and goes on past each match, so it does not
@@ -983,7 +907,7 @@ class Parser(Generic[A, B]):
 
     def _scan_text(
         self, text: str, generated: _Generated | None, tokenizer: Tokenizer | None
-    ) -> Iterator[Located[B]]:
+    ) -> Iterator[Located[B_co]]:
         """The matches of `text`, tried only where a token of `tokenizer` starts, given one."""
         offset = 0
         outer = _chains.get()
@@ -1007,7 +931,7 @@ class Parser(Generic[A, B]):
 
     def _next_match(
         self, text: str, offset: int, at: Callable[[int], Any] | None, starts: _TokenStarts | None
-    ) -> tuple[B, int, int, int] | None:
+    ) -> tuple[B_co, int, int, int] | None:
         """The value, the start, the end and the end of the value of the first match from `offset`,
         `None` where there is none. Given `starts`, a match starts only where a token does.
         """
@@ -1022,7 +946,7 @@ class Parser(Generic[A, B]):
                 offset += 1
                 continue
             if found is not _UNDECIDED:
-                located, end = cast("tuple[Located[B], int]", found)
+                located, end = cast("tuple[Located[B_co], int]", found)
                 if end > offset:
                     return located.value, offset, end, located.end
             try:
@@ -1030,7 +954,7 @@ class Parser(Generic[A, B]):
             except _NotAToken as e:
                 raise _reads_tokens_error("text") from e
             if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
-                self._result(res, _TextPlaces(text), _describe)
+                _result(res, _TextPlaces(text), _describe)
             if isinstance(res, ParsingFailure):
                 offset += 1
                 continue
@@ -1044,7 +968,7 @@ class Parser(Generic[A, B]):
             return res.value, offset, end, res.state._value_end(offset)
         return None
 
-    def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
+    def replace_text(self, text: str, f: Callable[[Located[B_co]], str]) -> str:
         """The `text` with each match `Parser.scan_text()` gives replaced by what `f` returns for
         it.
 
@@ -1061,31 +985,16 @@ class Parser(Generic[A, B]):
         """
         return _replaced(text, self.scan_text(text), f)
 
-    def _run_input(self, data: str | bytes | bytearray, start: int, kind: str) -> ParsingResult[B]:
+    def _run_input(
+        self, data: str | bytes | bytearray, start: int, kind: str
+    ) -> ParsingResult[B_co]:
         """The result of `data` from `start`, which a `tok()` cannot read."""
         try:
             return self.run(cast("Any", data), State(start, start))
         except _NotAToken as e:
             raise _reads_tokens_error(kind) from e
 
-    def _result(
-        self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
-    ) -> B:
-        """The value of `res`, or the errors of a failed parse and those parsing went on after."""
-        errors = [_problem_error(problem, tokens, show) for problem in res.state.problems]
-        if isinstance(res, ParsingFailure) and res.message is not _STOPPED:
-            fatal = _parse_error(res, tokens, show)
-            if not errors:
-                raise fatal
-            errors.append(fatal)
-        if errors:
-            errors.sort(key=lambda e: e.state.pos)
-            raise ParseErrors(
-                f"{len(errors)} parsing error{'s' if len(errors) > 1 else ''}", errors
-            )
-        return res.value
-
-    def compile(self, *, source_file: str | PathLike[str] | None = None) -> CompiledParser[A, B]:
+    def compile(self, *, source_file: str | PathLike[str] | None = None) -> CompiledParser[A, B_co]:
         """Generate Python functions that parse as this parser does, several times faster.
 
         Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
@@ -1149,10 +1058,12 @@ class Parser(Generic[A, B]):
         return CompiledParser(self, fast, fast_text, reads_tokens=tokens_read)
 
     @overload
-    def recover(self, until: Parser[A, Any] | None = None) -> Parser[A, B | None]: ...
+    def recover(self, until: Parser[A, Any] | None = None) -> Parser[A, B_co | None]: ...
 
     @overload
-    def recover(self, until: Parser[A, Any] | None = None, *, default: C) -> Parser[A, B | C]: ...
+    def recover(
+        self, until: Parser[A, Any] | None = None, *, default: C
+    ) -> Parser[A, B_co | C]: ...
 
     def recover(
         self, until: Parser[A, Any] | None = None, *, default: Any = None
@@ -1215,7 +1126,7 @@ class Parser(Generic[A, B]):
         _recover._form = ("commit", self)
         return _recover
 
-    def but_not(self, other: Parser[A, Any]) -> Parser[A, B]:
+    def but_not(self, other: Parser[A, Any]) -> Parser[A, B_co]:
         """Parse as usual, but only if the other parser fails at the same position.
 
         Examples:
@@ -1236,7 +1147,7 @@ class Parser(Generic[A, B]):
         shown = _brief(f"{name} (but not {_label_of(other) or '...'})") if name else "but_not(...)"
 
         @_parser(shown, leaf=True, first=self._first)
-        def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        def _but_not(tokens: Sequence[A], s: State) -> ParsingResult[B_co]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingFailure) or res.state.rejected_since(s):
                 return res
@@ -1248,7 +1159,7 @@ class Parser(Generic[A, B]):
         _but_not._form = ("but_not", self, other)
         return _but_not
 
-    def when(self, pred: Callable[[B], bool]) -> Parser[A, B]:
+    def when(self, pred: Callable[[B_co], bool]) -> Parser[A, B_co]:
         """Wrap the parser to a new one, that parses a token if it satisfies the predicate `pred`.
 
         Examples:
@@ -1266,7 +1177,7 @@ class Parser(Generic[A, B]):
         """
 
         @_parser(_label_of(self) or "when(...)", leaf=True, first=self._first)
-        def _when(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        def _when(tokens: Sequence[A], s: State) -> ParsingResult[B_co]:
             res = self.run(tokens, s)
             if isinstance(res, ParsingFailure) or res.state.rejected_since(s) or pred(res.value):
                 return res
@@ -1275,7 +1186,7 @@ class Parser(Generic[A, B]):
         _when._form = ("when", self, pred)
         return _when
 
-    def context(self, label: str) -> Parser[A, B]:
+    def context(self, label: str) -> Parser[A, B_co]:
         """Name what this parser parses, for the errors inside it: `... in label`.
 
         An error inside the parser ends with `in label`; nested contexts are listed innermost first,
@@ -1297,7 +1208,7 @@ class Parser(Generic[A, B]):
         """
 
         @_parser(self.name, shape=self._shape, first=self._first)
-        def _context(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        def _context(tokens: Sequence[A], s: State) -> ParsingResult[B_co]:
             inner = State(s.pos, s.max, s.expected, (*s.context, label), s.problems, s._skipped)
             res = self.run(tokens, inner)
             st = res.state
@@ -1309,7 +1220,7 @@ class Parser(Generic[A, B]):
         _context._form = ("context", self)
         return _context
 
-    def validated(self, f: Callable[[B], C], expected: str | None = None) -> Parser[A, C]:
+    def validated(self, f: Callable[[B_co], C], expected: str | None = None) -> Parser[A, C]:
         """Make the value of the parser with `f`, which can say that the value is not valid.
 
         `f` returns the new value, or raises `Invalid`. Either way the input was read, so a rejected
@@ -1374,7 +1285,7 @@ class Parser(Generic[A, B]):
     ) -> Self: ...
 
     @overload
-    def __add__(self, other: Parser[A, C]) -> Tuple2Parser[A, B, C]: ...
+    def __add__(self, other: Parser[A, C]) -> Tuple2Parser[A, B_co, C]: ...
 
     def __add__(self, other: Parser[A, Any]) -> Parser[A, Any]:
         """Sequential combination of parsers. It runs this parser, then the other parser.
@@ -1447,7 +1358,7 @@ class Parser(Generic[A, B]):
         _add._form = ("seq", self, other)
         return _add
 
-    def __or__(self, other: Parser[A, C]) -> Parser[A, B | C]:
+    def __or__(self, other: Parser[A, C]) -> Parser[A, B_co | C]:
         """Choice combination of parsers.
 
         It runs this parser and returns its result. If the parser fails, it runs the other parser.
@@ -1467,7 +1378,7 @@ class Parser(Generic[A, B]):
             ```
         """
 
-        def tried(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
+        def tried(tokens: Sequence[A], s: State) -> ParsingResult[B_co | C]:
             res = self.run(tokens, s)
             if not isinstance(res, ParsingFailure) or res.committed:
                 return res
@@ -1481,7 +1392,7 @@ class Parser(Generic[A, B]):
             alts: tuple[Parser[Any, Any], ...] = ()
             table: _Dispatch | None = None
 
-            def dispatched(tokens: Sequence[A], s: State) -> ParsingResult[B | C]:
+            def dispatched(tokens: Sequence[A], s: State) -> ParsingResult[B_co | C]:
                 nonlocal alts, table
                 if table is None:
                     # A parser may be named after this one is built.
@@ -1524,7 +1435,7 @@ class Parser(Generic[A, B]):
         p._form = ("alt", self, other)
         return p
 
-    def located(self) -> Parser[A, Located[B]]:
+    def located(self) -> Parser[A, Located[B_co]]:
         """A parser of the same input that gives its value with where it was read from.
 
         `Located.start` and `Located.end` are indexes into what is parsed: character offsets in a
@@ -1546,17 +1457,17 @@ class Parser(Generic[A, B]):
         """
 
         @_parser(self.name, shape=self._shape, first=self._first)
-        def _located(tokens: Sequence[A], s: State) -> ParsingResult[Located[B]]:
+        def _located(tokens: Sequence[A], s: State) -> ParsingResult[Located[B_co]]:
             res = self.run(tokens, s)
             if res.state.problems is not s.problems and res.state.rejected_since(s):
-                return cast("ParsingResult[Located[B]]", res)
+                return cast("ParsingResult[Located[B_co]]", res)
             end = res.state._value_end(s.pos)
-            return res.map(lambda value: _located_at(tokens, value, s.pos, end))
+            return _located_result(res, tokens, s.pos, end)
 
         _located._form = ("located", self)
         return _located
 
-    def map(self, f: Callable[[B], C]) -> Parser[A, C]:
+    def map(self, f: Callable[[B_co], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
         if self._test is not None and not debug:
             return self._fused(f)
@@ -1584,7 +1495,7 @@ class Parser(Generic[A, B]):
         _map._form = ("starmap", self, f)
         return _map
 
-    def __rshift__(self, f: Callable[[B], C]) -> Parser[A, C]:
+    def __rshift__(self, f: Callable[[B_co], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function.
 
         You can use it for transforming the parsed value into another value before including it into
@@ -1604,7 +1515,7 @@ class Parser(Generic[A, B]):
         """
         return self.map(f)
 
-    def bind(self, f: Callable[[B], Parser[A, C]]) -> Parser[A, C]:
+    def bind(self, f: Callable[[B_co], Parser[A, C]]) -> Parser[A, C]:
         """Bind the parser to a monadic function that returns a new parser.
 
         Also known as `>>=` in Haskell.
@@ -1622,7 +1533,7 @@ class Parser(Generic[A, B]):
                 return cast("ParsingResult[C]", res)
             if res.state.rejected_since(s):
                 return _stopped(res.state)
-            return res.bind(lambda v, s2: f(v).run(tokens, s2))
+            return _bound(res, f, tokens)
 
         return _bind
 
@@ -1709,8 +1620,119 @@ ParserObjOrFn: TypeAlias = Parser[A, B] | ParserFn[A, B]
 """A `Parser` or a bare parsing function, as `Parser()` and `define()` accept."""
 
 
+def _result(
+    res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
+) -> B:
+    """The value of `res`, or the errors of a failed parse and those parsing went on after."""
+    errors = [_problem_error(problem, tokens, show) for problem in res.state.problems]
+    if isinstance(res, ParsingFailure) and res.message is not _STOPPED:
+        fatal = _parse_error(res, tokens, show)
+        if not errors:
+            raise fatal
+        errors.append(fatal)
+    if errors:
+        errors.sort(key=lambda e: e.state.pos)
+        raise ParseErrors(f"{len(errors)} parsing error{'s' if len(errors) > 1 else ''}", errors)
+    return res.value
+
+
+def _set_run(p: Parser[A, B], run: ParserFn[A, B]) -> ParserFn[A, B]:
+    """Give `p` the function `run`: `run` is `Final` to type checkers, so a parser is covariant in
+    its value.
+    """
+    object.__setattr__(p, "run", run)
+    return run
+
+
+def _named_from(p: Parser[A, B], source: ParserObjOrFn[A, B]) -> None:
+    if not p._label and (name := getattr(source, "name", source.__doc__)) is not None:
+        p._shape = getattr(source, "_shape", False)
+        p._rename(name)
+
+
+def _update_run(p: Parser[A, B]) -> ParserFn[A, B]:
+    f = p._fn
+    if p._label and not p._leaf:
+        f = _labelled(p, f)
+    return _set_run(p, _wrap_for_debug(p, f) if debug else f)
+
+
+def _labelled(p: Parser[A, B], f: ParserFn[A, B]) -> ParserFn[A, B]:
+    def run_labelled(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        res = f(tokens, s)
+        if isinstance(res, ParsingFailure) and res.state.max == s.pos:
+            # Nothing got past this parser's start: it, not its parts, is what was expected.
+            st = res.state
+            expected = (*s.expected, (p, s.context))
+            failed = State(st.pos, st.max, expected, st.context, st.problems, st._skipped)
+            return ParsingFailure(failed, res.message, res.committed)
+        return res
+
+    return run_labelled
+
+
+def _function_of(
+    p: Parser[A, B], source: ParserObjOrFn[A, B], *, adapt: bool = True
+) -> ParserFn[A, B]:
+    """The parsing function of `p` as the parser `source` is, or runs, with the form of `p` set."""
+    p._form = ("ref", source) if isinstance(source, Parser) else None
+    if not isinstance(source, Parser):
+        return _adapted(p, source) if adapt else source
+    if isinstance(source, ForwardDeclParser):
+        fwd = source
+
+        # Looked up on each run: `fwd` may be defined after this parser is.
+        def run_declared(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+            return fwd.run(tokens, s)
+
+        return run_declared
+    return source.run
+
+
+def _define(p: Parser[A, B], source: ParserObjOrFn[A, B], *, adapt: bool = True) -> None:
+    """Make `p` the parser `source` is, or runs, as `Parser.__init__()` does."""
+    # `_fn` is `Final` to type checkers, as `run` is.
+    object.__setattr__(p, "_fn", _function_of(p, source, adapt=adapt))
+    _update_run(p)
+    _named_from(p, source)
+
+
+def _adapted(p: Parser[A, B], f: ParserFn[A, B]) -> ParserFn[A, B]:
+    """`f`, reading a 1.0 result as a `ParsingResult`, with a warning for the first one."""
+    warned = False
+
+    def run_adapted(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        nonlocal warned
+        try:
+            res: object = f(tokens, s)
+        except NoParseError as e:
+            # A failure unpacked inside `f` is taken as one at these tokens. A `NoParseError`
+            # from a nested `parse()` carries none, and fails at this parser.
+            res = e._result or ParsingFailure(s.expect(p), e.msg)
+            legacy = True
+        else:
+            legacy = isinstance(res, tuple)
+            if legacy:
+                value, state = cast("tuple[B, State]", res)
+                res = ParsingSuccess(value, state)
+        if legacy and not warned:
+            warned = True
+            _warn_legacy(f)
+        return cast("ParsingResult[B]", res)
+
+    return run_adapted
+
+
+def _wrap_for_debug(p: Parser[A, B], f: ParserFn[A, B]) -> ParserFn[A, B]:
+    def run_parser_verbose(tokens: Sequence[A], s: State) -> ParsingResult[B]:
+        _log.debug("trying %s", p.name)
+        return f(tokens, s)
+
+    return run_parser_verbose
+
+
 @final
-class CompiledParser(Generic[A, B]):
+class CompiledParser(Generic[A, B_co]):
     """A grammar compiled to Python functions, see `Parser.compile()`.
 
     Users get it from `Parser.compile()`; its constructor is internal.
@@ -1728,11 +1750,11 @@ class CompiledParser(Generic[A, B]):
 
     def __init__(
         self,
-        parser: Parser[A, B],
-        fast: Callable[[Sequence[A]], tuple[B, int] | None] | None,
-        fast_text: Callable[[str], tuple[B, int] | None] | None = None,
+        parser: Parser[A, B_co],
+        fast: Callable[[Sequence[A]], tuple[B_co, int] | None] | None,
+        fast_text: Callable[[str], tuple[B_co, int] | None] | None = None,
         *,
-        bound: tuple[Parser[Token, Any], Tokenizer, Callable[[Sequence[Any]], Any] | None]
+        bound: tuple[Parser[Token, B_co], Tokenizer, Callable[[Sequence[Any]], Any] | None]
         | None = None,
         reads_tokens: bool = True,
     ) -> None:
@@ -1741,10 +1763,10 @@ class CompiledParser(Generic[A, B]):
         `bound` is the grammar of tokens, the tokenizer and the functions over the tokens of a
         parser of `tokenized()`.
         """
-        self._parser = parser
-        self._fast = fast
-        self._fast_text = fast_text
-        self._bound = bound
+        self._parser: Final = parser
+        self._fast: Final = fast
+        self._fast_text: Final = fast_text
+        self._bound: Final = bound
         self._reads_tokens = reads_tokens
         self._scanners: dict[bool, _Generated | None] = {}
         self._text_scan: tuple[bool, Tokenizer | None] | None = None
@@ -1761,7 +1783,7 @@ class CompiledParser(Generic[A, B]):
 
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
-    ) -> B:
+    ) -> B_co:
         """Parse the sequence of tokens and return the parsed value, as `Parser.parse()` does.
 
         It raises what `Parser.parse()` raises. With `funcparserlib.parser.debug` set, the parser
@@ -1772,7 +1794,7 @@ class CompiledParser(Generic[A, B]):
 
     def parse_text(
         self, text: str, *, describe: Callable[[Token], TokenDescription] | None = None
-    ) -> B:
+    ) -> B_co:
         """Parse the text, as `Parser.parse_text()` does.
 
         A grammar of `tokenized()` that reads tokens only through `tok()`, with a tokenizer whose
@@ -1785,16 +1807,16 @@ class CompiledParser(Generic[A, B]):
         _require_text(text)
         return self._read(text, describe)
 
-    def parse_bytes(self, data: bytes | bytearray) -> B:
+    def parse_bytes(self, data: bytes | bytearray) -> B_co:
         """Parse the bytes, as `Parser.parse_bytes()` does."""
         _require_bytes(data)
         return self._read(cast("Any", data), None)
 
-    def _read(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
+    def _read(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B_co:
         """The result of `text` or bytes, through the functions generated for text if there are."""
         return _sharing_tokens(lambda: self._read_shared(text, describe))
 
-    def _read_shared(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
+    def _read_shared(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B_co:
         res = None
         if self._fast_text is not None and not debug:
             try:
@@ -1803,14 +1825,14 @@ class CompiledParser(Generic[A, B]):
                 res = None
         return res[0] if res is not None else self._interpreted(text, describe)
 
-    def _interpreted(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
+    def _interpreted(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B_co:
         """The result of `text` without the functions generated for text."""
         if self._bound is not None:
             grammar, tokenizer, fast = self._bound
             _require_text(text)
             # After the functions for text, the parser runs, not the functions for tokens.
             fast = fast if self._fast_text is None else None
-            return cast("B", _parse_tokens_of_text(grammar, tokenizer, text, fast, describe))
+            return _parse_tokens_of_text(grammar, tokenizer, text, fast, describe)
         if self._reads_tokens:
             data: object = text
             raise _reads_tokens_error("bytes" if isinstance(data, bytes | bytearray) else "text")
@@ -1824,7 +1846,7 @@ class CompiledParser(Generic[A, B]):
         *,
         describe: Callable[[A], TokenDescription] | None = None,
         span: Callable[[Sequence[A], int, int], tuple[int, int]] | None = None,
-    ) -> Iterator[Located[B]]:
+    ) -> Iterator[Located[B_co]]:
         """The parts of `tokens` the grammar reads, as `Parser.scan()` gives them.
 
         Generated code tries the grammar at each index, and the parser decides where it cannot:
@@ -1836,7 +1858,7 @@ class CompiledParser(Generic[A, B]):
         generated = self._scanner(text=False)
         return self._parser._scan_tokens(tokens, describe or _describe, span, generated)
 
-    def scan_text(self, text: str) -> Iterator[Located[B]]:
+    def scan_text(self, text: str) -> Iterator[Located[B_co]]:
         """The parts of `text` the grammar reads, as `Parser.scan_text()` gives them.
 
         Generated code tries the grammar where `Parser.scan_text()` does, and the parser decides
@@ -1854,11 +1876,11 @@ class CompiledParser(Generic[A, B]):
             raise _reads_tokens_error("text")
         return self._parser._scan_text(text, self._scanner(text=True), tokenizer)
 
-    def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
+    def replace_text(self, text: str, f: Callable[[Located[B_co]], str]) -> str:
         """The `text` with its matches replaced, as `Parser.replace_text()` gives it."""
         return _replaced(text, self.scan_text(text), f)
 
-    def try_parse(self, text: str | bytes | bytearray) -> B | None:
+    def try_parse(self, text: str | bytes | bytearray) -> B_co | None:
         """The value of `text`, or `None` where it does not parse.
 
         It is for text that is often invalid, when the reason does not matter: a parse that fails
@@ -2121,7 +2143,10 @@ class _SkippedTokens:
 
 
 class _Tokenized(Parser[str, B], Generic[B]):
-    """The type of `tokenized()`: a grammar of tokens that reads text through its tokenizer."""
+    """The type of `tokenized()`: a grammar of tokens that reads text through its tokenizer.
+
+    It is invariant in its value, as `_grammar` is assigned; `tokenized()` gives it as a `Parser`.
+    """
 
     _grammar: Parser[Token, B]
     _tokenizer: Tokenizer
@@ -2333,6 +2358,20 @@ def _located_at(tokens: Sequence[Any], value: B, start: int, end: int) -> Locate
         first = tokens.offset(start)
         return Located(value, first, tokens.end(end - 1) if end > start else first)
     return Located(value, start, end)
+
+
+def _located_result(
+    res: ParsingResult[B], tokens: Sequence[Any], start: int, end: int
+) -> ParsingResult[Located[B]]:
+    """The value of `res` read from `start` to `end` of `tokens`, as `Parser.located()` gives it."""
+    return res.map(lambda value: _located_at(tokens, value, start, end))
+
+
+def _bound(
+    res: ParsingResult[B], f: Callable[[B], Parser[A, C]], tokens: Sequence[A]
+) -> ParsingResult[C]:
+    """The parser `f` makes of the value of `res`, run where `res` ends, as `Parser.bind()` does."""
+    return res.bind(lambda v, s2: f(v).run(tokens, s2))
 
 
 def _has_token(tokens: Sequence[Any], pos: int) -> bool:
@@ -2776,7 +2815,7 @@ def _label_of(p: Parser[Any, Any]) -> str | None:
 def _built(cls: type[P], f: ParserFn[Any, Any]) -> P:
     """A parser of `cls` running `f` as it is, without the 1.0 adapter."""
     p = cls.__new__(cls)
-    p._define(f, adapt=False)
+    _define(p, f, adapt=False)
     return p
 
 
@@ -3664,7 +3703,7 @@ class ForwardDeclParser(Parser[A, B], Generic[A, B]):
                 "Define it as the parser it stands for, which may use it inside:"
                 " `expr.define(a('x') + maybe(expr))`.",
             )
-        self._define(p)
+        _define(self, p)
 
     @overload  # type: ignore[override]
     def __add__(  # type: ignore[overload-overlap]

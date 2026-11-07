@@ -94,9 +94,6 @@ out of its object, and so is an unfinished item of an array.
 --8<-- "examples/partial_json.py:containers"
 ```
 
-`Parser` is invariant in its value, and the alternatives of `value` give `dict`, `list`, `str` and the rest, each one
-member of `Json | Missing`. `>> as_value` gives a parser of the union itself, which is what `define()` takes.
-
 ## What stays an error
 
 A repair is an alternative of the grammar where the input has one meaning. Where it has more, the grammar stops, and the

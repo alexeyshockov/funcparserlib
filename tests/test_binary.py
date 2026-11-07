@@ -333,7 +333,7 @@ class Tripwire:
 
 
 def without_parser(code: CompiledParser[Any, Any]) -> CompiledParser[Any, Any]:
-    code._parser = loose(Tripwire())
+    object.__setattr__(code, "_parser", loose(Tripwire()))
     return code
 
 

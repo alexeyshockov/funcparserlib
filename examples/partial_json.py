@@ -184,24 +184,17 @@ def make_object(members: list[tuple[str, Json | Missing]], is_closed: bool) -> d
     return d if is_closed else OpenDict(d)
 
 
-def as_value(v: Json | Missing) -> Json | Missing:
-    return v
-
-
 def make_array(items: list[Json | Missing], is_closed: bool) -> list[Json]:
     a = [v for v in items if v is not MISSING]
     return a if is_closed else OpenList(a)
 
 
 value: ForwardDeclParser[Token, Json | Missing] = forward_decl().named("value")
-value_or_end = value | nothing
-after_key = -op(":") + value_or_end | nothing
-member = string + after_key
+member = string + (-op(":") + (value | nothing) | nothing)
 object_body = (separated(member, op(","), trailing=True) + close("}")).starmap(make_object)
 json_object = -op("{") + object_body
 json_array = -op("[") + (separated(value, op(","), trailing=True) + close("]")).starmap(make_array)
-# `Parser` is invariant in its value: `define()` takes a parser of `Json | Missing` exactly.
-value.define((json_object | json_array | string | number | literal | unfinished) >> as_value)
+value.define(json_object | json_array | string | number | literal | unfinished)
 # --8<-- [end:containers]
 
 # --8<-- [start:parse]
