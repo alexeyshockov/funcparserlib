@@ -84,6 +84,16 @@ first token, the error names it instead of its parts. The naming style is up to 
 
 ```
 
+`named()` names the parser it is called on and returns it, so a parser used in several places has one name everywhere.
+To name one use of it, name a parser made from it, `Parser(number).named("width")`, which leaves `number` as it is:
+
+```pycon
+>>> width = Parser(number).named("width")
+>>> number.name, width.name
+('number', 'width')
+
+```
+
 Test it:
 
 ```pycon
@@ -124,6 +134,22 @@ Parse the longest alternative first:
 (1, 2)
 
 ```
+
+Where the order is hard to keep, as with many alternatives or ones that grow over time,
+[`longest()`](../api/parser.md#funcparserlib.parser.longest) takes the order away: it runs every alternative and keeps
+the one that reads the most, the first of them when two tie:
+
+```pycon
+>>> from funcparserlib.parser import longest
+
+>>> p = longest(number + number, number + number + number)
+
+>>> p.parse(tokenize("1 2 3"))
+(1, 2, 3)
+
+```
+
+It runs every alternative where `|` stops at the first that succeeds, so it costs more on alternatives that read a lot.
 
 ## Watch Out for Left Recursion
 

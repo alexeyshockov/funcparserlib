@@ -13,10 +13,11 @@ Recursive descent parsing library for Python based on functional combinators.
 The primary focus of `funcparserlib` is **parsing little languages** or **external DSLs** (domain specific languages).
 
 Parsers made with `funcparserlib` are pure-Python LL(\*) parsers. It means that it's **very easy to write parsers**
-without thinking about lookaheads and other hardcore parsing stuff. However, recursive descent parsing is a rather slow
-method compared to LL(k) or LR(k) algorithms. Still, parsing with `funcparserlib` is **at least twice faster than
-PyParsing**, a very popular library for Python, and [compiling a grammar](https://funcparserlib.pirx.ru/guide/performance/)
-makes it several times faster still.
+without thinking about lookaheads and other hardcore parsing stuff. A parser tries its alternatives in turn and goes back
+when one fails, which costs time where many of them share a long start. Still, parsing with `funcparserlib` is **at least
+twice faster than PyParsing**, a very popular library for Python, and
+[compiling a grammar](https://funcparserlib.pirx.ru/guide/performance/) makes it several times faster still, faster than
+lark's LALR parser on the JSON benchmark there.
 
 Its API is fully type hinted. It features the longest parsed prefix error reporting, as well as a tiny lexer generator
 for token position tracking.
