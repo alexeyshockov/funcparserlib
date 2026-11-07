@@ -277,3 +277,32 @@ def test_a_match_tells_the_end_of_its_tokens_without_reading_their_length(
     monkeypatch.setattr(_TextTokens, "__len__", no_length)
     m = next(tokenized(grammar, tokenize).scan(text))
     assert m.value == value
+
+
+def test_a_scan_that_reaches_a_tok_it_cannot_see_says_it_cannot_parse_text() -> None:
+    hidden = Parser(lambda tokens, s: tok("name").run(tokens, s))
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+        list(hidden.scan("a"))
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+        hidden.parse_text("a")
+
+
+def test_a_parse_of_another_text_inside_a_scan_keeps_the_tokens_the_scan_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reads: list[tuple[int, int]] = []
+    read = Tokenizer._read
+
+    def counted(self: Tokenizer, s: str, i: int) -> tuple[str, int] | None:
+        reads.append((id(s), i))
+        return read(self, s, i)
+
+    monkeypatch.setattr(Tokenizer, "_read", counted)
+    inner = tokenized(number, tokenize) + finished
+    text = "a = 1 " * 50
+    outer = tokenized(
+        tok("name") + -tok("op", "=") + (number >> (lambda n: inner.parse_text(str(n)))), tokenize
+    )
+    assert len(list(outer.scan(text))) == 50
+    of_text = [i for s, i in reads if s == id(text)]
+    assert len(of_text) == len(set(of_text))

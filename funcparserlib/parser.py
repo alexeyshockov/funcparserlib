@@ -94,7 +94,8 @@ from os import PathLike
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
-from ._commons import line_of, place_of, valueclass, with_hint
+from ._commons import valueclass, with_hint
+from ._utils import line_of, place_of
 from .lexer import LexerError, Place, Token, Tokenizer
 from .util import Lines
 
@@ -882,19 +883,32 @@ class Parser[A, B]:
 
     def _scan(self, text: str) -> Iterator[Located[B]]:
         offset = 0
-        shared: dict[int, _Chain] = {}
+        shared: dict[tuple[int, int], _Chain] = {}
         while offset < len(text):
-            # The tokens `tokenized()` reads are shared over the offsets, and kept for no longer.
             token = _chains.set(shared) if _chains.get() is None else None
             try:
-                res = self.run(cast("Any", text), State(offset, offset))
+                found = self._next_match(text, offset)
             finally:
                 if token is not None:
                     _chains.reset(token)
-            failed = isinstance(res, ParsingFailure)
+            if found is None:
+                return
+            value, start, end, stop = found
+            yield Located(value, start, stop)
+            offset = end
+
+    def _next_match(self, text: str, offset: int) -> tuple[B, int, int, int] | None:
+        """The value, the start, the end and the end of the value of the first match from `offset`,
+        `None` where there is none.
+        """
+        while offset < len(text):
+            try:
+                res = self.run(cast("Any", text), State(offset, offset))
+            except _NotAToken as e:
+                raise _reads_tokens_error("text") from e
             if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
                 self._result(res, _TextPlaces(text), _describe)
-            if failed:
+            if isinstance(res, ParsingFailure):
                 offset += 1
                 continue
             end = res.state.pos
@@ -904,8 +918,8 @@ class Parser[A, B]:
                     "A match has to read something: repeat the parser that maybe(), many() or"
                     " pure() wraps.",
                 )
-            yield Located(res.value, offset, res.state._value_end(offset))
-            offset = end
+            return res.value, offset, end, res.state._value_end(offset)
+        return None
 
     def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
         """The `text` with each match `Parser.scan()` gives replaced by what `f` returns for it.
@@ -1653,7 +1667,7 @@ class CompiledParser[A, B]:
         if self._bound is not None:
             grammar, tokenizer, fast = self._bound
             _require_text(text)
-            # After the functions for text, the parser decides: a pass over tokens would be a third.
+            # After the functions for text, the parser runs, not the functions for tokens.
             fast = fast if self._fast_text is None else None
             return cast("B", _parse_tokens_of_text(grammar, tokenizer, text, fast, describe))
         if self._reads_tokens:
@@ -1947,8 +1961,10 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     return cast("Parser[str, B]", p)
 
 
-_chains: ContextVar[dict[int, _Chain] | None] = ContextVar("funcparserlib_chains", default=None)
-"""The tokens `tokenized()` reads of the text of the parse running, by tokenizer."""
+_chains: ContextVar[dict[tuple[int, int], _Chain] | None] = ContextVar(
+    "funcparserlib_chains", default=None
+)
+"""The tokens `tokenized()` read in the parse running, by tokenizer and text."""
 
 
 def _sharing_tokens[T](f: Callable[[], T]) -> T:
@@ -1967,9 +1983,10 @@ def _chain_of(text: str, tokenizer: Tokenizer) -> _Chain:
     shared = _chains.get()
     if shared is None:
         return _Chain(text, tokenizer)
-    chain = shared.get(id(tokenizer))
-    if chain is None or chain.text is not text:
-        chain = shared[id(tokenizer)] = _Chain(text, tokenizer)
+    key = (id(tokenizer), id(text))
+    chain = shared.get(key)
+    if chain is None or chain.text is not text or chain.tokenizer is not tokenizer:
+        chain = shared[key] = _Chain(text, tokenizer)
     return chain
 
 
@@ -2042,7 +2059,7 @@ def _lexer_error(text: str, offset: int) -> LexerError:
 def _has_token(tokens: Sequence[Any], pos: int) -> bool:
     """Whether there is a token at `pos`, read without the length of `tokens`.
 
-    The tokens of `tokenized()` know their length only once read to the end of the text.
+    The length of the tokens of `tokenized()` is read by tokenizing the rest of the text.
     """
     try:
         tokens[pos]

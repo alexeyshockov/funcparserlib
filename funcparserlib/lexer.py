@@ -8,7 +8,8 @@ from collections.abc import Collection, Iterable, Sequence
 from re import Pattern
 from typing import Any, final
 
-from ._commons import line_of, place_of, valueclass, with_hint
+from ._commons import valueclass, with_hint
+from ._utils import line_of, place_of
 
 type Place = tuple[int, int]
 """A position in the text: (_line_, _column_), both counted from 1.
