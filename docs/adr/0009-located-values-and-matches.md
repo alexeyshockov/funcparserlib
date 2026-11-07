@@ -56,8 +56,8 @@ gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar re
   A construct inside a list item or a block quote is found as one anywhere else, as its tokens are in the sequence.
   Its spans are token indexes. Given a function from a range of tokens to the span of the text they came from, as
   `describe=` is for the errors of `parse()`, it gives spans of that text.
-- `p.scan_text(text)` does the same at each offset of a text, and a bound grammar at its root at each token of the
-  text (ADR 0003).
+- `p.scan_text(text)` does the same at each offset of a text, and a grammar that starts with a bound part at each token
+  of the text (ADR 0003).
 - `p.replace_text(text, f)` gives the text with each match replaced by what `f` returns for its `Located[B]`, and
   every character outside a span as it was. The skip after a match is outside its span.
 

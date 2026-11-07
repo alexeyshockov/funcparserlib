@@ -20,6 +20,7 @@ from funcparserlib.parser import (
     _Chain,
     _TextTokens,
     anything_but,
+    commit,
     finished,
     lit,
     many,
@@ -349,3 +350,56 @@ def test_a_scan_of_a_bound_grammar_tries_the_tokens_of_the_text(
     grammar = tokenized(setting, words)
     scanner = grammar.compile() if compiled else grammar
     assert [(m.value, m.start, m.end) for m in scanner.scan_text(text)] == found
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda g: g >> (lambda v: v),
+        lambda g: g.located() >> (lambda m: m.value),
+        lambda g: g + -spaced.end,
+    ],
+)
+def test_a_grammar_that_starts_with_a_bound_part_scans_the_tokens_of_the_text(
+    compiled: bool, wrap: Callable[[P], P]
+) -> None:
+    grammar = wrap(tokenized(setting, words))
+    scanner = grammar.compile() if compiled else grammar
+    text = 'say "a = 1" then # b = 2\nc = 3'
+    assert [(m.value, m.start) for m in scanner.scan_text(text)] == [(("c", "3"), 25)]
+
+
+def test_replace_text_of_a_bound_grammar_leaves_strings_and_comments_as_they_are() -> None:
+    grammar = tokenized(setting, words)
+    text = 'a = 1 "b = 2" # c = 3\nd = 4'
+    assert grammar.replace_text(text, lambda m: "=".join(m.value)) == 'a=1 "b = 2" # c = 3\nd=4'
+
+
+def test_a_broken_construct_in_a_scan_of_a_bound_grammar_has_its_line_and_column() -> None:
+    grammar = tokenized(tok("name") + commit(-tok("op") + tok("int")), words)
+    with pytest.raises(NoParseError) as caught:
+        list(grammar.scan_text("a = 1\nb = c"))
+    assert str(caught.value).startswith("2,5-2,5: got unexpected token: 'c'")
+
+
+def test_a_compiled_scan_of_a_bound_grammar_reads_only_as_far_as_its_first_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reads: list[int] = []
+    read = Tokenizer._read
+
+    def counted(self: Tokenizer, s: str, i: int) -> tuple[str, int] | None:
+        reads.append(i)
+        return read(self, s, i)
+
+    compiled = tokenized(setting, words).compile()
+    monkeypatch.setattr(Tokenizer, "_read", counted)
+    assert next(compiled.scan_text("c = 3 " * 10_000)).value == ("c", "3")
+    assert max(reads) < 20
+
+
+def test_a_grammar_that_can_start_with_text_is_tried_at_each_offset() -> None:
+    grammar = tokenized(setting, words) | spaced.lit("q")
+    found = [(m.value, m.start) for m in grammar.scan_text('say "a = 1" q')]
+    assert found == [(("a", "1"), 5), ("q", 12)]

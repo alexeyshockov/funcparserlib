@@ -172,12 +172,9 @@ def shadow(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> I
             monkeypatch.setattr(Parser, name, _shadowed(getattr(Parser, name), name))
         for name in ("scan", "scan_text"):
             monkeypatch.setattr(Parser, name, _shadowed_scan(getattr(Parser, name), name))
-        # A bound grammar has its own text methods, which read the tokens of the text.
+        # A bound grammar has its own `parse_text()`, which reads the tokens of the text.
         monkeypatch.setattr(
             _Tokenized, "parse_text", _shadowed(_Tokenized.parse_text, "parse_text")
-        )
-        monkeypatch.setattr(
-            _Tokenized, "scan_text", _shadowed_scan(_Tokenized.scan_text, "scan_text")
         )
     yield
     _compiled.clear()

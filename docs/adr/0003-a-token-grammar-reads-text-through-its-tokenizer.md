@@ -48,12 +48,14 @@ its tokenizer.
   indexes.
 - **Its features of text are those of any `Parser[str, B]`.** `parse_text()`, `scan_text()`, `replace_text()` and
   errors with a line and a column work as for a grammar without a tokenizer.
-- **A bound grammar at the root of a scan scans the tokens of the text.** `scan_text()` tries it at each token the
-  tokenizer reads from the start of the text, as `scan()` tries tokens (ADR 0009), with the offsets of those tokens, so
-  a match starts only where a token of the text starts: never inside a word, a string or a comment the tokenizer reads
-  as one token. Text no spec reads is one token no grammar reads, and the tokens go on where a spec reads again. A bound
-  part inside a grammar starts where the grammar reaches it, as a `regex()` does; a boundary there is the grammar's to
-  ask for, as `\b` is in a regex.
+- **A grammar that starts with a bound part scans the tokens of the text.** Where each parser a grammar can read first
+  is a bound part of one tokenizer, through `>>`, `located()`, `+` and the rest, `scan_text()` tries the grammar only
+  at the offsets where a token the tokenizer reads from the start of the text starts. A match then starts only where a
+  token of the text starts: never inside a word, a string or a comment the tokenizer reads as one token. Text no spec
+  reads starts no token, and the tokens go on where a spec reads again. A grammar that can start with a parser of text
+  is tried at each offset, and a bound part inside it starts where the grammar reaches it, as a `regex()` does; a
+  boundary there is the grammar's to ask for, as `\b` is in a regex. The tokens of a word are the tokenizer's: text no
+  spec reads, as `é` before `a` for a spec of `[a-z]+`, leaves `a` a token of its own.
 - **`Parser.compile()` takes no tokenizer.** Compiled, a bound grammar at the root of what is compiled reads a text
   through generated functions over two lists instead of tokens, the values and the types, filled from the tokenizer's
   joined regex. Whenever that does not succeed, the tokenizer and the interpreted parser run on the text, and what they

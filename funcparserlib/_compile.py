@@ -428,7 +428,7 @@ class _Compiler:
                 result = of(inner)[0], True
             case ("pure", _):
                 result = frozenset(), True
-            case ("finished",) | ("opaque",) | ("text_end", _) | ("tokenized", _, _):
+            case ("finished",) | ("opaque",) | ("text_end", _) | ("tokenized", _, _, _):
                 result = None, True
             case ("text", _, _, _) | ("byte",) | ("fixed", _, _):
                 result = None, False
@@ -709,7 +709,11 @@ class _Compiler:
         parts: list[Parser[Any, Any]] = []
         match _form(p):
             case (
-                ("test",) | ("opaque",) | ("text", _, _, _) | ("text_end", _) | ("tokenized", _, _)
+                ("test",)
+                | ("opaque",)
+                | ("text", _, _, _)
+                | ("text_end", _)
+                | ("tokenized", _, _, _)
             ):
                 return self.leaf_start_tests(p, pos)
             case ("byte",) | ("fixed", _, _) | ("prefixed" | "counted" | "switch", _, _):
@@ -1570,7 +1574,7 @@ def leading_skip(root: Parser[Any, Any]) -> Skip | None:
                     case ("text", _, _, skip) | ("text_end", skip) if skip is not None:
                         found: Skip = skip
                         return found
-                    case ("tokenized", _, skipped):
+                    case ("tokenized", _, skipped, _):
                         tokens: Skip = skipped
                         return tokens
                     case ("prefixed", length, _):
@@ -1580,6 +1584,60 @@ def leading_skip(root: Parser[Any, Any]) -> Skip | None:
     except _Declined:
         return None
     return None
+
+
+_NO_READ = ("pure", "finished", "text_end", "previous")
+"""The forms of parsers that read nothing."""
+
+
+def leading_tokenizer(root: Parser[Any, Any]) -> Any:
+    """The tokenizer of the bound part each start of the grammar is, `None` where one reads text.
+
+    A start is a parser the grammar can read first: a bound part of `tokenized()` reads tokens, and
+    any other parser that reads reads text, so where one can start, the grammar can start anywhere.
+    """
+    found: set[int] = set()
+    tokenizers: list[Any] = []
+    seen: set[int] = set()
+
+    def starts(p: Parser[Any, Any]) -> bool:
+        """Read the starts of `p` into `tokenizers`, and say whether `p` can read nothing."""
+        p = _target(p)
+        if id(p) in seen:
+            return False
+        seen.add(id(p))
+        empty = False
+        match _form(p):
+            case ("seq", left, right):
+                empty = starts(left) and starts(right)
+            case ("alt" | "but_not", left, right):
+                empty = starts(left)
+                empty = starts(right) or empty
+            case ("longest", parsers):
+                for q in parsers:
+                    empty = starts(q) or empty
+            case ("map" | "starmap" | "when", inner, _) | ("ignore" | "commit" | "context", inner):
+                empty = starts(inner)
+            case ("located" | "oneplus", inner) | ("prefixed" | "counted" | "switch", inner, _):
+                empty = starts(inner)
+            case ("many", inner):
+                starts(inner)
+                empty = True
+            case ("tokenized", _, _, tokenizer):
+                if id(tokenizer) not in found:
+                    found.add(id(tokenizer))
+                    tokenizers.append(tokenizer)
+            case (name, *_) if name in _NO_READ:
+                empty = True
+            case _:
+                tokenizers.append(None)
+        return empty
+
+    try:
+        starts(root)
+    except _Declined:
+        return None
+    return tokenizers[0] if len(tokenizers) == 1 else None
 
 
 def reads_tokens(root: Parser[Any, Any]) -> bool:
