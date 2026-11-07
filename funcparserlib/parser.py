@@ -87,13 +87,14 @@ import logging
 import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import field, replace
 from operator import attrgetter
 from os import PathLike
 from pathlib import Path
 from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overload
 
-from ._commons import valueclass, with_hint
+from ._commons import line_of, place_of, valueclass, with_hint
 from .lexer import LexerError, Place, Token, Tokenizer
 from .util import Lines
 
@@ -218,8 +219,7 @@ class _TextPlaces(Sequence[Any]):
         return _Character(word.group() if word else text[offset], (line, column))
 
     def _place(self, offset: int) -> Place:
-        text = self._text
-        return text.count("\n", 0, offset) + 1, offset - text.rfind("\n", 0, offset)
+        return place_of(self._text, offset)
 
     def end(self) -> TokenDescription:
         """The end of the text, past its last character that is not whitespace."""
@@ -833,7 +833,7 @@ class Parser[A, B]:
         skip = leading_skip(self)
         m = skip.match(text) if skip is not None else None
         start = m.end() if m is not None else 0
-        res = self._run_input(text, start, "text")
+        res = _sharing_tokens(lambda: self._run_input(text, start, "text"))
         return self._result(res, _TextPlaces(text), _describe)
 
     def parse_bytes(self, data: bytes | bytearray) -> B:
@@ -882,8 +882,15 @@ class Parser[A, B]:
 
     def _matches(self, text: str) -> Iterator[Located[B]]:
         offset = 0
+        shared: dict[int, _Chain] = {}
         while offset < len(text):
-            res = self.run(cast("Any", text), State(offset, offset))
+            # The tokens `tokenized()` reads are shared over the offsets, and kept for no longer.
+            token = _chains.set(shared) if _chains.get() is None else None
+            try:
+                res = self.run(cast("Any", text), State(offset, offset))
+            finally:
+                if token is not None:
+                    _chains.reset(token)
             failed = isinstance(res, ParsingFailure)
             if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
                 self._result(res, _TextPlaces(text), _describe)
@@ -1630,6 +1637,9 @@ class CompiledParser[A, B]:
 
     def _read(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
         """The result of `text` or bytes, through the functions generated for text if there are."""
+        return _sharing_tokens(lambda: self._read_shared(text, describe))
+
+    def _read_shared(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
         res = None
         if self._fast_text is not None and not debug:
             try:
@@ -1683,13 +1693,13 @@ class CompiledParser[A, B]:
             _require_text(text)
         if self._fast_text is not None and not debug:
             try:
-                res = self._fast_text(cast("str", text))
+                res = _sharing_tokens(lambda: cast("Any", self._fast_text)(cast("str", text)))
             except _Undecided:
                 pass
             else:
                 return None if res is None else res[0]
         try:
-            return self._interpreted(cast("str", text), None)
+            return _sharing_tokens(lambda: self._interpreted(cast("str", text), None))
         except (NoParseError, ParseErrors, LexerError, RecursionError):
             return None
 
@@ -1755,7 +1765,7 @@ class _TextTokens(Sequence[Token]):
     Where no token spec matches, the last token is one no grammar reads.
     """
 
-    __slots__ = ("_chain", "_ends", "_next", "_start", "_starts", "_tokens")
+    __slots__ = ("_chain", "_complete", "_ends", "_next", "_start", "_starts", "_tokens")
 
     def __init__(self, chain: _Chain, start: int) -> None:
         self._chain = chain
@@ -1764,12 +1774,42 @@ class _TextTokens(Sequence[Token]):
         self._tokens: list[Token] = []
         self._starts: list[int] = []
         self._ends: list[int] = []
+        self._complete = False
+
+    @classmethod
+    def of_text(cls, text: str, tokenizer: Tokenizer) -> _TextTokens:
+        """All the tokens of `text`, read once from its start, with no table of what was read."""
+        tokens = cls(_Chain(text, tokenizer), 0)
+        items, starts, ends = tokens._tokens, tokens._starts, tokens._ends
+        lines = Lines(text)
+        pos = 0
+        try:
+            for token in tokenizer(text):
+                # A token from `Tokenizer.__call__()` has its place; its offset is where that is.
+                start = lines.offset(cast("Place", token.start))
+                items.append(token)
+                starts.append(start)
+                ends.append(start + len(token.value))
+            pos = len(text)
+        except LexerError as e:
+            pos = lines.offset(e.place)
+            word = _WORD.match(text, pos)
+            items.append(Token(_UNREADABLE, word.group() if word else "\r", e.place, e.place))
+            starts.append(pos)
+            ends.append(pos)
+        tokens._next = pos
+        tokens._complete = True
+        return tokens
 
     def __len__(self) -> int:
+        if self._complete:
+            return len(self._tokens)
         return self._chain.count(self._start)
 
     def _fill(self, i: int) -> bool:
         """Whether there is a token `i`, reading the tokens up to it."""
+        if self._complete:
+            return i < len(self._tokens)
         chain, tokens = self._chain, self._tokens
         while len(tokens) <= i:
             pos = self._next
@@ -1890,14 +1930,10 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
 
         ```
     """
-    chains: list[_Chain] = []
 
     def run(text: Any, s: State) -> ParsingResult[B]:
         _require_text(text)
-        chain = chains[0] if chains and chains[0].text is text else None
-        if chain is None:
-            chain = _Chain(text, tokenizer)
-            chains[:] = [chain]
+        chain = _chain_of(text, tokenizer)
         if (first := chain.read(s.pos)) is not None and first[0] in chain.skip:
             # What a grammar of text skips, the parser before skips, as after `skipping()`.
             return ParsingFailure(s.expect(p))
@@ -1909,6 +1945,32 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     p._grammar = grammar
     p._tokenizer = tokenizer
     return cast("Parser[str, B]", p)
+
+
+_chains: ContextVar[dict[int, _Chain] | None] = ContextVar("funcparserlib_chains", default=None)
+"""The tokens `tokenized()` reads of the text of the parse running, by tokenizer."""
+
+
+def _sharing_tokens[T](f: Callable[[], T]) -> T:
+    """`f()`, where the parsers of `tokenized()` share the tokens they read of a text."""
+    if _chains.get() is not None:
+        return f()
+    token = _chains.set({})
+    try:
+        return f()
+    finally:
+        _chains.reset(token)
+
+
+def _chain_of(text: str, tokenizer: Tokenizer) -> _Chain:
+    """The tokens of `text` the running parse read through `tokenizer`; new ones outside a parse."""
+    shared = _chains.get()
+    if shared is None:
+        return _Chain(text, tokenizer)
+    chain = shared.get(id(tokenizer))
+    if chain is None or chain.text is not text:
+        chain = shared[id(tokenizer)] = _Chain(text, tokenizer)
+    return chain
 
 
 def _from_tokens[B](res: ParsingResult[B], tokens: _TextTokens, s: State) -> ParsingResult[B]:
@@ -1954,7 +2016,7 @@ def _parse_tokens_of_text[B](
     describe: Callable[[Any], TokenDescription] | None,
 ) -> B:
     """The value of the tokens of `text`, through `fast` first, with the errors of the tokens."""
-    tokens = _TextTokens(_Chain(text, tokenizer), 0)
+    tokens = _TextTokens.of_text(text, tokenizer)
     stop = tokens.unreadable()
     if fast is not None and not debug and stop is None:
         res = fast(tokens)
@@ -1973,9 +2035,8 @@ def _parse_tokens_of_text[B](
 
 def _lexer_error(text: str, offset: int) -> LexerError:
     """The error of a tokenizer that stopped at `offset` of `text`."""
-    line = text.count("\n", 0, offset) + 1
-    column = offset - text.rfind("\n", 0, offset)
-    return LexerError((line, column), text.split("\n")[line - 1].rstrip("\r"))
+    place = place_of(text, offset)
+    return LexerError(place, line_of(text, place[0]))
 
 
 def _unexpected(
@@ -2972,7 +3033,11 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
 
     def eq_token(t: object) -> bool:
         # What `t == Token(type, value)` compares, without building a token.
-        return isinstance(t, Token) and t.type == type and t.value == value
+        if isinstance(t, Token):
+            return t.type == type and t.value == value
+        if not hasattr(t, "type"):
+            raise _NotAToken(f"{t.__class__.__name__!r} object has no attribute 'type'")
+        return False
 
     eq = eq_type if value is None else cast("Callable[[Token], bool]", eq_token)
     p = some(eq).named(type if value is None else repr(value))

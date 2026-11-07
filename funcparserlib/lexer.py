@@ -8,7 +8,7 @@ from collections.abc import Collection, Iterable, Sequence
 from re import Pattern
 from typing import Any, final
 
-from ._commons import valueclass, with_hint
+from ._commons import line_of, place_of, valueclass, with_hint
 
 type Place = tuple[int, int]
 """A position in the text: (_line_, _column_), both counted from 1.
@@ -232,7 +232,7 @@ class Tokenizer:
         if m is None:
             return None
         if m.end() == i:
-            line, column = s.count("\n", 0, i) + 1, i - s.rfind("\n", 0, i)
+            line, column = place_of(s, i)
             raise ValueError(
                 f"the pattern of token {token_type!r} matched the empty string at {line},{column}"
             )
@@ -254,8 +254,7 @@ class Tokenizer:
             else:
                 token_type, m = self._first_match(s, i)
             if m is None:
-                # Lines are counted by "\n" alone, as the token positions are.
-                raise LexerError((line, pos + 1), s.split("\n")[line - 1].rstrip("\r"))
+                raise LexerError((line, pos + 1), line_of(s, line))
             value = m.group()
             if not value:
                 raise ValueError(

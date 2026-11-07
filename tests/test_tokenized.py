@@ -1,5 +1,7 @@
 """A token grammar bound to its tokenizer, as a parser of text."""
 
+import gc
+import weakref
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -203,3 +205,31 @@ def test_maybe_of_a_bound_part_that_reads_nothing_keeps_the_skip_before_it(run: 
 
 def test_a_bound_part_that_reads_to_the_end_ends_past_the_skip_there(run: Run) -> None:
     assert run(tokenized(total, tokenize) + finished, "1 + 2  # c") == (1, [2], None)
+
+
+def test_a_token_of_a_value_says_it_cannot_parse_text_as_its_compiled_parser_does() -> None:
+    plus = tok("op", "+")
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+        plus.parse_text("+")
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+        plus.compile().parse_text("+")
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
+        plus.parse_bytes(b"+")
+
+
+class Text(str):
+    """A text a test can hold a weak reference to."""
+
+    __slots__ = ("__weakref__",)
+
+
+def test_a_parse_keeps_no_text_once_it_returns() -> None:
+    grammar = spaced.lit("calc") + tokenized(total, tokenize)
+    text = Text("calc 1 + 2")
+    assert grammar.parse_text(text) == ("calc", (1, [2]))
+    assert [m.value for m in grammar.matches(text)] == [("calc", (1, [2]))]
+    assert grammar.compile().parse_text(text) == ("calc", (1, [2]))
+    ref = weakref.ref(text)
+    del text
+    gc.collect()
+    assert ref() is None
