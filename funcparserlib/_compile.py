@@ -1587,14 +1587,15 @@ def leading_tokenizer(root: Parser[Any, Any]) -> Any:
 
     A start is a parser the grammar can read first: a bound part of `tokenized()` reads tokens, and
     any other parser that reads reads text, so where one can start, the grammar can start anywhere.
-    A parser this cannot see into, such as one of `Parser.bind()`, counts as a start of text.
+    A parser this cannot see into, such as one of `Parser.bind()`, counts as a start of text, and a
+    grammar with a form this does not know is tried at each offset.
     """
+    bottom: _Starts = (frozenset(), False)
     try:
-        nodes = _scanned_nodes(root)
+        known = _least_fixed_point(_scanned_nodes(root), bottom, _starts_of)
+        starts, _ = known[id(_target(root))]
     except _Declined:
         return None
-    bottom: _Starts = (frozenset(), False)
-    starts, _ = _least_fixed_point(nodes, bottom, _starts_of)[id(_target(root))]
     return next(iter(starts)) if len(starts) == 1 else None
 
 
@@ -1652,7 +1653,7 @@ def _starts_of(p: Parser[Any, Any], known: dict[int, _Starts]) -> _Starts:
         ):
             result = of(inner)
         case _:
-            raise AssertionError(f"no starts for form {_form(p)!r}")
+            raise _Declined(f"{p.name} has a form with no starts, {_form(p)[0]!r}")
     return result
 
 
