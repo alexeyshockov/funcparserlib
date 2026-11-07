@@ -28,6 +28,7 @@ tests/shadow.py           pytest plugin: every parse of the suite also runs comp
 tests/typesafety/         what a user's checker infers; pytest does not collect it
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
+docs/architecture.md      how the library is put together, and the principles a change keeps
 docs/adr/                 the decision record
 examples/                 runnable programs using public APIs only; tests/examples/test_examples.py runs each
 benchmarks/               pytest-benchmark micro-benchmarks, bench_*.py; results/ is local and untracked
