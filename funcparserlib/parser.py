@@ -1705,7 +1705,9 @@ class CompiledParser[A, B]:
             from ._compile import Internals, compile_scanner  # noqa: PLC0415
 
             internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided, _located_at)
-            self._scanners[text] = compile_scanner(self._parser.located(), internals, text=text)
+            # A bound grammar scans the tokens of the text, with the grammar of tokens.
+            grammar = self._bound[0] if self._bound is not None else self._parser
+            self._scanners[text] = compile_scanner(grammar.located(), internals, text=text)
         return self._scanners[text]
 
     def parse(
@@ -1792,6 +1794,8 @@ class CompiledParser[A, B]:
         from ._compile import reads_tokens  # noqa: PLC0415
 
         _require_text(text)
+        if isinstance(self._parser, _Tokenized):
+            return self._parser._scan_file(text, self._scanner(text=False))
         if reads_tokens(self._parser):
             raise _reads_tokens_error("text")
         return self._parser._scan_text(text, self._scanner(text=True))
@@ -1885,12 +1889,13 @@ class _Chain:
 class _TextTokens(Sequence[Token]):
     """The tokens of a text from `start`, read as a parser asks for them, with their offsets.
 
-    Where no token spec matches, the last token is one no grammar reads.
+    Where no token spec matches, the last token is one no grammar reads. Tokens that go `on` past it
+    hold the text no spec matches in such a token, and go on where a spec matches again.
     """
 
-    __slots__ = ("_chain", "_complete", "_ends", "_next", "_start", "_starts", "_tokens")
+    __slots__ = ("_chain", "_complete", "_ends", "_next", "_on", "_start", "_starts", "_tokens")
 
-    def __init__(self, chain: _Chain, start: int) -> None:
+    def __init__(self, chain: _Chain, start: int, *, on: bool = False) -> None:
         self._chain = chain
         self._start = start
         self._next = start
@@ -1898,6 +1903,7 @@ class _TextTokens(Sequence[Token]):
         self._starts: list[int] = []
         self._ends: list[int] = []
         self._complete = False
+        self._on = on
 
     @classmethod
     def of_text(cls, text: str, tokenizer: Tokenizer) -> _TextTokens:
@@ -1927,6 +1933,10 @@ class _TextTokens(Sequence[Token]):
     def __len__(self) -> int:
         if self._complete:
             return len(self._tokens)
+        if self._on:
+            while self._fill(len(self._tokens)):
+                pass
+            return len(self._tokens)
         return self._chain.count(self._start)
 
     def _fill(self, i: int) -> bool:
@@ -1940,6 +1950,9 @@ class _TextTokens(Sequence[Token]):
             if found is None:
                 if pos >= len(chain.text) or (self._starts and self._starts[-1] == pos):
                     return False
+                if self._on:
+                    self._unreadable(pos)
+                    continue
                 word = _WORD.match(chain.text, pos)
                 place = chain.place(pos)
                 tokens.append(Token(_UNREADABLE, word.group() if word else "\r", place, place))
@@ -1956,6 +1969,18 @@ class _TextTokens(Sequence[Token]):
             self._starts.append(pos)
             self._ends.append(end)
         return True
+
+    def _unreadable(self, pos: int) -> None:
+        """A token of the text no spec matches from `pos` to where one matches again."""
+        chain, end = self._chain, pos + 1
+        while end < len(chain.text) and chain.read(end) is None:
+            end += 1
+        line, column = chain.place(end)
+        token = Token(_UNREADABLE, chain.text[pos:end], chain.place(pos), (line, column - 1))
+        self._tokens.append(token)
+        self._starts.append(pos)
+        self._ends.append(end)
+        self._next = end
 
     @overload
     def __getitem__(self, i: int) -> Token: ...
@@ -2033,6 +2058,21 @@ class _Tokenized[B](Parser[str, B]):
         """Parse the text, as `Parser.parse()` parses its tokens, with the errors of the tokens."""
         _require_text(text)
         return _parse_tokens_of_text(self._grammar, self._tokenizer, text, None, None)
+
+    def scan_text(self, text: str) -> Iterator[Located[B]]:
+        """The parts of `text` the grammar reads, tried at each token the tokenizer reads from the
+        start of the text, as `Parser.scan()` tries tokens.
+
+        A match starts only where a token of the text starts, so none starts inside a word, a string
+        or a comment the tokenizer reads as one token. Text no token spec matches is one token no
+        grammar reads, and the tokens go on after it. Its offsets are those of the text.
+        """
+        _require_text(text)
+        return self._scan_file(text, None)
+
+    def _scan_file(self, text: str, generated: _Generated | None) -> Iterator[Located[B]]:
+        tokens = _TextTokens(_Chain(text, self._tokenizer), 0, on=True)
+        return self._grammar._scan_tokens(tokens, _describe, _text_span, generated)
 
     def compile(self, *, source_file: str | PathLike[str] | None = None) -> CompiledParser[str, B]:
         """Generate the functions of the grammar for its text, and for its tokens."""
@@ -2223,6 +2263,13 @@ def _replaced[B](text: str, matches: Iterable[Located[B]], f: Callable[[Located[
         last = m.end
     parts.append(text[last:])
     return "".join(parts)
+
+
+def _text_span(tokens: Sequence[Any], start: int, end: int) -> tuple[int, int]:
+    """The offsets in their text of the tokens of a text from `start` to `end`."""
+    text_tokens = cast("_TextTokens", tokens)
+    first = text_tokens.offset(start)
+    return first, text_tokens.end(end - 1) if end > start else first
 
 
 def _located_at[B](tokens: Sequence[Any], value: B, start: int, end: int) -> Located[B]:

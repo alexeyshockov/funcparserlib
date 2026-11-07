@@ -138,12 +138,12 @@ the scan goes past it:
 
 ```
 
-It starts its tokens at each position it tries, so a match can start inside what the tokens of the whole text make
-one word:
+It tries the grammar at each token the tokenizer reads from the start of the text, so a match starts only where a token
+starts, and never inside a word, a string or a comment the tokenizer reads as one token:
 
 ```pycon
 >>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).scan_text("elif if")]
-[(2, 4), (5, 7)]
+[(5, 7)]
 
 ```
 

@@ -47,8 +47,13 @@ its tokenizer.
   were read at, which the bound parser keeps beside its tokens. `parse(tokens)` of the token grammar gives token
   indexes.
 - **Its features of text are those of any `Parser[str, B]`.** `parse_text()`, `scan_text()`, `replace_text()` and
-  errors with a line and a column work as for a grammar without a tokenizer. `scan_text()` tries each offset, so text
-  no spec reads never matches, and a match may start inside what the global tokens make one word.
+  errors with a line and a column work as for a grammar without a tokenizer.
+- **A bound grammar at the root of a scan scans the tokens of the text.** `scan_text()` tries it at each token the
+  tokenizer reads from the start of the text, as `scan()` tries tokens (ADR 0009), with the offsets of those tokens, so
+  a match starts only where a token of the text starts: never inside a word, a string or a comment the tokenizer reads
+  as one token. Text no spec reads is one token no grammar reads, and the tokens go on where a spec reads again. A bound
+  part inside a grammar starts where the grammar reaches it, as a `regex()` does; a boundary there is the grammar's to
+  ask for, as `\b` is in a regex.
 - **`Parser.compile()` takes no tokenizer.** Compiled, a bound grammar at the root of what is compiled reads a text
   through generated functions over two lists instead of tokens, the values and the types, filled from the tokenizer's
   joined regex. Whenever that does not succeed, the tokenizer and the interpreted parser run on the text, and what they
@@ -84,8 +89,10 @@ Rejected:
   depending on the grammar.
 - **`skip=` given with the grammar.** A program would list the same types in its tokenizer wrapper and in the call, and
   the wrapper every tokenizer had would stay.
-- **Matches only where a token of the whole text starts.** A bound part inside a grammar has no tokens of the whole
-  text, so `scan_text()` would need a case of its own, and a parser would scan differently where it is embedded.
+- **A scan of a bound grammar at each offset of the text.** It started tokenizers inside the tokens of the text: on
+  `x⏎# was b = 2⏎c = 3`, with comments skipped, it found `b = 2` inside the comment, and on `say "a = 1"` the
+  `a = 1` inside the string, which a migration would rewrite. A check of the character before an offset would refuse
+  `elif` for `if`, and not a comment after a space.
 - **`g.tokenized(t)` and `tokenizer.parser(g)`.** A method on `Parser` is for what acts on a finished parser's value or
   name (ADR 0008), and a method on `Tokenizer` reads as a feature of the lexer where it makes a parser.
 
@@ -97,13 +104,13 @@ Rejected:
   tokens one at a time.
 - Tokenizing stays a `str` matter: `TokenSpec.pattern` is a `str`, and positions count `"\n"`.
 - `Parser.parse_text()` of a grammar of `tok()` raises `ValueError`, with a hint naming `tokenized()`.
-- `scan_text()` of a bound grammar starts a tokenizer at each offset it tries. A tokenizer reads a token by the text
-  alone, so the token at an offset is read once for a text, and every start shares the tokens of the offsets it
-  reaches. The length of the tokens is the rest of the text, so a parser of tokens tells their end by reading the token
-  at its position, and a scan reads the text only as far as the matches it gives; the errors of a parse read the
-  length. On 400 KB, 800 KB and 1.6 MB of
-  `"word x = 1 # prose; "` repeated, `scan_text()` of `tok("name") + -tok("op", "=") + tok("int")` took 0.97 s, 1.90 s and
-  3.86 s, against 0.42 s, 0.88 s and 1.74 s for the same grammar without a tokenizer (Python 3.12, arm64 laptop, one
-  run each).
-- `tok("name", "if")` scanning `elif` matches at its second character, as `regex("if")` does. A grammar without a
-  tokenizer guards with `\b`; a token grammar has no such place yet.
+- A bound part inside a grammar starts a tokenizer where it is reached. A tokenizer reads a token by the text alone,
+  so the token at an offset is read once for a text, and every start shares the tokens of the offsets it reaches. The
+  length of the tokens is the rest of the text, so a parser of tokens tells their end by reading the token at its
+  position, and a scan reads the text only as far as the matches it gives; the errors of a parse read the length.
+- On 400 KB, 800 KB and 1.6 MB of `"word x = 1 # prose; "` repeated, `scan_text()` of
+  `tokenized(tok("name") + -tok("op", "=") + tok("int"), t)` took 0.37 s, 0.80 s and 1.64 s, and 0.30 s, 0.64 s and
+  1.45 s compiled, against 0.43 s, 0.85 s and 1.77 s for the same grammar without a tokenizer and 0.10 s, 0.20 s and
+  0.46 s compiled (Python 3.12, arm64 laptop, one run each).
+- A bound part inside a grammar that has to start at a boundary of a word has no way to ask for one yet; it waits for
+  a grammar that needs it.

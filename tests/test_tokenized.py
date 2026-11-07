@@ -238,6 +238,7 @@ def test_a_parse_keeps_no_text_once_it_returns() -> None:
     assert ref() is None
 
 
+@pytest.mark.interpreted_only
 def test_the_first_match_reads_the_text_only_as_far_as_it(monkeypatch: pytest.MonkeyPatch) -> None:
     reads: list[int] = []
     read = Tokenizer._read
@@ -262,6 +263,7 @@ def no_length(self: _TextTokens) -> int:
     raise AssertionError(msg)
 
 
+@pytest.mark.interpreted_only
 @pytest.mark.parametrize(
     ("grammar", "text", "value"),
     [
@@ -315,3 +317,35 @@ def test_a_grammar_that_starts_with_a_bound_part_reads_the_skip_the_text_starts_
 ) -> None:
     assert run(tokenized(number, tokenize) >> (lambda n: n * 2), "  # c\n 21") == 42
     assert run(tokenized(number, tokenize) + spaced.lit(";"), " 1 ;") == (1, ";")
+
+
+words = make_tokenizer(
+    [
+        TokenSpec("space", r"\s+"),
+        TokenSpec("comment", r"#[^\n]*"),
+        TokenSpec("string", r'"[^"]*"'),
+        TokenSpec("name", r"[a-z]+"),
+        TokenSpec("op", r"="),
+        TokenSpec("int", r"\d+"),
+    ],
+    skip={"space", "comment"},
+)
+setting = tok("name") + -tok("op") + tok("int")
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize(
+    ("text", "found"),
+    [
+        ("x\n# was b = 2\nc = 3\n", [(("c", "3"), 14, 19)]),
+        ('say "a = 1" then c = 3', [(("c", "3"), 17, 22)]),
+        ("elif = 1", [(("elif", "1"), 0, 8)]),
+        ("a = 1 ?? ! b = 2", [(("a", "1"), 0, 5), (("b", "2"), 11, 16)]),
+    ],
+)
+def test_a_scan_of_a_bound_grammar_tries_the_tokens_of_the_text(
+    compiled: bool, text: str, found: list[tuple[object, int, int]]
+) -> None:
+    grammar = tokenized(setting, words)
+    scanner = grammar.compile() if compiled else grammar
+    assert [(m.value, m.start, m.end) for m in scanner.scan_text(text)] == found
