@@ -6,7 +6,8 @@
 # migration and maps `strict` to its annotation-presence rules, which `mypy.ini` opts out of.
 #
 # The `default` preset: correctness diagnostics without annotation-presence or implicit-`Any` rules.
-# No `python-version`: the recipes pass `--python-version` from `requires-python`.
+# No `python-version`: the recipes pass `--python-version` from `requires-python`, and run a file
+# ruff's `per-file-target-version` pins apart, at its version.
 preset = "default"
 project-includes = [
     "funcparserlib",

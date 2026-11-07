@@ -47,7 +47,8 @@ dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --lock
 
 # Each distribution's tests, and the `tests/typesafety/` suites among them that exist. `toolbox`
 # runs each type checker at the floor (the version the first distribution's `requires-python`
-# starts from) against `.venv`, and ty with each distribution's own view of the workspace.
+# starts from) against `.venv`, a file ruff's `per-file-target-version` pins at its own version,
+# and ty with each distribution's own view of the workspace.
 test_dirs := shell('for d in $1; do [ "$d" = . ] && printf "tests " || printf "%s/tests " "$d"; done', dists)
 typesafety_dirs := shell('for d in $1; do printf "%s/typesafety " "$d"; done', test_dirs)
 api_suites := shell('for d in $1; do [ -d "$d" ] && printf "%s " "$d"; done; true', typesafety_dirs)

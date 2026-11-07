@@ -13,7 +13,9 @@
   unless the package actually requires them.
 
 Examples are gated, not decorative: mypy reads them through `mypy.ini`'s file list and ty blocks on
-them.
+them. They are checked at the floor. An example that needs a newer Python than the package does
+states it once, as ruff's `per-file-target-version` in `pyproject.toml`
+(`"examples/t_strings.py" = "py314"`), and every checker reads it from there.
 
 ```shell
 just types-examples

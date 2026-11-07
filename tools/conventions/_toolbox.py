@@ -2,7 +2,11 @@
 
 `just` holds what each verb does; this holds how a tool has to be run in this repository: which
 files a path names, which distribution a file belongs to, the search path ty needs, and the
-interpreter and floor each type checker spells its own way.
+interpreter and Python version each type checker spells its own way.
+
+A type checker runs at the floor, the version `requires-python` starts from. A file that ruff's
+`per-file-target-version` (`[tool.ruff]` in the root `pyproject.toml`) gives a version of its own is
+checked at that version instead, in a run of its own, and left out of the floor's run.
 
     toolbox <tool> [TOOL OPTIONS...] [-- PATHS...]
 
@@ -10,12 +14,14 @@ Options before `--` go to the tool as given; paths after it are the targets. Exi
 tool's, the first failing one's when it runs once per distribution, 2 when a path is refused.
 """
 
+import configparser
 import re
 import subprocess
 import sys
 import tomllib
-from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
 from typing import NoReturn, final
 
 from ._project import Project, RunError
@@ -182,6 +188,74 @@ def floor(root: Path, dists: Sequence[str]) -> str:
     return match[1]
 
 
+def target_versions(root: Path) -> dict[str, str]:
+    """ruff's `per-file-target-version` from the root `pyproject.toml`: each glob and its `X.Y`."""
+    pyproject = root / "pyproject.toml"
+    try:
+        with pyproject.open("rb") as f:
+            ruff = tomllib.load(f).get("tool", {}).get("ruff", {})
+    except FileNotFoundError:
+        return {}
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        _refuse(f"cannot read {pyproject}: {e}")
+    versions = {}
+    for glob, target in ruff.get("per-file-target-version", {}).items():
+        if not (match := re.fullmatch(r"py3(\d+)", str(target))):
+            _refuse(f"per-file-target-version: {target!r} for {glob!r} is not a pyXY version")
+        versions[glob] = f"3.{match[1]}"
+    return versions
+
+
+def version_of(path: str, versions: Mapping[str, str]) -> str | None:
+    """The version the globs give `path`, `None` when no glob matches it.
+
+    A glob is matched against the path from the repository root, and a glob without a `/` against
+    the file name too. Two globs that match one file with different versions are refused.
+
+    Raises:
+        Refused: two matching globs disagree.
+    """
+    file = PurePosixPath(path)
+    found = {
+        version
+        for glob, version in versions.items()
+        if file.full_match(glob) or ("/" not in glob and PurePosixPath(file.name).full_match(glob))
+    }
+    if len(found) > 1:
+        raise Refused(
+            f"per-file-target-version gives {path} more than one version: {sorted(found)}"
+        )
+    return found.pop() if found else None
+
+
+def pinned(root: Path, under: Sequence[str], versions: Mapping[str, str]) -> dict[str, str]:
+    """Each Python file under `under` (the whole tree when empty) the globs give a version, with it.
+
+    `tools/` and the noxfile run on the toolbox's interpreter and are never pinned.
+    """
+    if not versions:
+        return {}
+    pins = {}
+    for path in _visible(root, under):
+        if Path(path).suffix not in PYTHON_SUFFIXES or Path(path).parts[:1] == (TOOLBOX,):
+            continue
+        if path != NOXFILE and (version := version_of(path, versions)):
+            pins[path] = version
+    return pins
+
+
+def _by_version(pins: Mapping[str, str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    for path, version in pins.items():
+        groups.setdefault(version, []).append(path)
+    return groups
+
+
+def _under(path: str, scope: Iterable[str]) -> bool:
+    parts = Path(path).parts
+    return any(parts[: len(Path(s).parts)] == Path(s).parts for s in scope)
+
+
 def split(args: Sequence[str]) -> tuple[list[str], list[str] | None]:
     """The tool's own options, and the paths after `--`; `None` when there is no `--`."""
     if "--" not in args:
@@ -263,8 +337,11 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
     if paths and not named and not noxfile:
         print("ty: skipped, no Python files among the given paths")
         return 0
-    groups = _grouped(root, named, dists) if named else {".": []}
     excluded = _grouped(root, excludes, dists)
+    swept = suites(root, named, dists)
+    found = pinned(root, named, target_versions(root)) if named or not paths else {}
+    pins = {path: v for path, v in found.items() if not _under(path, [*swept, *excludes])}
+    groups = _grouped(root, [p for p in named if p not in pins], dists) if named else {".": []}
 
     def command(member: str, members_paths: Sequence[str]) -> list[str]:
         view = [] if member == "." else ["--project", member]
@@ -273,10 +350,15 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         dropped = [*excluded.get(member, []), *suites(root, members_paths, dists)]
         if member == ".":
             dropped.append(NOXFILE)
+        dropped += [path for path in pins if member_of(path, dists) == member]
         drop = [arg for path in dropped for arg in ("--exclude", path)]
         return ["ty", "check", "--python", PYTHON, *view, *drop, *rest, *members_paths]
 
-    status = _each(groups, command) if named or not paths else 0
+    status = _each(groups, command) if groups and (named or not paths) else 0
+    for version, files in _by_version(pins).items():
+        for member, members_files in _grouped(root, files, dists).items():
+            code = _run([*command(member, members_files), "--python-version", version])
+            status = status or code
     if noxfile:
         code = _run(["ty", "check", "--python", TOOLS_PYTHON, *rest, NOXFILE])
         status = status or code
@@ -286,28 +368,118 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
 type Tool = Callable[[Path, Sequence[str], Sequence[str] | None], int]
 
 
-def _checker(flags: Callable[[str], list[str]], subcommands: frozenset[str] = frozenset()) -> Tool:
-    """A type checker run at the floor against `.venv`, once per distribution when given paths."""
+def _mypy_files(root: Path) -> list[str]:
+    """`[mypy] files` in `mypy.ini`: what a mypy run without paths checks."""
+    config = configparser.ConfigParser()
+    config.read(root / "mypy.ini", encoding="utf-8")
+    return [f.strip() for f in config.get("mypy", "files", fallback="").split(",") if f.strip()]
+
+
+def _pyrefly_includes(root: Path) -> list[str]:
+    """`project-includes` in `pyrefly.toml`: what a pyrefly run without paths checks."""
+    try:
+        with (root / "pyrefly.toml").open("rb") as f:
+            return list(tomllib.load(f).get("project-includes", []))
+    except FileNotFoundError:
+        return []
+    except tomllib.TOMLDecodeError as e:
+        _refuse(f"cannot read pyrefly.toml: {e}")
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class _Scope:
+    """What a checker run without paths covers, and how to leave files out of it."""
+
+    files: Callable[[Path], list[str]]
+    exclude: Callable[[Sequence[str]], list[str]]
+
+
+def _checker(
+    flags: Callable[[str], list[str]],
+    scope: _Scope | None,
+    subcommands: frozenset[str] = frozenset(),
+) -> Tool:
+    """A type checker run against `.venv`, once per distribution and version when given paths.
+
+    A file the globs pin is checked at its version. A bare run, without paths and without targets
+    among the tool's own arguments, covers what the checker's configuration names (`scope`): the
+    pinned files there leave the floor's run for runs of their own, and a checker with no way to
+    leave them out refuses. A run whose targets are the tool's own arguments runs once, at the
+    floor.
+    """
 
     def run(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         name, *args = options
         lead: list[str] = []
         while args and args[0] in subcommands:
             lead.append(args.pop(0))
-        base = [name, *lead, *flags(floor(root, distributions(root))), *args]
+        dists = distributions(root)
+        at = floor(root, dists)
+        versions = target_versions(root)
+
+        def base(version: str) -> list[str]:
+            return [name, *lead, *flags(version), *args]
+
+        if paths is None and any(not arg.startswith("-") for arg in args):
+            return _run(base(at))
         if paths is None:
-            return _run(base)
+            covered = scope.files(root) if scope else []
+            pins = pinned(root, covered, versions) if covered else {}
+            if not pins:
+                if scope is None and versions:
+                    raise Refused(
+                        f"{name} cannot leave out what per-file-target-version pins; name the paths"
+                    )
+                return _run(base(at))
+            status = _run([*base(at), *scope.exclude(list(pins))]) if scope else 0
+            for version, files in _by_version(pins).items():
+                code = _run([*base(version), *files])
+                status = status or code
+            return status
         _existing(root, paths)
-        return _each(_grouped(root, paths, distributions(root)), lambda _, p: [*base, *p])
+        dirs = [p for p in paths if (root / p).is_dir()]
+        pins = pinned(root, dirs, versions) if dirs else {}
+        for path in paths:
+            if path not in dirs and (version := version_of(Path(path).as_posix(), versions)):
+                pins[path] = version
+        files: list[str] = []
+        for path in paths:
+            if path in pins:
+                continue
+            if (root / path).is_dir() and any(_under(p, [path]) for p in pins):
+                files += [
+                    p
+                    for p in _visible(root, [path])
+                    if Path(p).suffix in PYTHON_SUFFIXES and p not in pins
+                ]
+            else:
+                files.append(path)
+        status = _each(_grouped(root, files, dists), lambda _, p: [*base(at), *p]) if files else 0
+        for version, pinned_files in _by_version(pins).items():
+            for members_files in _grouped(root, pinned_files, dists).values():
+                code = _run([*base(version), *members_files])
+                status = status or code
+        return status
 
     return run
 
 
 CHECKERS: Mapping[str, Tool] = {
-    "mypy": _checker(lambda v: ["--python-executable", INTERPRETER, "--python-version", v]),
-    "basedpyright": _checker(lambda v: ["--pythonpath", INTERPRETER, "--pythonversion", v]),
+    "mypy": _checker(
+        lambda v: ["--python-executable", INTERPRETER, "--python-version", v],
+        _Scope(
+            _mypy_files,
+            lambda files: [a for f in files for a in ("--exclude", f"(^|/){re.escape(f)}$")],
+        ),
+    ),
+    "basedpyright": _checker(lambda v: ["--pythonpath", INTERPRETER, "--pythonversion", v], None),
     "pyrefly": _checker(
         lambda v: ["--python-interpreter-path", INTERPRETER, "--python-version", v],
+        _Scope(
+            _pyrefly_includes,
+            lambda files: [a for f in files for a in ("--project-excludes", f)],
+        ),
         frozenset({"check", "coverage"}),
     ),
 }
@@ -318,7 +490,10 @@ USAGE = """usage: toolbox <tool> [TOOL OPTIONS...] [-- PATHS...]
   ty            ty check, per distribution, with its search path
   mypy          mypy at the floor against .venv
   basedpyright  basedpyright at the floor against .venv
-  pyrefly       pyrefly at the floor against .venv"""
+  pyrefly       pyrefly at the floor against .venv
+
+A file ruff's per-file-target-version gives a version is checked at that version, in a run of
+its own."""
 
 
 def main(argv: Sequence[str] | None = None) -> NoReturn:

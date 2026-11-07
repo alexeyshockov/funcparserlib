@@ -118,6 +118,12 @@ config.
 | each distribution's `tests/typesafety/` | informational | informational | **gate** | informational | `types-api` |
 | the `benchmarks/` directories | — | **blocking** | — | — | `types-benchmarks` |
 
+**Every checker runs at the floor**, the version `requires-python` starts from, except for a file
+that ruff's `per-file-target-version` (`[tool.ruff]` in `pyproject.toml`) gives a version of its
+own: the toolbox checks that file at that version, in a run of its own, with every checker. It is
+for a file that shows a newer Python than the package needs, an example of a newer syntax say, and
+the one place that version is stated. A test that runs the file skips it on an older interpreter.
+
 Tests are type-checked by ty alone: mypy's findings there are mostly the declarations under test.
 A project whose tests were written under mypy strict from the start keeps them there, and says so
 next to its config.
