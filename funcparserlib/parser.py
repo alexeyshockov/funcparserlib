@@ -1418,42 +1418,6 @@ class Parser[A, B]:
         _ignored._form = ("ignore", self)
         return cast("IgnoredParser[A]", _ignored)
 
-    def __invert__(self) -> Parser[A, A]:
-        """Return a parser that parses one token, any token this parser does not parse.
-
-        Examples:
-            ```pycon
-            >>> expr = ~a("x")
-            >>> expr.parse("y")
-            'y'
-            >>> expr.parse("x")
-            Traceback (most recent call last):
-                ...
-            funcparserlib.parser.NoParseError: got unexpected token: 'x', expected: anything but 'x'
-            >>> expr.parse("")  # doctest: +ELLIPSIS
-            Traceback (most recent call last):
-                ...
-            funcparserlib.parser.NoParseError: got unexpected end of input, expected: anything ...
-
-            ```
-        """
-
-        name = _label_of(self)
-
-        @_parser(f"anything but {name}" if name else "anything else", leaf=True)
-        def _invert(tokens: Sequence[A], s: State) -> ParsingResult[A]:
-            if s.pos >= len(tokens):
-                s2 = s.expect(_invert)
-                return ParsingFailure(s2, "got unexpected end of input")
-            res = self.run(tokens, s)
-            if isinstance(res, ParsingFailure):
-                if res.committed:
-                    return res
-                return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
-            return ParsingFailure(s.expect(_invert))
-
-        return _invert
-
 
 @final
 class CompiledParser[A, B]:
@@ -2654,11 +2618,40 @@ def skip[A](p: Parser[A, Any]) -> IgnoredParser[A]:
 
 
 def anything_but[A](p: Parser[A, Any]) -> Parser[A, A]:
-    """An alias for `~p`.
+    """Return a parser that parses one token, any token `p` does not parse.
 
-    See also docs for `Parser.__invert__()`.
+    Examples:
+        ```pycon
+        >>> expr = anything_but(a("x"))
+        >>> expr.parse("y")
+        'y'
+        >>> expr.parse("x")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected token: 'x', expected: anything but 'x'
+        >>> expr.parse("")  # doctest: +ELLIPSIS
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected end of input, expected: anything ...
+
+        ```
     """
-    return ~p
+
+    name = _label_of(p)
+
+    @_parser(f"anything but {name}" if name else "anything else", leaf=True)
+    def _anything_but(tokens: Sequence[A], s: State) -> ParsingResult[A]:
+        if s.pos >= len(tokens):
+            s2 = s.expect(_anything_but)
+            return ParsingFailure(s2, "got unexpected end of input")
+        res = p.run(tokens, s)
+        if isinstance(res, ParsingFailure):
+            if res.committed:
+                return res
+            return ParsingSuccess(tokens[s.pos], s.reset_pos(s.pos + 1))
+        return ParsingFailure(s.expect(_anything_but))
+
+    return _anything_but
 
 
 @final

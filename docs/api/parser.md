@@ -123,8 +123,6 @@ what may sit between tokens, such as whitespace and comments.
 
 ::: funcparserlib.parser.Parser.but_not
 
-::: funcparserlib.parser.Parser.__invert__
-
 ::: funcparserlib.parser.anything_but
 
 ## Reading by a Number Just Read

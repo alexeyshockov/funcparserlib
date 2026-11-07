@@ -62,7 +62,7 @@ def test_when_reports_the_inner_failure() -> None:
     [
         ((a("x") + a("y")).when(lambda _: False), "xy", "when(...)"),
         ((a("x") + a("y")).but_not(a("x")), "xy", "but_not(...)"),
-        (~(a("x") + a("y")), "xy", "anything else"),
+        (anything_but(a("x") + a("y")), "xy", "anything else"),
         ((a("x") >> str.upper).when(lambda _: False), "x", "'x'"),
         (tok("number").when(lambda _: False), [Token("number", "1")], "number"),
         (some(str.isdigit).but_not(a("1") | a("2")), "1", "some(...) (but not ...)"),
@@ -93,7 +93,7 @@ def test_anything_but_takes_one_other_token() -> None:
 
 def test_anything_but_fails_at_end_of_input() -> None:
     with pytest.raises(NoParseError, match="got unexpected end of input, expected: anything but"):
-        (a("a") + ~a("x")).parse("a")
+        (a("a") + anything_but(a("x"))).parse("a")
 
 
 @pytest.mark.parametrize(

@@ -20,6 +20,7 @@ from funcparserlib.parser import (
     State,
     TokenDescription,
     a,
+    anything_but,
     commit,
     counted,
     finished,
@@ -127,7 +128,7 @@ def test_many_and_maybe_fail_with_a_committed_failure() -> None:
 
 
 def test_a_committed_failure_is_final_inside_a_negation() -> None:
-    assert error(~commit(x + y), "xz").expected == ("'y'",)
+    assert error(anything_but(commit(x + y)), "xz").expected == ("'y'",)
     assert error(a("x").but_not(commit(x + y)), "xz").expected == ("'y'",)
 
 
@@ -345,7 +346,7 @@ WRAP: dict[str, Callable[[Parser[str, Any]], Parser[str, Any]]] = {
     "maybe": maybe,
     "commit": commit,
     "context": lambda p: p.context("ctx"),
-    "not": lambda p: ~p,
+    "not": anything_but,
     "but_not": lambda p: p.but_not(a("y")),
 }
 

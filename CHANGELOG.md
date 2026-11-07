@@ -16,7 +16,7 @@ working and parse to the same values; error messages are more precise.
 - **Parsing without a tokenizer**: `regex()`, `lit()` and `skipping()`, and the experimental `funcparserlib.binary` for
   binary formats, with `prefixed()`, `counted()` and `switch()`
 - **Types**: what `p1 + p2`, `-p`, `many()` and the other combinators infer in mypy, pyright and ty
-- New combinators and helpers: `longest()`, `separated()`, `when()`, `but_not()`, `~p`, `starmap()`,
+- New combinators and helpers: `longest()`, `separated()`, `when()`, `but_not()`, `anything_but()`, `starmap()`,
   `expand_tuple_args()`, `parser()`, and `make_tokenizer(skip=...)`
 - Support for free-threaded Python
 
