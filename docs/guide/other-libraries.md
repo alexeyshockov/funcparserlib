@@ -20,8 +20,6 @@ reads a PEG grammar from text and leaves the tree to a visitor class.
 
 * Your grammar is left-recursive or ambiguous, or you already have it in EBNF: use Lark. Its Earley parser takes any
   context-free grammar, where funcparserlib needs [left recursion written out](../getting-started/tips-and-tricks.md#watch-out-for-left-recursion)
-* You want to find matches inside a larger text, or to rewrite them: pyparsing has `scan_string()`, `search_string()` and
-  `transform_string()`, while a funcparserlib grammar reads its input from the start
 * You want a railroad diagram of your grammar: pyparsing draws one with `create_diagram()`
 * You need to write a binary format as well as read it: [Construct](https://construct.readthedocs.io/) does both from one
   definition, and [`funcparserlib.binary`](../api/binary.md) only reads
@@ -57,6 +55,9 @@ reads a PEG grammar from text and leaves the tree to a visitor class.
 | `commit(p)` | | `p1 - p2` | |
 | `skipping(r"\s+")` | Written by hand | The default | `%ignore` |
 | `p + -finished` | The default | `parse_all=True` | The default |
+| `p.located()` | `p.mark()` | `Located(p)` | `propagate_positions=True` |
+| `p.matches(text)` | | `p.scan_string(text)` | |
+| `p.replace(text, f)` | | `p.transform_string(text)` | |
 
 ## Coming From parsy
 

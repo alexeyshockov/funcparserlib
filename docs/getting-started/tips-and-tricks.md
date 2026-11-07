@@ -186,5 +186,6 @@ That's it for the tutorial. Depending on what you are building, you may want to 
 * [Debugging a Grammar](../guide/debugging.md): finding out why a grammar does what it does
 * [Performance](../guide/performance.md): compiling a grammar that parses a lot
 * [Parsing Without a Tokenizer](../guide/without-a-tokenizer.md): grammars that read text directly
+* [Positions and Matches](../guide/positions-and-matches.md): where a value came from, and rewriting parts of a text
 * [Recipes](../recipes/index.md): complete parsers of real formats
 * [Other Libraries](../guide/other-libraries.md): how funcparserlib differs, if you know another parsing library

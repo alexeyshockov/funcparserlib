@@ -28,6 +28,13 @@ what, grammars read those details on top of the tokens of a Markdown tokenizer:
 * [Checking a Changelog](changelog.md): Keep a Changelog, with a version grammar and every broken release in one run
 * [Checking Decision Records](adr.md): one record as a grammar, and the rules across records in plain code
 
+## Rewriting a Text
+
+A grammar can describe only the parts of a text that matter, and the rest stays as it was:
+
+* [Migrating a File Format](migration.md): a new version of a format, with a code block left alone and a broken construct
+  stopping the run
+
 ## Web Formats
 
 The formats of the web come with a grammar in their RFCs, and with a standard library that reads them leniently. A grammar

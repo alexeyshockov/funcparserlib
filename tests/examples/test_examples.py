@@ -19,6 +19,7 @@ from examples import (
     kdl,
     kdl_text,
     markdown,
+    migration,
     msgpack_format,
     uri,
     yaml,
@@ -1265,3 +1266,41 @@ def test_http_www_authenticate_tells_a_parameter_from_a_challenge(
 ) -> None:
     challenges = http_headers.www_authenticate.parse_text(text)
     assert [(c.scheme, c.token68, c.parameters) for c in challenges] == expected
+
+
+def test_migration_rewrites_each_construct_and_keeps_the_rest() -> None:
+    text = "# Title\n\n  [[a|b]]\t@due(2026-11-07)  \n\n\nend\n"
+    expected = "# Title\n\n  [b](a)\t*due 2026-11-07*  \n\n\nend\n"
+    assert migration.migrate(text) == expected
+
+
+def test_migration_leaves_a_code_block_alone() -> None:
+    text = "```\n[[a|b]] @due(2026-11-07)\n```\n"
+    assert migration.migrate(text) == text
+
+
+def test_migration_of_a_migrated_text_changes_nothing() -> None:
+    once = migration.migrate("[[a|b]] @due(2026-11-07)\n")
+    assert migration.migrate(once) == once
+
+
+def test_migration_stops_at_a_broken_link() -> None:
+    with pytest.raises(NoParseError, match=r"^2,4-2,4: got unexpected end of input"):
+        migration.migrate("fine\n[[a")
+
+
+def test_migration_stops_at_a_date_the_calendar_does_not_have() -> None:
+    with pytest.raises(ParseErrors) as caught:
+        migration.migrate("@due(2026-02-30)")
+    assert caught.value.exceptions[0].msg == "1,6-1,15: a date"
+
+
+def test_migration_leaves_a_file_with_a_broken_construct_as_it_was(tmp_path: Path) -> None:
+    path = tmp_path / "note.md"
+    path.write_text("[[a|b]] [[c")
+    with pytest.raises(NoParseError):
+        migration.migrate_file(path)
+    assert path.read_text() == "[[a|b]] [[c"
+    path.write_text("[[a|b]]")
+    migration.migrate_file(path)
+    assert path.read_text() == "[b](a)"

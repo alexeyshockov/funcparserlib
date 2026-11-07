@@ -27,7 +27,11 @@ for what acts on what a finished parser gives, and it works on any value, as `to
 `Located` has `value`, `start` and `end`, indexes into what was parsed, `end` exclusive: character offsets for
 text, token indexes for tokens. A span ends where its value ends, before the skip read after it. A token grammar
 reads the place of a span from its tokens, `tokens[m.start].start`, which also serves the tokens of another
-library. The private `_Located` of `parser.py` takes another name.
+library.
+
+`located()` has the form `("located", inner)`, so that what walks a grammar sees through it: a first skip inside it is
+still the skip a text may start with, and a `tok()` inside it still makes a grammar of tokens. Generated code calls it
+through `run`.
 
 **Line and column.** `Lines(text)`, in `funcparserlib.util`, is built once from a text. `lines.place(offset)`
 gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar reach both kinds of position.
@@ -49,21 +53,15 @@ raise what `Parser.parse_text()` raises, with the line and column, so `commit(li
 link has to be one. `replace()` then returns nothing, so a program that writes its result never leaves a file half
 migrated. A match that reads nothing raises `ValueError`, as it does in `many()`.
 
-Measured on Python 3.12 on an arm64 laptop, with prototypes over `ParserFn`, best of 5 on 50 KB of JSON with every
-value located:
+Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without a tokenizer:
 
 | Grammar | Interpreted | Compiled |
 | --- | ---: | ---: |
-| Plain | 25 ms | 5.6 ms |
-| `located()` on each value, span ends past the skip | 41 ms | 41 ms |
-| `located()` on each value, span ends before the skip | 67 ms | 65 ms |
+| Plain | 27 ms | 5.4 ms |
+| `located()` on each value | 58 ms | 60 ms |
 
-`located()` has no form at first, so a compiled grammar calls it through `run` and the parsers inside it are
-interpreted. A grammar that does not use it is not touched.
-
-A loop over offsets found every match in 800 KB of text in 479 ms, and the first one in 0.013 ms, without
-`located()`. 20,000 random texts rewritten through a grammar of `many()` and `|`, interpreted and compiled, gave
-what `re.sub()` gives, which is the behaviour these runners have to keep.
+On 800 KB of text, best of 3, `matches()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
+one in 0.017 ms, and `replace()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
 
 Rejected:
 
@@ -90,10 +88,11 @@ Rejected:
 
 - `Located`, `Lines`, `Parser.located()`, `matches()` and `replace()` are public, and the glossary gets their terms.
 - A compiled grammar with `located()` runs at about the speed of the interpreted one, and `matches()` of a compiled
-  grammar reads through its parser. A form for `located()` and a generated entry can come later, without changing
-  what they give.
+  grammar reads through its parser. Generated code for `located()` and a generated entry can come later, without
+  changing what they give.
 - Finding where a span ends reads the text from its start, so a span of a whole document costs more than a small
-  one. Nested spans read their text once for each level.
+  one. Nested spans read their text once for each level. A value that ends with text the skip matches ends earlier,
+  as the skip is the first one of the grammar inside `located()`, and a parser does not say where its value ended.
 - Inside a `prefixed()` region, positions are relative to the region, as it is parsed as its own input (ADR 0005).
 - A function after `>>` runs for an attempt that fails later at that offset, as on any alternative that fails.
 - Scanning a sequence of tokens is left out. `parse()` takes tokens and `parse_text()` text for the reason ADR 0003

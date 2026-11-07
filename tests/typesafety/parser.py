@@ -3,7 +3,7 @@
 The assertions are static, made by `just types-api`; see this directory's conftest.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import Any, assert_type
 
 from funcparserlib import binary as b
@@ -12,6 +12,7 @@ from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
     IgnoredParser,
+    Located,
     Parser,
     ParsingResult,
     ParsingSuccess,
@@ -82,7 +83,7 @@ _ = assert_type(n.recover(default=0), Parser[Token, int])
 _ = assert_type(n.recover(n, default="broken"), Parser[Token, int | str])
 _ = assert_type(n.validated(str), Parser[Token, str])
 _ = assert_type(n.validated(str, "a number"), Parser[Token, str])
-_ = assert_type(longest(x, x + x), Parser[str, str | tuple[str, str]])  # ty: ignore[type-assertion-failure] -- ty infers the fallback overload; basedpyright gates this file
+_ = assert_type(longest(x, x + x), Parser[str, str | tuple[str, str]])
 _ = assert_type(n.compile(make_tokenizer([])).parse_text(""), int)
 _ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
@@ -181,3 +182,17 @@ _ = assert_type(b.byte().compile().try_parse(b"a"), int | None)
 _ = assert_type(b.byte().compile().try_parse(b""), int | None)
 _ = assert_type(prefixed(b.byte()).compile().parse_bytes(b"\x01a"), bytes)
 _ = assert_type(prefixed(b.byte()).compile().try_parse(b"\x01a"), bytes | None)
+
+# A value with where it was read from.
+located_number = regex("[0-9]+") >> int
+_ = assert_type(located_number.located(), Parser[str, Located[int]])
+_ = assert_type((located_number + regex("a")).located(), Parser[str, Located[tuple[int, str]]])
+_ = assert_type(tok("a").located(), Parser[Token, Located[str]])
+_ = assert_type(located_number.located().parse_text("1").value, int)
+_ = assert_type(located_number.located().parse_text("1").start, int)
+
+# The parts of a text a grammar reads.
+_ = assert_type(located_number.matches("1"), Iterator[Located[int]])
+_ = assert_type(located_number.compile().matches("1"), Iterator[Located[int]])
+_ = assert_type(located_number.replace("1", lambda m: str(m.value + 1)), str)
+_ = assert_type(located_number.compile().replace("1", lambda m: str(m.value + 1)), str)

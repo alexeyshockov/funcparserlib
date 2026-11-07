@@ -1,9 +1,74 @@
+import re
+from bisect import bisect_right
 from collections.abc import Callable, Sequence
 from functools import wraps
 from inspect import signature
-from typing import Any, overload
+from typing import Any, final, overload
 
-__all__ = ["pretty_tree", "expand_tuple_args"]
+from ._commons import with_hint
+from .lexer import Place
+
+__all__ = ["Lines", "pretty_tree", "expand_tuple_args"]
+
+
+@final
+class Lines:
+    """The lines of a text, to turn an offset into a `Place` and back.
+
+    It is built once from the text, and each conversion then takes a binary search, so use one for
+    as many positions as you have. A `Place` is the (_line_, _column_) of a
+    `funcparserlib.lexer.Token`, both counted from 1, and lines are counted by `"\\n"` as there.
+
+    Examples:
+        ```pycon
+        >>> lines = Lines("ab\\ncd")
+        >>> lines.place(4)
+        (2, 2)
+        >>> lines.offset((2, 2))
+        4
+
+        ```
+    """
+
+    __slots__ = ("_length", "_starts")
+
+    def __init__(self, text: str) -> None:
+        """The lines of `text`."""
+        self._length = len(text)
+        self._starts = [0, *(m.end() for m in re.finditer("\n", text))]
+
+    def place(self, offset: int) -> Place:
+        """The line and the column of `offset`, which may be the end of the text.
+
+        It raises `ValueError` for an offset outside the text.
+        """
+        if not 0 <= offset <= self._length:
+            raise with_hint(
+                ValueError(f"offset {offset} is outside the text"),
+                f"The text has {self._length} characters.",
+            )
+        line = bisect_right(self._starts, offset)
+        return line, offset - self._starts[line - 1] + 1
+
+    def offset(self, place: Place) -> int:
+        """The offset of the line and the column in `place`.
+
+        It raises `ValueError` for a place outside the text.
+        """
+        line, column = place
+        if not 1 <= line <= len(self._starts) or column < 1:
+            raise with_hint(
+                ValueError(f"place {place} is outside the text"),
+                f"The text has {len(self._starts)} lines, and lines and columns start at 1.",
+            )
+        offset = self._starts[line - 1] + column - 1
+        last = self._starts[line] if line < len(self._starts) else self._length + 1
+        if offset >= last:
+            raise with_hint(
+                ValueError(f"place {place} is outside the text"),
+                f"Line {line} has {last - self._starts[line - 1] - 1} characters.",
+            )
+        return offset
 
 
 def pretty_tree[A](x: A, kids: Callable[[A], Sequence[A]], show: Callable[[A], str]) -> str:

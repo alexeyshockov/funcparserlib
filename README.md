@@ -74,7 +74,7 @@ and [the example below](#example) splits the text into tokens first.
 * [Getting Started](https://funcparserlib.pirx.ru/getting-started/)
     * Your **starting point** with `funcparserlib`
 * [Guides](https://funcparserlib.pirx.ru/guide/errors/)
-    * Error handling, debugging, performance, and parsing without a tokenizer
+    * Error handling, debugging, performance, parsing without a tokenizer, positions and matches
 * [Recipes](https://funcparserlib.pirx.ru/recipes/)
     * Complete parsers of real formats
 * [API Reference](https://funcparserlib.pirx.ru/api/)

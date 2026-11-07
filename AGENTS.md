@@ -20,7 +20,7 @@ funcparserlib/parser.py   Parser, the primitives (tok, a, some, lit, regex, skip
 funcparserlib/lexer.py    make_tokenizer, TokenSpec, Token, LexerError
 funcparserlib/binary.py   regex(), lit(), fixed(), byte(), previous(), parsers that read bytes; experimental
 funcparserlib/_compile.py Parser.compile(): a grammar as generated Python functions
-funcparserlib/util.py     pretty_tree, expand_tuple_args
+funcparserlib/util.py     Lines, pretty_tree, expand_tuple_args
 funcparserlib/_commons.py the generated helpers: valueclass, refclass, with_hint
 tests/test_*.py           unit tests; tests/dot.py and tests/json.py are example grammars they drive
 tests/shadow.py           pytest plugin: every parse of the suite also runs compiled, and must agree

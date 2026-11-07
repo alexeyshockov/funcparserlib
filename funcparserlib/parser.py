@@ -50,6 +50,7 @@ __all__ = [
     "Skipping",
     "Parser",
     "CompiledParser",
+    "Located",
     "longest",
     "prefixed",
     "counted",
@@ -190,7 +191,7 @@ class _Offsets(Sequence[Any]):
         return _Byte(self._data[i], i)
 
 
-class _Located(Sequence[Any]):
+class _TextPlaces(Sequence[Any]):
     """The characters of a text, for errors: each knows its line and column."""
 
     __slots__ = ("_skip", "_text")
@@ -440,6 +441,22 @@ class ParsingResult[R](Iterable[Any], Protocol):
     def __add__[C](self, other: ParsingResult[C]) -> ParsingResult[Any]:
         """Combine two results in sequence, as `Parser.__add__()` combines their parsers."""
         ...
+
+
+@final
+@valueclass
+class Located[B]:
+    """A value and the part of the input it was read from, as `Parser.located()` gives it.
+
+    `start` and `end` are indexes into what was parsed, `end` exclusive: character offsets in a
+    text, so that `text[m.start : m.end]` is what the value was read from, and token indexes in
+    tokens, so that `tokens[m.start].start` is where it begins. `funcparserlib.util.Lines` gives the
+    line and the column of an offset.
+    """
+
+    value: B
+    start: int
+    end: int
 
 
 @final
@@ -802,7 +819,7 @@ class Parser[A, B]:
         m = skip.match(text) if skip is not None else None
         start = m.end() if m is not None else 0
         res = self._run_input(text, start, "text")
-        return self._result(res, _Located(text, skip), _describe)
+        return self._result(res, _TextPlaces(text, skip), _describe)
 
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
@@ -815,14 +832,89 @@ class Parser[A, B]:
         _require_bytes(data)
         return self._result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
 
+    def matches(self, text: str) -> Iterator[Located[B]]:
+        """The parts of `text` this grammar reads, from left to right, without overlaps.
+
+        The grammar is tried at each offset of the text, and goes on past each match, so it does not
+        need to describe the text around what it reads. The iterator is lazy: stop at the first
+        match, and the rest of the text is not read. A `Located` ends where its value does, before
+        any skip read after it.
+
+        A grammar that fails at an offset has no match there, unless a `commit()` failed or
+        `Parser.validated()` rejected a value: then the iterator raises what `Parser.parse_text()`
+        raises. Use `commit()` for what starts as a match and has to be one.
+
+        It raises `TypeError` for anything but a `str`, `ValueError` for a grammar of `tok()`, and
+        `ValueError` for a match that reads nothing, as it would have no end.
+
+        Examples:
+            ```pycon
+            >>> number = regex(r"\\d+") >> int
+            >>> [m.value for m in number.matches("from 10 to 20")]
+            [10, 20]
+            >>> next(number.matches("from 10 to 20"))
+            Located(value=10, start=5, end=7)
+
+            ```
+        """
+        # Imported here: the module reads the classes of this one.
+        from ._compile import leading_skip, reads_tokens  # noqa: PLC0415
+
+        _require_text(text)
+        if reads_tokens(self):
+            raise _reads_tokens_error("text")
+        return self._matches(text, leading_skip(self))
+
+    def _matches(self, text: str, skip: re.Pattern[str] | None) -> Iterator[Located[B]]:
+        offset = 0
+        while offset < len(text):
+            res = self.run(cast("Any", text), State(offset, offset))
+            failed = isinstance(res, ParsingFailure)
+            if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
+                self._result(res, _TextPlaces(text, skip), _describe)
+            if failed:
+                offset += 1
+                continue
+            end = res.state.pos
+            if end == offset:
+                raise with_hint(
+                    ValueError(f"{self.name} matched no text at offset {offset}"),
+                    "A match has to read something: repeat the parser that maybe(), many() or"
+                    " pure() wraps.",
+                )
+            yield Located(res.value, offset, _value_end(text, offset, end, skip))
+            offset = end
+
+    def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
+        """The `text` with each of `Parser.matches()` replaced by what `f` returns for it.
+
+        Everything outside a match stays as it is, including the skip after one. It raises what
+        `Parser.matches()` raises, so it gives no text at all when a part of it is wrong.
+
+        Examples:
+            ```pycon
+            >>> number = regex(r"\\d+") >> int
+            >>> number.replace("from 10 to 20", lambda m: str(m.value * 2))
+            'from 20 to 40'
+
+            ```
+        """
+        parts: list[str] = []
+        last = 0
+        for m in self.matches(text):
+            parts += (text[last : m.start], f(m))
+            last = m.end
+        parts.append(text[last:])
+        return "".join(parts)
+
     def _run_input(self, data: str | bytes | bytearray, start: int, kind: str) -> ParsingResult[B]:
         """The result of `data` from `start`, which a grammar of `tok()` cannot read."""
-        # Imported here: the module reads the classes of this one.
-        from ._compile import reads_tokens  # noqa: PLC0415
-
         try:
             return self.run(cast("Any", data), State(start, start))
         except AttributeError as e:
+            # Imported here: the module reads the classes of this one.
+            from ._compile import reads_tokens  # noqa: PLC0415
+
             if reads_tokens(self):
                 raise _reads_tokens_error(kind) from e
             raise
@@ -1286,6 +1378,46 @@ class Parser[A, B]:
         p._form = ("alt", self, other)
         return p
 
+    def located(self) -> Parser[A, Located[B]]:
+        """A parser of the same input that gives its value with where it was read from.
+
+        `Located.start` and `Located.end` are indexes into what is parsed: character offsets in a
+        text and token indexes in tokens. In a grammar of `skipping()`, a span ends before the skip
+        read after the value, so a value that ends with text the skip pattern matches ends earlier
+        too. Inside a `prefixed()` region, they are relative to the region.
+
+        A grammar with `located()` compiles, and runs this part of it as the parser does.
+
+        Examples:
+            ```pycon
+            >>> spaced = skipping(r"\\s+")
+            >>> word = spaced.regex(r"[a-z]+").located()
+            >>> (word + word).parse_text("foo  bar")
+            (Located(value='foo', start=0, end=3), Located(value='bar', start=5, end=8))
+
+            ```
+        """
+        # Imported here: the module reads the classes of this one.
+        from ._compile import leading_skip  # noqa: PLC0415
+
+        skips: list[re.Pattern[str] | None] = []
+
+        @_parser(self.name, shape=self._shape, first=self._first)
+        def _located(tokens: Sequence[A], s: State) -> ParsingResult[Located[B]]:
+            res = self.run(tokens, s)
+            if res.state.problems is not s.problems and res.state.rejected_since(s):
+                return cast("ParsingResult[Located[B]]", res)
+            end = res.state.pos
+            if isinstance(tokens, str):
+                # Read here: a `forward_decl()` is defined by the time a parse starts.
+                if not skips:
+                    skips.append(leading_skip(self))
+                end = _value_end(tokens, s.pos, end, skips[0])
+            return res.map(lambda value: Located(value, s.pos, end))
+
+        _located._form = ("located", self)
+        return _located
+
     def map[C](self, f: Callable[[B], C]) -> Parser[A, C]:
         """Transform the parsing result by applying the specified function; the same as `>>`."""
         if self._test is not None and not debug:
@@ -1538,6 +1670,20 @@ class CompiledParser[A, B]:
             raise e from error
         raise error
 
+    def matches(self, text: str) -> Iterator[Located[B]]:
+        """The parts of `text` the grammar reads, as `Parser.matches()` gives them.
+
+        It runs the parser this was compiled from.
+        """
+        return self._parser.matches(text)
+
+    def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
+        """The `text` with its matches replaced, as `Parser.replace()` gives it.
+
+        It runs the parser this was compiled from.
+        """
+        return self._parser.replace(text, f)
+
     def try_parse(self, text: str | bytes | bytearray) -> B | None:
         """The value of `text`, or `None` where it does not parse.
 
@@ -1591,6 +1737,15 @@ def _nested(
         return (replace(found, end=end, rejected=True, cause=error),)
     errors = error.exceptions if isinstance(error, ParseErrors) else (error,)
     return tuple(Problem(e.msg, start, end, context, False, True, e) for e in errors)
+
+
+def _value_end(text: str, start: int, end: int, skip: re.Pattern[str] | None) -> int:
+    """Where the value read from `start` to `end` ends, before the skip at the end of that text."""
+    if skip is not None:
+        for stop in range(start + 1, end):
+            if skip.fullmatch(text, stop, end):
+                return stop
+    return end
 
 
 def _reads_tokens_error(kind: str) -> ValueError:
@@ -2029,7 +2184,7 @@ def _parse_error[A](
     if st.max >= len(tokens) and isinstance(tokens, _Offsets):
         description = None
         found = f"got unexpected end of input at offset 0x{len(tokens):x}"
-    elif st.max >= len(tokens) and isinstance(tokens, _Located):
+    elif st.max >= len(tokens) and isinstance(tokens, _TextPlaces):
         description = tokens.end()
         found = f"{_where(description)}got unexpected end of input"
     elif st.max < len(tokens):
@@ -2058,7 +2213,7 @@ def _problem_error[A](
     if isinstance(tokens, _Offsets):
         description = None
         problem = replace(problem, message=f"offset 0x{problem.start:x}: {problem.message}")
-    elif isinstance(tokens, _Located):
+    elif isinstance(tokens, _TextPlaces):
         in_text = problem.start < len(tokens)
         description = tokens.span(problem.start, problem.end) if in_text else tokens.end()
     elif problem.start < len(tokens):

@@ -163,6 +163,7 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         kids.map(oneplus),
         kids.map(lambda k: k.when(short)),
         kids.map(lambda k: k.context("label")),
+        kids.map(lambda k: k.located()),
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
         kids.map(lambda k: k + -spaced.end),
@@ -1097,6 +1098,7 @@ def test_a_grammar_of_tok_says_it_cannot_parse_text() -> None:
     assert "Parser.compile()" in caught.value.__notes__[0]
 
 
+@pytest.mark.interpreted_only
 def test_a_grammar_of_tok_says_it_cannot_parse_bytes() -> None:
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
         tok("x").parse_bytes(b"abc")

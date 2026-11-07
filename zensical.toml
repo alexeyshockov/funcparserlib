@@ -28,6 +28,7 @@ nav = [
         { "Debugging a Grammar" = "guide/debugging.md" },
         { "Performance" = "guide/performance.md" },
         { "Parsing Without a Tokenizer" = "guide/without-a-tokenizer.md" },
+        { "Positions and Matches" = "guide/positions-and-matches.md" },
         { "Other Libraries" = "guide/other-libraries.md" },
     ] },
     { "Recipes" = [
@@ -42,6 +43,9 @@ nav = [
         { "Rules of a Format" = [
             { "Checking a Changelog" = "recipes/changelog.md" },
             { "Checking Decision Records" = "recipes/adr.md" },
+        ] },
+        { "Rewriting a Text" = [
+            { "Migrating a File Format" = "recipes/migration.md" },
         ] },
         { "Web Formats" = [
             { "Parsing URIs" = "recipes/uri.md" },

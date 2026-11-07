@@ -14,6 +14,14 @@
 
 ::: funcparserlib.parser.Parser.parse_bytes
 
+::: funcparserlib.parser.Parser.matches
+
+::: funcparserlib.parser.Parser.replace
+
+::: funcparserlib.parser.Parser.located
+
+::: funcparserlib.parser.Located
+
 ::: funcparserlib.parser.Parser.compile
 
 ::: funcparserlib.parser.CompiledParser
@@ -25,6 +33,10 @@
 ::: funcparserlib.parser.CompiledParser.parse_bytes
 
 ::: funcparserlib.parser.CompiledParser.try_parse
+
+::: funcparserlib.parser.CompiledParser.matches
+
+::: funcparserlib.parser.CompiledParser.replace
 
 ::: funcparserlib.parser.ForwardDeclParser.define
 

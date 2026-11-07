@@ -62,6 +62,17 @@ fails at its first token.
 
 **committed failure**: a failure of a parser wrapped in `commit()` after it read a token; no alternative is tried for it.
 
+## Positions
+
+**place**: the line and the column of a position in a text, both counted from 1. `Token.start` and `Token.end` are
+places, and `Lines` turns an offset into one and back.
+
+**located value**: a value with the part of the input it was read from, as indexes into what was parsed: character
+offsets in a text, token indexes in tokens. `Parser.located()` gives one, and `Located` implements it.
+
+**match**: a part of a text a grammar reads, found by trying the grammar at each offset. `Parser.matches()` gives them,
+and `Parser.replace()` rewrites them.
+
 ## Running a Grammar
 
 **interpreted parser**: a grammar run as the tree of parsers it is made of. It tracks what was expected, and all errors

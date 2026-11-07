@@ -308,7 +308,7 @@ def _parts(p: Parser[Any, Any]) -> list[Parser[Any, Any]]:
             found = [left, right]
         case ("map" | "starmap" | "when", inner, _):
             found = [inner]
-        case ("ignore" | "many" | "commit" | "context", inner):
+        case ("ignore" | "many" | "commit" | "context" | "located", inner):
             found = [inner]
         case ("oneplus", inner):
             # Generated code runs `inner` from two places: once, then in the loop.
@@ -482,7 +482,7 @@ class _Compiler:
                     result = _union(result, of(q))
             case ("pure", _):
                 result = _NO_CHARS
-            case ("many" | "oneplus" | "ignore" | "commit" | "context", inner):
+            case ("many" | "oneplus" | "ignore" | "commit" | "context" | "located", inner):
                 result = of(inner)
             case ("map" | "starmap" | "when" | "but_not", inner, _):
                 result = of(inner)
@@ -619,6 +619,7 @@ class _Compiler:
             return None
         if first is None:
             return self.char_test(p, pos)
+        self.tests_token_types = True
         if len(first) == 1:
             return _compare(_item("Y", pos), ast.Eq(), self.literal(next(iter(first))))
         return _compare(_item("Y", pos), ast.In(), self.constant(first, "S"))
@@ -710,7 +711,7 @@ class _Compiler:
                 parts = [left, right]
             case ("map" | "starmap" | "when", inner, _):
                 parts = [inner]
-            case ("ignore" | "many" | "oneplus" | "commit" | "context", inner):
+            case ("ignore" | "many" | "oneplus" | "commit" | "context" | "located", inner):
                 parts = [inner]
             case _:
                 pass
@@ -1091,6 +1092,9 @@ class _Compiler:
             then(at, _Value("unknown", value))
 
         self.block(_class_is(res, "ParsingFailure"), failed, succeeded)
+
+    def emit_located(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        self.emit_opaque(p, pos, want, then)
 
     def emit_seq(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         items: list[Parser[Any, Any]] = []

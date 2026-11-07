@@ -133,6 +133,7 @@ def plain_combined(kids: st.SearchStrategy[P]) -> st.SearchStrategy[P]:
         st.tuples(kids, kids, st.booleans()).map(lambda k: separated(k[0], k[1], trailing=k[2])),
         kids.map(lambda k: k.when(short)),
         kids.map(lambda k: k.context("label")),
+        kids.map(lambda k: k.located()),
         kids.map(lambda k: k.named("name")),
         kids.map(recursive),
         kids.map(lambda k: k + -finished),
