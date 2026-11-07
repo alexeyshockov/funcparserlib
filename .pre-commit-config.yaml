@@ -170,6 +170,20 @@ repos:
         files: \.(toml|json|sh|ya?ml)$
         exclude: *do_not_rewrite
 
+  # What editorconfig-checker does not see: `insert_final_newline` asks for a final newline and
+  # passes a blank line after it, which `end-of-file-fixer` below trims. This is that fixer's check
+  # side, so `just check` fails what `just fix` would rewrite.
+  - repo: local
+    hooks:
+      - id: no-blank-line-at-end
+        name: no blank line at the end of a file
+        language: pygrep
+        entry: '(\A|\n)\r?\n\Z'
+        args: [--multiline]
+        types: [text]
+        stages: [pre-commit]
+        exclude: *do_not_rewrite
+
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:

@@ -106,6 +106,10 @@ ignore = [
     "TRY003",  # Avoid specifying long messages outside the exception class
     "TRY400",  # Use `logging.exception` instead of `logging.error`
     "RUF012",  # Mutable class attributes should be annotated with `typing.ClassVar`
+    # `TypeVar` name does not reflect its variance (`_co`, `_contra`). A module-level type variable
+    # stands in for PEP 695 syntax below 3.12, which infers variance and has no suffix: the name
+    # stays the one the type parameter will have.
+    "PLC0105",
 ]
 
 # The standard directories, and what each may do that the package may not. A project's own paths
