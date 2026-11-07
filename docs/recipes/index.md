@@ -45,6 +45,14 @@ is for the cases where a split gets it wrong or where invalid input has to be re
   pieces, and why `Cookie` needs no grammar
 * [Parsing Structured Fields](structured-fields.md): RFC 9651, checked against the test suite of the HTTP working group
 
+## Model Output
+
+A language model writes a document a few characters at a time, and writes things in place of the format. A grammar gives
+a value for each prefix and reads the mistakes that have one meaning:
+
+* [Parsing JSON from a Language Model](partial-json.md): a value for every prefix that only grows, and the repairs as
+  alternatives of the grammar
+
 ## A Whole Language
 
 * [Parsing KDL](kdl.md): a language defined from scratch, first with `make_tokenizer()`, then with no tokenizer at all

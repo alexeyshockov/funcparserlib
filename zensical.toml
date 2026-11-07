@@ -52,6 +52,9 @@ nav = [
             { "Parsing HTTP Headers" = "recipes/http-headers.md" },
             { "Parsing Structured Fields" = "recipes/structured-fields.md" },
         ] },
+        { "Model Output" = [
+            { "Parsing JSON from a Language Model" = "recipes/partial-json.md" },
+        ] },
         { "Parsing KDL" = "recipes/kdl.md" },
     ] },
     { "API Reference" = [

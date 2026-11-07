@@ -1,3 +1,4 @@
+import json
 import math
 import re
 from datetime import date
@@ -23,12 +24,14 @@ from examples import (
     migration,
     msgpack_format,
     notes,
+    partial_json,
     uri,
     yaml,
 )
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
+from examples.partial_json import MISSING
 from funcparserlib.lexer import LexerError
 from funcparserlib.parser import NoParseError, ParseErrors
 
@@ -1357,3 +1360,102 @@ def test_a_note_keeps_its_line_endings_and_the_end_of_the_file(text: str, expect
 def test_a_span_of_tokens_without_lines_says_so() -> None:
     with pytest.raises(ValueError, match="no token from 0 to 1 has the lines"):
         notes.lines_of([MarkdownToken("paragraph_close", "", 0)], 0, 1)
+
+
+JSON_VALUES = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers()
+    | st.floats(allow_nan=False, allow_infinity=False)
+    | st.text(max_size=8),
+    lambda inner: (
+        st.lists(inner, max_size=4) | st.dictionaries(st.text(max_size=4), inner, max_size=4)
+    ),
+    max_leaves=12,
+)
+JSON_DOCUMENTS = st.tuples(
+    st.lists(JSON_VALUES, max_size=4)
+    | st.dictionaries(st.text(max_size=4), JSON_VALUES, max_size=4),
+    st.sampled_from([None, 2]),
+    st.booleans(),
+).map(lambda t: json.dumps(t[0], indent=t[1], ensure_ascii=t[2]))
+
+
+def grows(a: Any, b: Any) -> bool:
+    """Whether `b` is `a` or `a` gone on: more items or members, or a longer last string."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        keys = list(a)
+        if keys != list(b)[: len(keys)] or any(repr(a[k]) != repr(b[k]) for k in keys[:-1]):
+            return False
+        return not keys or grows(a[keys[-1]], b[keys[-1]])
+    if isinstance(a, list) and isinstance(b, list):
+        n = len(a)
+        if n > len(b) or repr(a[:-1]) != repr(b[: n - 1]):
+            return False
+        return n == 0 or grows(a[-1], b[n - 1])
+    if isinstance(a, str) and isinstance(b, str):
+        return b.startswith(a)
+    return repr(a) == repr(b)
+
+
+@given(JSON_DOCUMENTS)
+def test_partial_json_reads_a_whole_document_as_json_loads_does(text: str) -> None:
+    assert repr(partial_json.parse(text)) == repr(json.loads(text))
+
+
+@given(JSON_DOCUMENTS)
+def test_partial_json_gives_every_prefix_a_value_that_only_grows(text: str) -> None:
+    values = [partial_json.parse(text[:n]) for n in range(len(text) + 1)]
+    first = next(i for i, v in enumerate(values) if v is not MISSING)
+    assert MISSING not in values[first:]
+    for a, b in zip(values[first:], values[first + 1 :], strict=False):
+        assert grows(a, b), (a, b)
+
+
+def test_partial_json_reads_every_prefix_of_a_fenced_document() -> None:
+    text = '```json\n{"a": [1, "x"]}\n```\n'
+    values = [partial_json.parse(text[:n]) for n in range(len(text) + 1)]
+    assert values[-1] == {"a": [1, "x"]}
+    assert values[text.index("{")] is MISSING
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ('{"a": [1, 2', {"a": [1]}),
+        ('{"a": [1, 2,', {"a": [1, 2]}),
+        ('{"a": [1.5, 20], "b": -3e', {"a": [1.5, 20]}),
+        ('{"a": "Pars', {"a": "Pars"}),
+        ('{"a": "x\\u00', {"a": "x"}),
+        ('{"a": "\\ud83d', {"a": ""}),
+        ('{"a": tr', {}),
+        ('{"a": true', {"a": True}),
+        ('{"ab', {}),
+        ('{"a":', {}),
+        ("", MISSING),
+        ("```js", MISSING),
+    ],
+)
+def test_partial_json_gives_a_prefix_what_it_has_finished(text: str, value: object) -> None:
+    assert partial_json.parse(text) == value
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ('{"a": [1, 2,], "b": 3,}', {"a": [1, 2], "b": 3}),
+        ("{'a': 'it\\'s'}", {"a": "it's"}),
+        ('{"a": True, "b": False, "c": None}', {"a": True, "b": False, "c": None}),
+        ('```json\n{"a": 1}\n```', {"a": 1}),
+    ],
+)
+def test_partial_json_repairs_what_has_one_meaning(text: str, value: object) -> None:
+    assert partial_json.parse(text) == value
+
+
+@pytest.mark.parametrize(
+    "text", ["[1 2]", '{"a" 1}', '{"a": 1} trailing', "[01]", "{a: 1}", "12", '"text"', "[1.]"]
+)
+def test_partial_json_rejects_what_has_more_than_one_meaning(text: str) -> None:
+    with pytest.raises((NoParseError, LexerError)):
+        partial_json.parse(text)
