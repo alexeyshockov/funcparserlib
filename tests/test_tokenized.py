@@ -523,3 +523,25 @@ def test_a_grammar_scanned_by_tokens_reads_nothing_at_any_offset_but_through_its
         except ValueError:
             return
         assert not res.state.pos > offset, (offset, res)
+
+
+@pytest.mark.interpreted_only
+def test_a_scan_inside_a_parse_of_the_same_text_reads_its_tokens_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reads: list[int] = []
+    read = Tokenizer._read
+
+    def counted(self: Tokenizer, s: str, i: int) -> tuple[str, int] | None:
+        reads.append(i)
+        return read(self, s, i)
+
+    monkeypatch.setattr(Tokenizer, "_read", counted)
+    text = "a = 1 " * 20
+    inner = tokenized(assign, tokenize)
+    pairs = tokenized(many(tok("name") + -tok("op") + number), tokenize)
+    assert (pairs >> len).parse_text(text) == 20
+    alone = list(reads)
+    reads.clear()
+    assert (pairs >> (lambda _: len(list(inner.scan_text(text))))).parse_text(text) == 20
+    assert reads == alone

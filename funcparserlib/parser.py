@@ -963,12 +963,12 @@ class Parser[A, B]:
         from ._compile import leading_tokenizer  # noqa: PLC0415
 
         offset = 0
-        shared: dict[tuple[int, int], _Chain] = {}
+        outer = _chains.get()
+        shared: dict[tuple[int, int], _Chain] = {} if outer is None else outer
         tokenizer = leading_tokenizer(self)
         starts = None
         if tokenizer is not None:
-            chain = shared[id(tokenizer), id(text)] = _Chain(text, tokenizer)
-            starts = _TokenStarts(chain)
+            starts = _TokenStarts(_shared_chain(shared, text, tokenizer))
         at = None if generated is None else generated(text)
         while offset < len(text):
             token = _chains.set(shared) if _chains.get() is None else None
@@ -2175,6 +2175,11 @@ def _chain_of(text: str, tokenizer: Tokenizer) -> _Chain:
     shared = _chains.get()
     if shared is None:
         return _Chain(text, tokenizer)
+    return _shared_chain(shared, text, tokenizer)
+
+
+def _shared_chain(shared: dict[tuple[int, int], _Chain], text: str, tokenizer: Tokenizer) -> _Chain:
+    """The tokens of `text` through `tokenizer` in `shared`, added to it where it has none."""
     key = (id(tokenizer), id(text))
     chain = shared.get(key)
     if chain is None or chain.text is not text or chain.tokenizer is not tokenizer:
