@@ -1,7 +1,7 @@
 """Migrating a file format: what changed between two versions is rewritten, and the rest stays.
 
-Goal: a whole-file rewrite with `Parser.replace()`, where text around the old constructs is kept to
-the character, a code block is left alone, and a broken construct stops the migration.
+Goal: a whole-file rewrite with `Parser.replace_text()`, where text around the old constructs is
+kept to the character, a code block is left alone, and a broken construct stops the migration.
 """
 
 import re
@@ -61,7 +61,7 @@ def render(m: Located[str | Link | Due]) -> str:
 
 def migrate(text: str) -> str:
     """The `text` in the new format."""
-    return construct.replace(text, render)
+    return construct.replace_text(text, render)
 
 
 # --8<-- [end:migrate]

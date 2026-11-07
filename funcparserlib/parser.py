@@ -848,7 +848,64 @@ class Parser[A, B]:
         _require_bytes(data)
         return self._result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
 
-    def scan(self, text: str) -> Iterator[Located[B]]:
+    def scan(
+        self,
+        tokens: Sequence[A],
+        *,
+        describe: Callable[[A], TokenDescription] | None = None,
+        span: Callable[[Sequence[A], int, int], tuple[int, int]] | None = None,
+    ) -> Iterator[Located[B]]:
+        """The parts of `tokens` this grammar reads, from left to right, without overlaps.
+
+        The grammar is tried at each index of the tokens, as `Parser.scan_text()` tries it at each
+        offset of a text, and goes on past each match. The iterator is lazy: stop at the first
+        match, and the tokens after it are not read. A `Located` has the indexes of its first token
+        and of the one after its last. Given `span`, a function from the tokens and those two
+        indexes to the start and the end of the text they came from, it has those instead.
+
+        A grammar that fails at an index has no match there, unless a `commit()` failed or
+        `Parser.validated()` rejected a value: then the iterator raises what `Parser.parse()`
+        raises, with `describe` for the tokens. It raises `ValueError` for a match that reads no
+        tokens, as it would have no end.
+
+        Examples:
+            ```pycon
+            >>> from funcparserlib.lexer import Token
+            >>> pair = tok("name") + tok("int")
+            >>> tokens = [Token("int", "1"), Token("name", "a"), Token("int", "2")]
+            >>> list(pair.scan(tokens))
+            [Located(value=('a', '2'), start=1, end=3)]
+
+            ```
+        """
+        return self._scan_tokens(tokens, describe or _describe, span)
+
+    def _scan_tokens(
+        self,
+        tokens: Sequence[A],
+        describe: Callable[[A], TokenDescription],
+        span: Callable[[Sequence[A], int, int], tuple[int, int]] | None,
+    ) -> Iterator[Located[B]]:
+        index = 0
+        while _has_token(tokens, index):
+            res = self.run(tokens, State(index, index))
+            if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
+                self._result(res, tokens, describe)
+            if isinstance(res, ParsingFailure):
+                index += 1
+                continue
+            end = res.state.pos
+            if end == index:
+                raise with_hint(
+                    ValueError(f"{self.name} matched no tokens at index {index}"),
+                    "A match has to read something: repeat the parser that maybe(), many() or"
+                    " pure() wraps.",
+                )
+            start, stop = (index, end) if span is None else span(tokens, index, end)
+            yield Located(res.value, start, stop)
+            index = end
+
+    def scan_text(self, text: str) -> Iterator[Located[B]]:
         """The parts of `text` this grammar reads, from left to right, without overlaps.
 
         The grammar is tried at each offset of the text, and goes on past each match, so it does not
@@ -866,9 +923,9 @@ class Parser[A, B]:
         Examples:
             ```pycon
             >>> number = regex(r"\\d+") >> int
-            >>> [m.value for m in number.scan("from 10 to 20")]
+            >>> [m.value for m in number.scan_text("from 10 to 20")]
             [10, 20]
-            >>> next(number.scan("from 10 to 20"))
+            >>> next(number.scan_text("from 10 to 20"))
             Located(value=10, start=5, end=7)
 
             ```
@@ -879,9 +936,9 @@ class Parser[A, B]:
         _require_text(text)
         if reads_tokens(self):
             raise _reads_tokens_error("text")
-        return self._scan(text)
+        return self._scan_text(text)
 
-    def _scan(self, text: str) -> Iterator[Located[B]]:
+    def _scan_text(self, text: str) -> Iterator[Located[B]]:
         offset = 0
         shared: dict[tuple[int, int], _Chain] = {}
         while offset < len(text):
@@ -921,23 +978,24 @@ class Parser[A, B]:
             return res.value, offset, end, res.state._value_end(offset)
         return None
 
-    def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
-        """The `text` with each match `Parser.scan()` gives replaced by what `f` returns for it.
+    def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
+        """The `text` with each match `Parser.scan_text()` gives replaced by what `f` returns for
+        it.
 
         Everything outside a match stays as it is, including the skip after one. It raises what
-        `Parser.scan()` raises, so it gives no text at all when a part of it is wrong.
+        `Parser.scan_text()` raises, so it gives no text at all when a part of it is wrong.
 
         Examples:
             ```pycon
             >>> number = regex(r"\\d+") >> int
-            >>> number.replace("from 10 to 20", lambda m: str(m.value * 2))
+            >>> number.replace_text("from 10 to 20", lambda m: str(m.value * 2))
             'from 20 to 40'
 
             ```
         """
         parts: list[str] = []
         last = 0
-        for m in self.scan(text):
+        for m in self.scan_text(text):
             parts += (text[last : m.start], f(m))
             last = m.end
         parts.append(text[last:])
@@ -1674,19 +1732,32 @@ class CompiledParser[A, B]:
             return self._parser.parse_bytes(text)
         return self._parser.parse_text(text)
 
-    def scan(self, text: str) -> Iterator[Located[B]]:
-        """The parts of `text` the grammar reads, as `Parser.scan()` gives them.
+    def scan(
+        self,
+        tokens: Sequence[A],
+        *,
+        describe: Callable[[A], TokenDescription] | None = None,
+        span: Callable[[Sequence[A], int, int], tuple[int, int]] | None = None,
+    ) -> Iterator[Located[B]]:
+        """The parts of `tokens` the grammar reads, as `Parser.scan()` gives them.
 
         It runs the parser this was compiled from.
         """
-        return self._parser.scan(text)
+        return self._parser.scan(tokens, describe=describe, span=span)
 
-    def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
-        """The `text` with its matches replaced, as `Parser.replace()` gives it.
+    def scan_text(self, text: str) -> Iterator[Located[B]]:
+        """The parts of `text` the grammar reads, as `Parser.scan_text()` gives them.
 
         It runs the parser this was compiled from.
         """
-        return self._parser.replace(text, f)
+        return self._parser.scan_text(text)
+
+    def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
+        """The `text` with its matches replaced, as `Parser.replace_text()` gives it.
+
+        It runs the parser this was compiled from.
+        """
+        return self._parser.replace_text(text, f)
 
     def try_parse(self, text: str | bytes | bytearray) -> B | None:
         """The value of `text`, or `None` where it does not parse.
@@ -1914,11 +1985,11 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     """A parser of text that reads it through `tokenizer`, as `grammar` reads the tokens.
 
     It is a parser of text as `lit()` and `regex()` are, so it combines with them and has
-    `Parser.parse_text()`, `Parser.scan()`, `Parser.replace()` and `Parser.compile()`. Where it is
-    reached, it tokenizes from there as `grammar` reads, and it ends where `grammar` stops. The
-    tokens in the tokenizer's `skip` after its last token are skipped, and those where it is reached
-    are not read, as what comes before skips them; `Parser.parse_text()` of it reads them at the
-    start of the text. `Parser.located()` inside `grammar` gives offsets into the text.
+    `Parser.parse_text()`, `Parser.scan_text()`, `Parser.replace_text()` and `Parser.compile()`.
+    Where it is reached, it tokenizes from there as `grammar` reads, and it ends where `grammar`
+    stops. The tokens in the tokenizer's `skip` after its last token are skipped, and those where it
+    is reached are not read, as what comes before skips them; `Parser.parse_text()` of it reads them
+    at the start of the text. `Parser.located()` inside `grammar` gives offsets into the text.
 
     From the start of a text it reads the tokens `tokenizer` gives for the text. Where no token spec
     matches, its tokens end with one no grammar reads, so `grammar` fails there or stops before it.
@@ -1936,7 +2007,7 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
         >>> total = tokenized(number + many(-tok("op", "+") + number), tokenize)
         >>> total.parse_text("1 + 2 + 3")
         (1, [2, 3])
-        >>> [m.value for m in total.scan("from 1 + 2 to 3")]
+        >>> [m.value for m in total.scan_text("from 1 + 2 to 3")]
         [(1, [2]), (3, [])]
 
         ```

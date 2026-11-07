@@ -106,13 +106,14 @@ one for all the positions of a text, as finding them in the text each time takes
 
 ## Find Matches in a Text
 
-[`Parser.scan()`](../api/parser.md#funcparserlib.parser.Parser.scan) tries a grammar at each position of a text, and
-gives what it finds from left to right, without overlaps. The grammar does not have to describe the rest of the text:
+[`Parser.scan_text()`](../api/parser.md#funcparserlib.parser.Parser.scan_text) tries a grammar at each position of a
+text, and gives what it finds from left to right, without overlaps. The grammar does not have to describe the rest of
+the text:
 
 ```pycon
 >>> version = regex(r"\d+") + -lit(".") + regex(r"\d+")
 
->>> for m in version.scan("From 1.2 to 3.14, see above."):
+>>> for m in version.scan_text("From 1.2 to 3.14, see above."):
 ...     print(m.value, m.start, m.end)
 ('1', '2') 5 8
 ('3', '14') 12 16
@@ -122,7 +123,7 @@ gives what it finds from left to right, without overlaps. The grammar does not h
 It reads the text as far as you take matches, so the first of them costs only what it takes to reach it:
 
 ```pycon
->>> next(version.scan("From 1.2 to 3.14, see above.")).value
+>>> next(version.scan_text("From 1.2 to 3.14, see above.")).value
 ('1', '2')
 
 ```
@@ -132,7 +133,7 @@ the scan goes past it:
 
 ```pycon
 >>> pair = tokenized(tok("name") + tok("number"), tokenizer)
->>> [(m.value, m.start, m.end) for m in pair.scan("Set width 80, then height 24!")]
+>>> [(m.value, m.start, m.end) for m in pair.scan_text("Set width 80, then height 24!")]
 [(('width', '80'), 4, 12), (('height', '24'), 19, 28)]
 
 ```
@@ -141,15 +142,15 @@ It starts its tokens at each position it tries, so a match can start inside what
 one word:
 
 ```pycon
->>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).scan("elif if")]
+>>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).scan_text("elif if")]
 [(2, 4), (5, 7)]
 
 ```
 
 ## Rewrite the Matches
 
-[`Parser.replace()`](../api/parser.md#funcparserlib.parser.Parser.replace) gives the text with each match replaced by what
-your function returns for it. Everything else stays as it was, to the character:
+[`Parser.replace_text()`](../api/parser.md#funcparserlib.parser.Parser.replace_text) gives the text with each match
+replaced by what your function returns for it. Everything else stays as it was, to the character:
 
 ```pycon
 >>> def bump(m: Located[tuple[str, str]]) -> str:
@@ -157,7 +158,7 @@ your function returns for it. Everything else stays as it was, to the character:
 ...     return f"{major}.{int(minor) + 1}"
 
 
->>> version.replace("From 1.2 to   3.14.", bump)
+>>> version.replace_text("From 1.2 to   3.14.", bump)
 'From 1.3 to   3.15.'
 
 ```
@@ -172,10 +173,10 @@ that is a mistake, use `commit()`: what starts as a match has to be one, and the
 ```pycon
 >>> link = commit(-lit("[[") + regex(r"[a-z]+") + -lit("]]"))
 
->>> [m.value for m in link.scan("see [[intro]]")]
+>>> [m.value for m in link.scan_text("see [[intro]]")]
 ['intro']
 
->>> list(link.scan("see [[intro"))
+>>> list(link.scan_text("see [[intro"))
 Traceback (most recent call last):
     ...
 funcparserlib.parser.NoParseError: 1,12-1,12: got unexpected end of input, expected: ']]'
@@ -183,12 +184,46 @@ funcparserlib.parser.NoParseError: 1,12-1,12: got unexpected end of input, expec
 ```
 
 A value that [`Parser.validated()`](errors.md#report-errors-of-meaning) rejects raises in the same way. Matches found before
-the error have already been given, while `replace()` gives no text at all.
+the error have already been given, while `replace_text()` gives no text at all.
+
+## Find Matches in Tokens
+
+[`Parser.scan()`](../api/parser.md#funcparserlib.parser.Parser.scan) does the same in a sequence of tokens: it tries the
+grammar at each index, and its matches have token indexes. This is how a grammar finds its constructs in the tokens of
+another library, such as markdown-it, whose tokens come from the whole document at once:
+
+```pycon
+>>> pair = tok("name") + tok("number")
+>>> tokens = list(tokenizer("set width\n  80 and height 24"))
+>>> list(pair.scan(tokens))
+[Located(value=('width', '80'), start=1, end=3), Located(value=('height', '24'), start=4, end=6)]
+
+```
+
+`span` turns the tokens of a match into the start and the end of the text they came from, as `describe` turns a token
+into what an error shows. Here the places of the tokens give the offsets:
+
+```pycon
+>>> text = "set width\n  80 and height 24"
+>>> lines = Lines(text)
+
+>>> def span(tokens, start, end):
+...     last = tokens[end - 1]
+...     return lines.offset(tokens[start].start), lines.offset(last.start) + len(last.value)
+
+
+>>> [text[m.start : m.end] for m in pair.scan(tokens, span=span)]
+['width\n  80', 'height 24']
+
+```
+
+[Migrating Notes to Alerts](../recipes/markdown.md#migrating-notes-to-alerts) finds constructs of several blocks in
+markdown-it's tokens, list items and block quotes included, and rewrites them.
 
 ## Know What They Cost
 
 A grammar that doesn't use these pays nothing for them. One that does pays for each located value:
 
 * A compiled grammar with a `located()` at every value takes about a third more time than one without
-* `scan()` and `replace()` of a compiled grammar run the parser it was compiled from
+* `scan_text()` and `replace_text()` of a compiled grammar run the parser it was compiled from
 * Inside a `prefixed()` region, positions are relative to the region

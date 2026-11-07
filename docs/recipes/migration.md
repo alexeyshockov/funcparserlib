@@ -18,8 +18,8 @@ See [the intro](intro),   *due 2026-11-07*.
 
 ## Describe Only What Changes
 
-A grammar for [`Parser.replace()`](../api/parser.md#funcparserlib.parser.Parser.replace) describes the constructs and
-nothing else. It is tried at each position of the text, so the rest of the file needs no rules:
+A grammar for [`Parser.replace_text()`](../api/parser.md#funcparserlib.parser.Parser.replace_text) describes the
+constructs and nothing else. It is tried at each position of the text, so the rest of the file needs no rules:
 
 ```python
 --8<-- "examples/migration.py:constructs"
@@ -52,8 +52,8 @@ back what it read:
 
 ## Stop at What Is Broken
 
-`replace()` gives a new text only when all of it could be read. A broken construct raises the error of a parse, with its
-line and column, and a date the calendar does not have is rejected by the same rule:
+`replace_text()` gives a new text only when all of it could be read. A broken construct raises the error of a parse,
+with its line and column, and a date the calendar does not have is rejected by the same rule:
 
 ```pycon
 >>> migrate("fine\n[[intro the intro]]\n")

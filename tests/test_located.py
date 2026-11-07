@@ -1,7 +1,7 @@
 """Where a value was read from, and the parts of a text a grammar reads."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
@@ -15,6 +15,7 @@ from funcparserlib.parser import (
     NoParseError,
     ParseErrors,
     Parser,
+    TokenDescription,
     commit,
     finished,
     forward_decl,
@@ -211,8 +212,8 @@ texts = st.lists(st.sampled_from(["2026-11", "1999-0", "-", "12", "é", "\n", " 
 @given(texts)
 def test_matches_are_those_of_re(text: str) -> None:
     expected = [Located(m.groups(), m.start(), m.end()) for m in pattern.finditer(text)]
-    assert list(date.scan(text)) == expected
-    assert list(date.compile().scan(text)) == expected
+    assert list(date.scan_text(text)) == expected
+    assert list(date.compile().scan_text(text)) == expected
 
 
 @given(texts)
@@ -222,48 +223,48 @@ def test_replace_gives_what_re_gives(text: str) -> None:
     def render(m: Located[tuple[str, str]]) -> str:
         return f"<{m.value[0]}/{m.value[1]}>"
 
-    assert date.replace(text, render) == expected
-    assert date.compile().replace(text, render) == expected
+    assert date.replace_text(text, render) == expected
+    assert date.compile().replace_text(text, render) == expected
 
 
 def test_matches_stop_where_the_program_stops() -> None:
     seen: list[str] = []
     grammar = regex("a") >> (lambda value: seen.append(value) or value)
-    assert next(grammar.scan("a a a")) == Located("a", 0, 1)
+    assert next(grammar.scan_text("a a a")) == Located("a", 0, 1)
     assert seen == ["a"]
 
 
 def test_matches_do_not_overlap() -> None:
-    assert [m.start for m in regex("aa").scan("aaaaa")] == [0, 2]
+    assert [m.start for m in regex("aa").scan_text("aaaaa")] == [0, 2]
 
 
 def test_the_skip_after_a_match_stays_in_the_text() -> None:
-    assert word.replace("foo  # c\nbar", lambda m: m.value.upper()) == "FOO  # c\nBAR"
+    assert word.replace_text("foo  # c\nbar", lambda m: m.value.upper()) == "FOO  # c\nBAR"
 
 
 def test_a_replaced_match_leaves_none_of_its_text() -> None:
-    assert quoted.replace('x "a #b" y "c" z', lambda m: "S") == "x S y S z"
-    assert quoted.compile().replace('x "a #b" y', lambda m: "S") == "x S y"
-    assert [m.end for m in quoted.scan('x "a #b"  # c\n')] == [8]
+    assert quoted.replace_text('x "a #b" y "c" z', lambda m: "S") == "x S y S z"
+    assert quoted.compile().replace_text('x "a #b" y', lambda m: "S") == "x S y"
+    assert [m.end for m in quoted.scan_text('x "a #b"  # c\n')] == [8]
 
 
 def test_text_without_a_match_gives_no_matches() -> None:
-    assert list(word.scan("123")) == []
-    assert word.replace("123", lambda m: "x") == "123"
-    assert list(word.scan("")) == []
+    assert list(word.scan_text("123")) == []
+    assert word.replace_text("123", lambda m: "x") == "123"
+    assert list(word.scan_text("")) == []
 
 
 def test_a_failed_commit_raises_with_its_place() -> None:
     link = commit(lit("[[") + regex("[a-z]+") + -lit("]]"))
-    assert [m.value for m in link.scan("x [[a]] y")] == [("[[", "a")]
+    assert [m.value for m in link.scan_text("x [[a]] y")] == [("[[", "a")]
     with pytest.raises(NoParseError) as caught:
-        list(link.scan("ok\n[[a"))
+        list(link.scan_text("ok\n[[a"))
     assert str(caught.value) == "2,4-2,4: got unexpected end of input, expected: ']]'"
 
 
 def test_a_match_before_a_failed_commit_comes_first() -> None:
     link = commit(lit("[[") + regex("[a-z]+") + -lit("]]"))
-    found = link.scan("[[a]] [[b")
+    found = link.scan_text("[[a]] [[b")
     assert next(found) == Located(("[[", "a"), 0, 5)
     with pytest.raises(NoParseError):
         next(found)
@@ -272,7 +273,7 @@ def test_a_match_before_a_failed_commit_comes_first() -> None:
 def test_replace_gives_nothing_when_a_part_is_wrong() -> None:
     link = commit(lit("[[") + regex("[a-z]+") + -lit("]]"))
     with pytest.raises(NoParseError):
-        link.replace("[[a]] [[b", lambda m: m.value[1])
+        link.replace_text("[[a]] [[b", lambda m: m.value[1])
 
 
 def test_a_rejected_value_raises() -> None:
@@ -282,26 +283,26 @@ def test_a_rejected_value_raises() -> None:
         return int(value)
 
     grammar = regex(r"\d\d").validated(month)
-    assert [m.value for m in grammar.scan("11 12")] == [11, 12]
+    assert [m.value for m in grammar.scan_text("11 12")] == [11, 12]
     with pytest.raises(ParseErrors) as caught:
-        list(grammar.scan("11 13"))
+        list(grammar.scan_text("11 13"))
     assert caught.value.exceptions[0].msg == "1,4-1,5: a month"
 
 
 def test_a_match_that_reads_nothing_is_an_error() -> None:
     with pytest.raises(ValueError, match="matched no text at offset 0") as caught:
-        list(maybe(lit("a")).scan("xa"))
+        list(maybe(lit("a")).scan_text("xa"))
     assert "maybe()" in caught.value.__notes__[0]
 
 
 def test_matches_refuse_what_is_not_text() -> None:
     with pytest.raises(TypeError, match="bytes cannot be parsed as text"):
-        word.scan(b"a")  # ty: ignore[invalid-argument-type]
+        word.scan_text(b"a")  # ty: ignore[invalid-argument-type]
 
 
 def test_matches_refuse_a_grammar_of_tokens_at_the_call() -> None:
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text") as caught:
-        tok("name").scan("a")
+        tok("name").scan_text("a")
     assert "tokenized()" in caught.value.__notes__[0]
 
 
@@ -309,9 +310,9 @@ def test_a_grammar_of_tokens_bound_to_its_tokenizer_matches_in_a_text() -> None:
     grammar = tokenized(tok("name") + -tok("op", "=") + tok("name"), tokenize)
     text = "say a = b, then c=d."
     expected = [Located(("a", "b"), 4, 9), Located(("c", "d"), 16, 19)]
-    assert list(grammar.scan(text)) == expected
-    assert list(grammar.compile().scan(text)) == expected
-    assert grammar.replace(text, lambda m: "=".join(reversed(m.value))) == "say b=a, then d=c."
+    assert list(grammar.scan_text(text)) == expected
+    assert list(grammar.compile().scan_text(text)) == expected
+    assert grammar.replace_text(text, lambda m: "=".join(reversed(m.value))) == "say b=a, then d=c."
 
 
 # `Token` positions and the text say what a place is.
@@ -382,3 +383,61 @@ def test_spans_of_text_are_generated_code() -> None:
     res = compiled._fast_text("a  bb # c\n")
     assert res is not None
     assert res[0] == [Located("a", 0, 1), Located("bb", 3, 5)]
+
+
+# A scan of tokens.
+
+pair = tok("name") + -tok("op", "=") + tok("name")
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+def test_a_scan_of_tokens_gives_their_indexes(compiled: bool) -> None:
+    tokens = list(tokenize("x a = b ; c = d e"))
+    grammar = pair.compile() if compiled else pair
+    assert list(grammar.scan(tokens)) == [Located(("a", "b"), 1, 4), Located(("c", "d"), 5, 8)]
+
+
+class Counted(list[Any]):
+    """A list that records the indexes read from it."""
+
+    read: list[int]
+
+    def __getitem__(self, i: Any) -> Any:
+        if isinstance(i, int):
+            self.read.append(i)
+        return super().__getitem__(i)
+
+    def __iter__(self) -> Iterator[Any]:
+        self.read.append(len(self))
+        return super().__iter__()
+
+
+def test_a_scan_of_tokens_reads_them_only_as_far_as_its_matches() -> None:
+    tokens = Counted(tokenize("a = b ; " * 1000))
+    tokens.read = []
+    assert next(pair.scan(tokens)) == Located(("a", "b"), 0, 3)
+    assert max(tokens.read) < 5
+
+
+def test_a_span_function_gives_the_place_of_a_match_in_its_text() -> None:
+    text = "x a = b ; c = d e"
+    lines = Lines(text)
+
+    def span(tokens: Any, start: int, end: int) -> tuple[int, int]:
+        last = tokens[end - 1]
+        return lines.offset(tokens[start].start), lines.offset(last.start) + len(last.value)
+
+    found = [(m.value, text[m.start : m.end]) for m in pair.scan(list(tokenize(text)), span=span)]
+    assert found == [(("a", "b"), "a = b"), (("c", "d"), "c = d")]
+
+
+def test_a_failed_commit_in_a_scan_of_tokens_raises_with_the_description() -> None:
+    tokens = list(tokenize("a = b ; c = ;"))
+    with pytest.raises(NoParseError) as caught:
+        list(commit(pair).scan(tokens, describe=lambda t: TokenDescription(f"<{t.value}>")))
+    assert "<;>" in str(caught.value)
+
+
+def test_a_scan_of_tokens_refuses_a_match_that_reads_none() -> None:
+    with pytest.raises(ValueError, match="matched no tokens at index 0"):
+        list(maybe(tok("name")).scan(list(tokenize("= a"))))

@@ -16,7 +16,9 @@
 
 ::: funcparserlib.parser.Parser.scan
 
-::: funcparserlib.parser.Parser.replace
+::: funcparserlib.parser.Parser.scan_text
+
+::: funcparserlib.parser.Parser.replace_text
 
 ::: funcparserlib.parser.Parser.located
 
@@ -36,7 +38,9 @@
 
 ::: funcparserlib.parser.CompiledParser.scan
 
-::: funcparserlib.parser.CompiledParser.replace
+::: funcparserlib.parser.CompiledParser.scan_text
+
+::: funcparserlib.parser.CompiledParser.replace_text
 
 ::: funcparserlib.parser.ForwardDeclParser.define
 
@@ -107,8 +111,8 @@ what may sit between tokens, such as whitespace and comments.
 
 ## A Token Grammar as a Parser of Text
 
-A token grammar bound to its tokenizer reads text: it has `Parser.parse_text()`, `Parser.scan()` and
-`Parser.replace()`, it gives character offsets to `Parser.located()`, and it can sit inside a grammar without a
+A token grammar bound to its tokenizer reads text: it has `Parser.parse_text()`, `Parser.scan_text()` and
+`Parser.replace_text()`, it gives character offsets to `Parser.located()`, and it can sit inside a grammar without a
 tokenizer.
 
 ::: funcparserlib.parser.tokenized

@@ -73,8 +73,8 @@ places, and `Lines` turns an offset into one and back.
 **located value**: a value with the part of the input it was read from, as indexes into what was parsed: character
 offsets in a text, token indexes in tokens. `Parser.located()` gives one, and `Located` implements it.
 
-**match**: a part of a text a grammar reads, found by trying the grammar at each offset. `Parser.scan()` gives them,
-and `Parser.replace()` rewrites them.
+**match**: a part of a text or of tokens a grammar reads, found by trying the grammar at each position.
+`Parser.scan_text()` and `Parser.scan()` give them, and `Parser.replace_text()` rewrites them.
 
 ## Running a Grammar
 

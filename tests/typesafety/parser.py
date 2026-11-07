@@ -195,7 +195,9 @@ _ = assert_type(located_number.located().parse_text("1").value, int)
 _ = assert_type(located_number.located().parse_text("1").start, int)
 
 # The parts of a text a grammar reads.
-_ = assert_type(located_number.scan("1"), Iterator[Located[int]])
-_ = assert_type(located_number.compile().scan("1"), Iterator[Located[int]])
-_ = assert_type(located_number.replace("1", lambda m: str(m.value + 1)), str)
-_ = assert_type(located_number.compile().replace("1", lambda m: str(m.value + 1)), str)
+_ = assert_type(located_number.scan_text("1"), Iterator[Located[int]])
+_ = assert_type(located_number.compile().scan_text("1"), Iterator[Located[int]])
+_ = assert_type(located_number.replace_text("1", lambda m: str(m.value + 1)), str)
+_ = assert_type(n.scan([]), Iterator[Located[int]])
+_ = assert_type(n.compile().scan([], span=lambda ts, s, e: (s, e)), Iterator[Located[int]])
+_ = assert_type(located_number.compile().replace_text("1", lambda m: str(m.value + 1)), str)

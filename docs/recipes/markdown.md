@@ -87,3 +87,55 @@ Traceback (most recent call last):
 funcparserlib.parser.NoParseError: got unexpected token: image on line 2, expected: inline content or end of input
 
 ```
+
+## Migrating Notes to Alerts
+
+The tree above is built from a whole document. A migration needs the other way round: find each construct wherever it
+is, rewrite it, and keep every other character of the file. `examples/notes.py` turns notes into GitHub alerts. A note is
+written as a paragraph that starts with `Note:` or `**Note:**`, or as a `Note` heading followed by paragraphs, and a
+heading that says `Note` has to be followed by one:
+
+```python
+--8<-- "examples/notes.py:grammar"
+```
+
+[`Parser.scan()`](../api/parser.md#funcparserlib.parser.Parser.scan) tries the grammar at each index of markdown-it's
+tokens, so a note inside a list item or a block quote is found as one anywhere else. markdown-it gives the lines of a
+block in `map`, and a close token has none, so `span` takes the lines of the tokens that have them:
+
+```python
+--8<-- "examples/notes.py:span"
+```
+
+markdown-it gives the text of a block without the prefix each of its lines has in a container, `-` in a list item or
+`>` in a block quote. The new text gets it back: the first line takes the prefix of the block's first line, and the
+lines after it are indented as far:
+
+```python
+--8<-- "examples/notes.py:prefix"
+```
+
+```python
+--8<-- "examples/notes.py:migrate"
+```
+
+```pycon
+>>> from examples.notes import migrate
+>>> print(migrate("- one\n- Note: keep it\n  short\n- two\n"), end="")
+- one
+- > [!NOTE]
+  > keep it
+  > short
+- two
+
+```
+
+A `Note` heading with something else after it stops the migration at its line, before anything is written:
+
+```pycon
+>>> migrate("#### Note\n\n- a list\n")
+Traceback (most recent call last):
+    ...
+funcparserlib.parser.NoParseError: 3,1-3,1: got unexpected token: bullet_list_open, expected: paragraph_open
+
+```

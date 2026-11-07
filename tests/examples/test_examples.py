@@ -21,6 +21,7 @@ from examples import (
     markdown,
     migration,
     msgpack_format,
+    notes,
     uri,
     yaml,
 )
@@ -1304,3 +1305,35 @@ def test_migration_leaves_a_file_with_a_broken_construct_as_it_was(tmp_path: Pat
     path.write_text("[[a|b]]")
     migration.migrate_file(path)
     assert path.read_text() == "[b](a)"
+
+
+def test_notes_become_alerts_and_the_rest_stays() -> None:
+    text = (
+        "# Title\n\nIntro  text.\n\nNote: keep it\nshort.\n\n#### Note\n\nOne.\n\nTwo.\n\n## End\n"
+    )
+    assert notes.migrate(text) == (
+        "# Title\n\nIntro  text.\n\n> [!NOTE]\n> keep it\n> short.\n\n"
+        "> [!NOTE]\n> One.\n>\n> Two.\n\n## End\n"
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("- a\n- **Note:** b\n  c\n- d\n", "- a\n- > [!NOTE]\n  > b\n  > c\n- d\n"),
+        ("1. a\n2. Note: b\n   c\n", "1. a\n2. > [!NOTE]\n   > b\n   > c\n"),
+        ("> Note: b\n> c\n", "> > [!NOTE]\n> > b\n> > c\n"),
+    ],
+)
+def test_a_note_in_a_container_keeps_the_prefix_of_its_lines(text: str, expected: str) -> None:
+    assert notes.migrate(text) == expected
+
+
+def test_a_note_heading_without_a_paragraph_stops_the_migration_at_its_line() -> None:
+    with pytest.raises(NoParseError, match="3,1-3,1: got unexpected token: bullet_list_open"):
+        notes.migrate("#### Note\n\n- a list\n")
+
+
+def test_a_migrated_file_migrates_to_itself() -> None:
+    once = notes.migrate("Note: a\n\n- Note: b\n")
+    assert notes.migrate(once) == once
