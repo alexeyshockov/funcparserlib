@@ -100,3 +100,96 @@ list in a function after `>>`, as the [calculator of Getting Started](../getting
 A parser goes back and tries the next alternative, so `|` has an order, and the first alternative that succeeds wins.
 [Tips and Tricks](../getting-started/tips-and-tricks.md#how-to-handle-conflicting-alternatives) shows what it means for
 a grammar, and `longest()` takes the order away.
+
+## Coming From Regular Expressions
+
+A regular expression goes back where the rest of the pattern does not match: it gives back what a repetition read, and
+tries the next alternative of `|`. A grammar keeps what a repetition read and the first alternative that succeeded, and
+goes on from there. For a flat pattern they read the same text; where they differ, the grammar says where each part
+ends.
+
+| `re` | funcparserlib |
+| --- | --- |
+| `ab` | `a + b`, a tuple of both values |
+| `a\|b` | `a \| b`, the first that succeeds, and never the next one after it |
+| `a*`, `a+`, `a?` | `many(a)`, `oneplus(a)`, `maybe(a)`, which keep what they read |
+| `a{3}` | `counted(pure(3), a)` |
+| `a{2,5}` | No combinator: `many(a).when(lambda xs: 2 <= len(xs) <= 5)` reads every `a`, and fails on more than 5 |
+| `(?:a)` | `a`; `-a` drops its value |
+| `(?P<name>a)` | A field of a class of yours: `(a + b).starmap(Record)` |
+| `(?!a)b` | `b.but_not(a)`; `anything_but(a)` for one character or token |
+| `(?=a)` | No combinator yet |
+| `(\w)\1` | `regex(r"\w").bind(lit)` |
+| `$`, `\Z` | `finished`, or `end` of [`skipping()`](without-a-tokenizer.md#a-first-grammar-without-a-tokenizer) past the skip |
+| `re.IGNORECASE` | `regex(re.escape(word), re.IGNORECASE)` |
+| `re.match(p, s)` | `p.parse_text(s)`, which reads a prefix and raises `NoParseError`; `try_parse()` of `p.compile()` gives `None` |
+| `re.fullmatch(p, s)` | `(p + -finished).parse_text(s)` |
+| `re.search(p, s)` | `next(p.scan_text(s), None)` |
+| `re.finditer(p, s)`, `re.findall(p, s)` | `p.scan_text(s)`, and `[m.value for m in p.scan_text(s)]` |
+| `re.sub(p, f, s)` | `p.replace_text(s, f)` |
+| `re.split(p, s)` | The text between the spans of `p.scan_text(s)`, below |
+| `m.span()`, `m.group()` | `m.start, m.end` of a `Located`, and `s[m.start : m.end]` |
+
+A repetition followed by what it could have read never succeeds, as [Repetition Keeps What It
+Read](../getting-started/tips-and-tricks.md#repetition-keeps-what-it-read) shows, and neither does an alternative that
+`|` passed over:
+
+```pycon
+>>> import re
+
+>>> re.fullmatch(r"(a|ab)c", "abc") is not None
+True
+
+>>> ((lit("a") | lit("ab")) + lit("c")).parse_text("abc")
+Traceback (most recent call last):
+    ...
+funcparserlib.parser.NoParseError: 1,2-1,2: got unexpected token: 'bc', expected: 'c'
+
+>>> ((lit("ab") | lit("a")) + lit("c")).parse_text("abc")
+('ab', 'c')
+
+```
+
+Put the longer alternative first, or use `longest()`, as [How to Handle Conflicting
+Alternatives](../getting-started/tips-and-tricks.md#how-to-handle-conflicting-alternatives) shows.
+
+What a named group gives you, a grammar gives as a value of your own type, which a type checker follows:
+
+```pycon
+>>> from dataclasses import dataclass
+>>> from funcparserlib.parser import regex
+
+
+>>> @dataclass
+... class Version:
+...     major: int
+...     minor: int
+
+
+>>> number = regex(r"\d+") >> int
+>>> version = (number + -lit(".") + number).starmap(Version)
+
+>>> version.parse_text("3.14")
+Version(major=3, minor=14)
+
+```
+
+There is no `split`: the text between the matches is the text outside their spans.
+
+```pycon
+>>> def split(text: str) -> list[str]:
+...     parts, start = [], 0
+...     for m in version.scan_text(text):
+...         parts.append(text[start : m.start])
+...         start = m.end
+...     return [*parts, text[start:]]
+
+
+>>> split("from 1.2 to 3.14 and back")
+['from ', ' to ', ' and back']
+
+```
+
+A regular expression is enough for a flat pattern with nothing nested in it, and `re` is faster at it, as it runs in C.
+Inside a grammar, `regex()` reads the parts that are flat, such as a number or a name, and the grammar reads the
+structure around them.
