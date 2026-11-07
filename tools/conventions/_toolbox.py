@@ -20,7 +20,6 @@ import subprocess
 import sys
 import tomllib
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import NoReturn, final
 
@@ -244,6 +243,14 @@ def pinned(root: Path, under: Sequence[str], versions: Mapping[str, str]) -> dic
     return pins
 
 
+def _all_pinned(root: Path, path: str, pins: Mapping[str, str]) -> bool:
+    """Whether `path` is a directory every Python file of which is pinned."""
+    if not pins or not (root / path).is_dir():
+        return False
+    files = [p for p in _visible(root, [path]) if Path(p).suffix in PYTHON_SUFFIXES]
+    return bool(files) and all(p in pins for p in files)
+
+
 def _by_version(pins: Mapping[str, str]) -> dict[str, list[str]]:
     groups: dict[str, list[str]] = {}
     for path, version in pins.items():
@@ -341,7 +348,8 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
     swept = suites(root, named, dists)
     found = pinned(root, named, target_versions(root)) if named or not paths else {}
     pins = {path: v for path, v in found.items() if not _under(path, [*swept, *excludes])}
-    groups = _grouped(root, [p for p in named if p not in pins], dists) if named else {".": []}
+    floor_paths = [p for p in named if p not in pins and not _all_pinned(root, p, pins)]
+    groups = _grouped(root, floor_paths, dists) if named else {".": []}
 
     def command(member: str, members_paths: Sequence[str]) -> list[str]:
         view = [] if member == "." else ["--project", member]
@@ -386,27 +394,18 @@ def _pyrefly_includes(root: Path) -> list[str]:
         _refuse(f"cannot read pyrefly.toml: {e}")
 
 
-@final
-@dataclass(frozen=True, slots=True)
-class _Scope:
-    """What a checker run without paths covers, and how to leave files out of it."""
-
-    files: Callable[[Path], list[str]]
-    exclude: Callable[[Sequence[str]], list[str]]
-
-
 def _checker(
     flags: Callable[[str], list[str]],
-    scope: _Scope | None,
+    scope: Callable[[Path], list[str]] | None,
     subcommands: frozenset[str] = frozenset(),
 ) -> Tool:
     """A type checker run against `.venv`, once per distribution and version when given paths.
 
     A file the globs pin is checked at its version. A bare run, without paths and without targets
-    among the tool's own arguments, covers what the checker's configuration names (`scope`): the
-    pinned files there leave the floor's run for runs of their own, and a checker with no way to
-    leave them out refuses. A run whose targets are the tool's own arguments runs once, at the
-    floor.
+    among the tool's own arguments, covers what the checker's configuration names (`scope`); when a
+    file there is pinned, it runs as if those paths were named, and a checker whose configuration
+    the toolbox cannot read refuses. A run whose targets are the tool's own arguments runs once, at
+    the floor.
     """
 
     def run(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
@@ -424,19 +423,16 @@ def _checker(
         if paths is None and any(not arg.startswith("-") for arg in args):
             return _run(base(at))
         if paths is None:
-            covered = scope.files(root) if scope else []
-            pins = pinned(root, covered, versions) if covered else {}
-            if not pins:
-                if scope is None and versions:
+            if scope is None:
+                if versions:
                     raise Refused(
-                        f"{name} cannot leave out what per-file-target-version pins; name the paths"
+                        f"{name} cannot tell what per-file-target-version pins; name the paths"
                     )
                 return _run(base(at))
-            status = _run([*base(at), *scope.exclude(list(pins))]) if scope else 0
-            for version, files in _by_version(pins).items():
-                code = _run([*base(version), *files])
-                status = status or code
-            return status
+            covered = scope(root)
+            if not (pinned(root, covered, versions) if covered else {}):
+                return _run(base(at))
+            paths = covered
         _existing(root, paths)
         dirs = [p for p in paths if (root / p).is_dir()]
         pins = pinned(root, dirs, versions) if dirs else {}
@@ -467,19 +463,12 @@ def _checker(
 
 CHECKERS: Mapping[str, Tool] = {
     "mypy": _checker(
-        lambda v: ["--python-executable", INTERPRETER, "--python-version", v],
-        _Scope(
-            _mypy_files,
-            lambda files: [a for f in files for a in ("--exclude", f"(^|/){re.escape(f)}$")],
-        ),
+        lambda v: ["--python-executable", INTERPRETER, "--python-version", v], _mypy_files
     ),
     "basedpyright": _checker(lambda v: ["--pythonpath", INTERPRETER, "--pythonversion", v], None),
     "pyrefly": _checker(
         lambda v: ["--python-interpreter-path", INTERPRETER, "--python-version", v],
-        _Scope(
-            _pyrefly_includes,
-            lambda files: [a for f in files for a in ("--project-excludes", f)],
-        ),
+        _pyrefly_includes,
         frozenset({"check", "coverage"}),
     ),
 }
