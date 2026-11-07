@@ -23,9 +23,11 @@ from funcparserlib.parser import (
     many,
     maybe,
     prefixed,
+    pure,
     regex,
     skipping,
     some,
+    switch,
     tok,
     tokenized,
 )
@@ -463,3 +465,17 @@ def test_a_part_that_reads_nothing_keeps_the_end_of_the_span_when_compiled(run: 
     )
     bound = tokenized(many(tok("name")) >> " ".join, words)
     assert run((bound + bound + -spaced.end).located(), "a  ") == Located(("a", ""), 0, 1)
+
+
+@pytest.mark.parametrize(
+    ("grammar", "text", "end"),
+    [
+        (switch(spaced.lit("a"), {"a": word}), "a b ", 3),
+        (switch(spaced.lit("a"), {"a": pure(1)}), "a  ", 1),
+        (switch(pure(0), {0: word}), "b ", 1),
+    ],
+)
+def test_a_span_over_a_switch_ends_where_its_case_does(
+    run: Run, grammar: P, text: str, end: int
+) -> None:
+    assert run(grammar.located(), text).end == end

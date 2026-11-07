@@ -776,6 +776,16 @@ class _Compiler:
         finally:
             self.end = outer
 
+    def ending_as_called(self, then: Callable[[], None]) -> None:
+        """`then()`, where the value read last ends where the function just called says."""
+        if not self.tracks_ends:
+            then()
+            return
+        # The function gives -1 where it read nothing, and the value read before it ends here.
+        end, given = self.fresh("e"), _item("Y", 0)
+        self.assign(end, ast.IfExp(_compare(given, ast.GtE(), 0), given, _node(self.end)))
+        self.ending(end, then)
+
     def kept_end(self, name: str) -> None:
         """`name` set to where the value read last ends, for a path that joins others."""
         if self.tracks_ends:
@@ -916,7 +926,8 @@ class _Compiler:
 
                 def got() -> None:
                     self.unpack(name_v, at, res)
-                    then(at, _Value("unknown", name_v) if want else None)
+                    found = _Value("unknown", name_v) if want else None
+                    self.ending_as_called(lambda: then(at, found))
 
                 self.block(_compare(res, ast.IsNot(), None), got)
 
@@ -999,13 +1010,7 @@ class _Compiler:
         at = self.fresh("p")
 
         def called(value: str | None) -> None:
-            if not self.tracks_ends:
-                then(at, value)
-                return
-            # The function gives -1 where it read nothing, and the value read before it ends here.
-            end, given = self.fresh("e"), _item("Y", 0)
-            self.assign(end, ast.IfExp(_compare(given, ast.GtE(), 0), given, _node(self.end)))
-            self.ending(end, lambda: then(at, value))
+            self.ending_as_called(lambda: then(at, value))
 
         if not want:
             self.assign(at, _call(function, "T", "Y", pos))
