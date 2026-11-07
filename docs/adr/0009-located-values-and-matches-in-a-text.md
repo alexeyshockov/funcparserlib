@@ -39,7 +39,7 @@ gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar re
 **Matches in a text.** Two runners sit on top of a grammar, as ADR 0004 has it, on `Parser` and
 `CompiledParser`:
 
-- `p.matches(text)` gives an iterator of `Located[B]`, from left to right, with no overlaps. It tries the grammar
+- `p.scan(text)` gives an iterator of `Located[B]`, from left to right, with no overlaps. It tries the grammar
   at each offset, goes past a match, and is lazy, so a program can stop at the first one.
 - `p.replace(text, f)` gives the text with each match replaced by what `f` returns for its `Located[B]`, and every
   character outside a span as it was. The skip after a match is outside its span.
@@ -59,7 +59,7 @@ Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without 
 | Plain | 27 ms | 6.1 ms |
 | `located()` on each value | 29 ms | 29 ms |
 
-On 800 KB of text, best of 3, `matches()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
+On 800 KB of text, best of 3, `scan()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
 one in 0.017 ms, and `replace()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
 
 Rejected:
@@ -79,17 +79,17 @@ Rejected:
   ADR 0003 found the cost. `Lines.offset()` gives it to those who ask.
 - **Line and column worked out during the parse.** No per-parse object can hold a table, and a lookup from the text
   each time took 4.2 s for 45,576 lookups on 400 KB without a newline, against 0.8 ms with a table.
-- **A function, `matches(p)`, as a parser of `many(p.located() | -anything)`.** It reads to the end of the input, so
+- **A function, `scan(p)`, as a parser of `many(p.located() | -anything)`.** It reads to the end of the input, so
   nothing can follow it: an entry point written as a combinator. It also read tokens, which these runners do not,
   and took 1.16 s on 842 KB, as it is not lazy and pays for an item at each character.
 - **A generated entry with a start position.** It would need new generated code and its own gates under ADR 0002,
   for a speed nothing has asked for yet.
-- **`match()`.** In `re` it is one match at the start of the text.
+- **`match()`.** In `re` it is one match at the start of the text. `matches()` reads as a test (ADR 0008).
 
 ## Consequences
 
-- `Located`, `Lines`, `Parser.located()`, `matches()` and `replace()` are public, and the glossary gets their terms.
-- A compiled grammar with `located()` runs at about the speed of the interpreted one, and `matches()` of a compiled
+- `Located`, `Lines`, `Parser.located()`, `scan()` and `replace()` are public, and the glossary gets their terms.
+- A compiled grammar with `located()` runs at about the speed of the interpreted one, and `scan()` of a compiled
   grammar reads through its parser. Generated code for `located()` and a generated entry can come later, without
   changing what they give.
 - `State` keeps how much the last parser of text skipped, so a span ends where that parser stopped, whatever the skip

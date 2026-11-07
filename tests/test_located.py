@@ -211,8 +211,8 @@ texts = st.lists(st.sampled_from(["2026-11", "1999-0", "-", "12", "é", "\n", " 
 @given(texts)
 def test_matches_are_those_of_re(text: str) -> None:
     expected = [Located(m.groups(), m.start(), m.end()) for m in pattern.finditer(text)]
-    assert list(date.matches(text)) == expected
-    assert list(date.compile().matches(text)) == expected
+    assert list(date.scan(text)) == expected
+    assert list(date.compile().scan(text)) == expected
 
 
 @given(texts)
@@ -229,12 +229,12 @@ def test_replace_gives_what_re_gives(text: str) -> None:
 def test_matches_stop_where_the_program_stops() -> None:
     seen: list[str] = []
     grammar = regex("a") >> (lambda value: seen.append(value) or value)
-    assert next(grammar.matches("a a a")) == Located("a", 0, 1)
+    assert next(grammar.scan("a a a")) == Located("a", 0, 1)
     assert seen == ["a"]
 
 
 def test_matches_do_not_overlap() -> None:
-    assert [m.start for m in regex("aa").matches("aaaaa")] == [0, 2]
+    assert [m.start for m in regex("aa").scan("aaaaa")] == [0, 2]
 
 
 def test_the_skip_after_a_match_stays_in_the_text() -> None:
@@ -244,26 +244,26 @@ def test_the_skip_after_a_match_stays_in_the_text() -> None:
 def test_a_replaced_match_leaves_none_of_its_text() -> None:
     assert quoted.replace('x "a #b" y "c" z', lambda m: "S") == "x S y S z"
     assert quoted.compile().replace('x "a #b" y', lambda m: "S") == "x S y"
-    assert [m.end for m in quoted.matches('x "a #b"  # c\n')] == [8]
+    assert [m.end for m in quoted.scan('x "a #b"  # c\n')] == [8]
 
 
 def test_text_without_a_match_gives_no_matches() -> None:
-    assert list(word.matches("123")) == []
+    assert list(word.scan("123")) == []
     assert word.replace("123", lambda m: "x") == "123"
-    assert list(word.matches("")) == []
+    assert list(word.scan("")) == []
 
 
 def test_a_failed_commit_raises_with_its_place() -> None:
     link = commit(lit("[[") + regex("[a-z]+") + -lit("]]"))
-    assert [m.value for m in link.matches("x [[a]] y")] == [("[[", "a")]
+    assert [m.value for m in link.scan("x [[a]] y")] == [("[[", "a")]
     with pytest.raises(NoParseError) as caught:
-        list(link.matches("ok\n[[a"))
+        list(link.scan("ok\n[[a"))
     assert str(caught.value) == "2,4-2,4: got unexpected end of input, expected: ']]'"
 
 
 def test_a_match_before_a_failed_commit_comes_first() -> None:
     link = commit(lit("[[") + regex("[a-z]+") + -lit("]]"))
-    found = link.matches("[[a]] [[b")
+    found = link.scan("[[a]] [[b")
     assert next(found) == Located(("[[", "a"), 0, 5)
     with pytest.raises(NoParseError):
         next(found)
@@ -282,26 +282,26 @@ def test_a_rejected_value_raises() -> None:
         return int(value)
 
     grammar = regex(r"\d\d").validated(month)
-    assert [m.value for m in grammar.matches("11 12")] == [11, 12]
+    assert [m.value for m in grammar.scan("11 12")] == [11, 12]
     with pytest.raises(ParseErrors) as caught:
-        list(grammar.matches("11 13"))
+        list(grammar.scan("11 13"))
     assert caught.value.exceptions[0].msg == "1,4-1,5: a month"
 
 
 def test_a_match_that_reads_nothing_is_an_error() -> None:
     with pytest.raises(ValueError, match="matched no text at offset 0") as caught:
-        list(maybe(lit("a")).matches("xa"))
+        list(maybe(lit("a")).scan("xa"))
     assert "maybe()" in caught.value.__notes__[0]
 
 
 def test_matches_refuse_what_is_not_text() -> None:
     with pytest.raises(TypeError, match="bytes cannot be parsed as text"):
-        word.matches(b"a")  # ty: ignore[invalid-argument-type]
+        word.scan(b"a")  # ty: ignore[invalid-argument-type]
 
 
 def test_matches_refuse_a_grammar_of_tokens_at_the_call() -> None:
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text") as caught:
-        tok("name").matches("a")
+        tok("name").scan("a")
     assert "tokenized()" in caught.value.__notes__[0]
 
 
@@ -309,8 +309,8 @@ def test_a_grammar_of_tokens_bound_to_its_tokenizer_matches_in_a_text() -> None:
     grammar = tokenized(tok("name") + -tok("op", "=") + tok("name"), tokenize)
     text = "say a = b, then c=d."
     expected = [Located(("a", "b"), 4, 9), Located(("c", "d"), 16, 19)]
-    assert list(grammar.matches(text)) == expected
-    assert list(grammar.compile().matches(text)) == expected
+    assert list(grammar.scan(text)) == expected
+    assert list(grammar.compile().scan(text)) == expected
     assert grammar.replace(text, lambda m: "=".join(reversed(m.value))) == "say b=a, then d=c."
 
 

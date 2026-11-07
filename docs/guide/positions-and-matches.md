@@ -106,13 +106,13 @@ one for all the positions of a text, as finding them in the text each time takes
 
 ## Find Matches in a Text
 
-[`Parser.matches()`](../api/parser.md#funcparserlib.parser.Parser.matches) tries a grammar at each position of a text, and
+[`Parser.scan()`](../api/parser.md#funcparserlib.parser.Parser.scan) tries a grammar at each position of a text, and
 gives what it finds from left to right, without overlaps. The grammar does not have to describe the rest of the text:
 
 ```pycon
 >>> version = regex(r"\d+") + -lit(".") + regex(r"\d+")
 
->>> for m in version.matches("From 1.2 to 3.14, see above."):
+>>> for m in version.scan("From 1.2 to 3.14, see above."):
 ...     print(m.value, m.start, m.end)
 ('1', '2') 5 8
 ('3', '14') 12 16
@@ -122,7 +122,7 @@ gives what it finds from left to right, without overlaps. The grammar does not h
 It reads the text as far as you take matches, so the first of them costs only what it takes to reach it:
 
 ```pycon
->>> next(version.matches("From 1.2 to 3.14, see above.")).value
+>>> next(version.scan("From 1.2 to 3.14, see above.")).value
 ('1', '2')
 
 ```
@@ -132,7 +132,7 @@ the scan goes past it:
 
 ```pycon
 >>> pair = tokenized(tok("name") + tok("number"), tokenizer)
->>> [(m.value, m.start, m.end) for m in pair.matches("Set width 80, then height 24!")]
+>>> [(m.value, m.start, m.end) for m in pair.scan("Set width 80, then height 24!")]
 [(('width', '80'), 4, 12), (('height', '24'), 19, 28)]
 
 ```
@@ -141,7 +141,7 @@ It starts its tokens at each position it tries, so a match can start inside what
 one word:
 
 ```pycon
->>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).matches("elif if")]
+>>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).scan("elif if")]
 [(2, 4), (5, 7)]
 
 ```
@@ -172,10 +172,10 @@ that is a mistake, use `commit()`: what starts as a match has to be one, and the
 ```pycon
 >>> link = commit(-lit("[[") + regex(r"[a-z]+") + -lit("]]"))
 
->>> [m.value for m in link.matches("see [[intro]]")]
+>>> [m.value for m in link.scan("see [[intro]]")]
 ['intro']
 
->>> list(link.matches("see [[intro"))
+>>> list(link.scan("see [[intro"))
 Traceback (most recent call last):
     ...
 funcparserlib.parser.NoParseError: 1,12-1,12: got unexpected end of input, expected: ']]'
@@ -192,5 +192,5 @@ A grammar that doesn't use these pays nothing for them. One that does pays for e
 * A `located()` runs as a parser even in a compiled grammar, so a grammar with one at every value is about as fast compiled
   as it is interpreted
 * Finding where a span ends reads its text from the start, so nested spans read it once for each level
-* `matches()` and `replace()` of a compiled grammar run the parser it was compiled from
+* `scan()` and `replace()` of a compiled grammar run the parser it was compiled from
 * Inside a `prefixed()` region, positions are relative to the region

@@ -14,7 +14,7 @@
 
 ::: funcparserlib.parser.Parser.parse_bytes
 
-::: funcparserlib.parser.Parser.matches
+::: funcparserlib.parser.Parser.scan
 
 ::: funcparserlib.parser.Parser.replace
 
@@ -34,7 +34,7 @@
 
 ::: funcparserlib.parser.CompiledParser.try_parse
 
-::: funcparserlib.parser.CompiledParser.matches
+::: funcparserlib.parser.CompiledParser.scan
 
 ::: funcparserlib.parser.CompiledParser.replace
 
@@ -107,7 +107,7 @@ what may sit between tokens, such as whitespace and comments.
 
 ## A Token Grammar as a Parser of Text
 
-A token grammar bound to its tokenizer reads text: it has `Parser.parse_text()`, `Parser.matches()` and
+A token grammar bound to its tokenizer reads text: it has `Parser.parse_text()`, `Parser.scan()` and
 `Parser.replace()`, it gives character offsets to `Parser.located()`, and it can sit inside a grammar without a
 tokenizer.
 

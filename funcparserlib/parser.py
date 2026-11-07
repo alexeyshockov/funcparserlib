@@ -847,7 +847,7 @@ class Parser[A, B]:
         _require_bytes(data)
         return self._result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
 
-    def matches(self, text: str) -> Iterator[Located[B]]:
+    def scan(self, text: str) -> Iterator[Located[B]]:
         """The parts of `text` this grammar reads, from left to right, without overlaps.
 
         The grammar is tried at each offset of the text, and goes on past each match, so it does not
@@ -865,9 +865,9 @@ class Parser[A, B]:
         Examples:
             ```pycon
             >>> number = regex(r"\\d+") >> int
-            >>> [m.value for m in number.matches("from 10 to 20")]
+            >>> [m.value for m in number.scan("from 10 to 20")]
             [10, 20]
-            >>> next(number.matches("from 10 to 20"))
+            >>> next(number.scan("from 10 to 20"))
             Located(value=10, start=5, end=7)
 
             ```
@@ -878,9 +878,9 @@ class Parser[A, B]:
         _require_text(text)
         if reads_tokens(self):
             raise _reads_tokens_error("text")
-        return self._matches(text)
+        return self._scan(text)
 
-    def _matches(self, text: str) -> Iterator[Located[B]]:
+    def _scan(self, text: str) -> Iterator[Located[B]]:
         offset = 0
         shared: dict[int, _Chain] = {}
         while offset < len(text):
@@ -908,10 +908,10 @@ class Parser[A, B]:
             offset = end
 
     def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
-        """The `text` with each of `Parser.matches()` replaced by what `f` returns for it.
+        """The `text` with each match `Parser.scan()` gives replaced by what `f` returns for it.
 
         Everything outside a match stays as it is, including the skip after one. It raises what
-        `Parser.matches()` raises, so it gives no text at all when a part of it is wrong.
+        `Parser.scan()` raises, so it gives no text at all when a part of it is wrong.
 
         Examples:
             ```pycon
@@ -923,7 +923,7 @@ class Parser[A, B]:
         """
         parts: list[str] = []
         last = 0
-        for m in self.matches(text):
+        for m in self.scan(text):
             parts += (text[last : m.start], f(m))
             last = m.end
         parts.append(text[last:])
@@ -1663,12 +1663,12 @@ class CompiledParser[A, B]:
             return self._parser.parse_bytes(text)
         return self._parser.parse_text(text)
 
-    def matches(self, text: str) -> Iterator[Located[B]]:
-        """The parts of `text` the grammar reads, as `Parser.matches()` gives them.
+    def scan(self, text: str) -> Iterator[Located[B]]:
+        """The parts of `text` the grammar reads, as `Parser.scan()` gives them.
 
         It runs the parser this was compiled from.
         """
-        return self._parser.matches(text)
+        return self._parser.scan(text)
 
     def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
         """The `text` with its matches replaced, as `Parser.replace()` gives it.
@@ -1903,8 +1903,8 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     """A parser of text that reads it through `tokenizer`, as `grammar` reads the tokens.
 
     It is a parser of text as `lit()` and `regex()` are, so it combines with them and has
-    `Parser.parse_text()`, `Parser.matches()`, `Parser.replace()` and `Parser.compile()`. Where it
-    is reached, it tokenizes from there as `grammar` reads, and it ends where `grammar` stops. The
+    `Parser.parse_text()`, `Parser.scan()`, `Parser.replace()` and `Parser.compile()`. Where it is
+    reached, it tokenizes from there as `grammar` reads, and it ends where `grammar` stops. The
     tokens in the tokenizer's `skip` after its last token are skipped, and those where it is reached
     are not read, as what comes before skips them; `Parser.parse_text()` of it reads them at the
     start of the text. `Parser.located()` inside `grammar` gives offsets into the text.
@@ -1925,7 +1925,7 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
         >>> total = tokenized(number + many(-tok("op", "+") + number), tokenize)
         >>> total.parse_text("1 + 2 + 3")
         (1, [2, 3])
-        >>> [m.value for m in total.matches("from 1 + 2 to 3")]
+        >>> [m.value for m in total.scan("from 1 + 2 to 3")]
         [(1, [2]), (3, [])]
 
         ```

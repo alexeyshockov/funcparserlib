@@ -16,9 +16,9 @@ working and parse to the same values; error messages are more precise.
 - **Parsing without a tokenizer**: `regex()`, `lit()` and `skipping()`, and the experimental `funcparserlib.binary` for
   binary formats, with `prefixed()`, `counted()` and `switch()`
 - **Token grammars over text**: `tokenized(grammar, tokenizer)` binds a token grammar to its tokenizer as a parser of
-  text, with `parse_text()`, `matches()`, `replace()` and character offsets, inside a grammar without a tokenizer too
+  text, with `parse_text()`, `scan()`, `replace()` and character offsets, inside a grammar without a tokenizer too
 - **Positions and matches**: `located()` keeps where a value came from, `Lines` turns an offset into a line and a column,
-  and `matches()` and `replace()` find and rewrite the parts of a text a grammar reads
+  and `scan()` and `replace()` find and rewrite the parts of a text a grammar reads
 - **Types**: what `p1 + p2`, `-p`, `many()` and the other combinators infer in mypy, pyright and ty
 - New combinators and helpers: `longest()`, `separated()`, `when()`, `but_not()`, `anything_but()`, `starmap()`,
   `expand_tuple_args()`, `parser()`, and `make_tokenizer(skip=...)`

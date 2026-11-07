@@ -1,4 +1,4 @@
-# 0008 — A combinator's form says what it does
+# 0008 — A combinator's form and name say what it does
 
 - **Status:** Accepted
 - **Date:** 2026-11-07
@@ -12,8 +12,12 @@ Python decides part of this. It has binary and prefix operators, and no postfix 
 `*` and `?` of EBNF. Its precedence decides the rest: a method binds tighter than any operator, so
 `a + b.named("x")` names only `b`, while a function shows what it covers, `many(a + b)`.
 
+Its name has the same problem: a call reads as a statement about what it gives, and `p.matches(text)` reads as a test
+that answers yes or no, where it gives the matches.
+
 A grammar written for 1.0 keeps working, so `+`, `|`, `>>`, `-p`, `many()`, `maybe()`, `oneplus()`, `skip()`,
-`named()` and `bind()` stay as they are.
+`named()` and `bind()` stay as they are, as do `some()`, `a()`, `tok()`, `pure()`, `finished`, `forward_decl()`,
+`define()`, `run()` and `parse()`.
 
 ## Decision
 
@@ -31,8 +35,29 @@ in `many(release.recover())`.
 An operation has one spelling, with two exceptions. `skip()` stays beside `-p` for 1.0. `map()` stays beside `>>` as
 the pair of `starmap()`, which has no operator, so a chain of methods reads alike with either.
 
+The name of a call says which of three things it does:
+
+- **A call that makes a parser reads as a phrase about the parser it makes.** A noun names what it parses: `many()`,
+  `maybe()`, `longest()`, `regex()`, `lit()`, `switch()`, `pure()`, `context()`. An adjective or a participle says what
+  was done to its argument: `finished`, `separated()`, `prefixed()`, `counted()`, `skipping()`, `tokenized()`,
+  `named()`, `validated()`, `located()`. A preposition gives a condition: `when()`, `but_not()`, `anything_but()`.
+- **A call that runs a parser, or changes one, is an imperative verb for what it does**: `parse()`, `parse_text()`,
+  `parse_bytes()`, `try_parse()`, `scan()`, `replace()`, `compile()`, `run()`, `define()`.
+- **A call that answers yes or no is a question**, `is_…()` or `has_…()`. A third-person verb such as `matches()` is
+  left for one.
+
+The exceptions are verbs that make a parser. `skip()` and `bind()` are from 1.0. `map()` and `starmap()` keep the names
+they have in Python and in functional programming. `commit()` and `recover()` keep the terms of parsing for a cut and
+for error recovery.
+
 Rejected:
 
+- **`matches()` for the parts of a text a grammar reads.** It reads as a test. `scan()` says what the call does, as
+  `scan_string()` does in pyparsing.
+- **`find_all()`.** It reads as a list, as `re.findall()` gives one, where the matches come lazily.
+- **`finditer()`.** The name `re` gives an iterator of matches, as a compound no other name here is.
+- **`committed()` and `recovered()`.** A rule without exceptions, at the price of names that read as the state of a
+  parser rather than what it does.
 - **`~p` for `anything_but(p)`.** `~` reads as a test that consumes nothing, as `!p` does in a PEG, and this parser
   consumes a token. No guide, recipe or example uses it.
 - **Every combinator a method, `p.many()`.** The functions stay for 1.0, so each would get a second spelling.
@@ -41,7 +66,7 @@ Rejected:
 
 ## Consequences
 
-- A new combinator takes its form from this list, and a new operator is a change to this record.
+- A new combinator takes its form and its name from this record, and a new operator is a change to it.
 - A method needs parentheses around an expression of operators, as `(p1 + p2).named("x")`, and leaving them out applies
   it to the last operand. `.named()` and `.context()` on a whole rule are written that way.
 - `compile()` does not depend on the form: it reads `_form`, which a function and a method set alike.

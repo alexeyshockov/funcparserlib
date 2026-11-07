@@ -97,7 +97,7 @@ def test_tokens_from_an_offset_are_those_of_the_rest_of_the_text(text: str, offs
 
 def test_a_grammar_of_tokens_finds_its_matches_and_steps_over_text_it_cannot_read() -> None:
     text = "say x = 1 and y=22? then ??? z = 3"
-    assert [(m.value, m.start, m.end) for m in tokenized(assign, tokenize).matches(text)] == [
+    assert [(m.value, m.start, m.end) for m in tokenized(assign, tokenize).scan(text)] == [
         (("x", 1), 4, 9),
         (("y", 22), 14, 18),
         (("z", 3), 29, 34),
@@ -107,14 +107,14 @@ def test_a_grammar_of_tokens_finds_its_matches_and_steps_over_text_it_cannot_rea
 @given(texts)
 def test_matches_are_those_of_the_grammar_at_each_offset(text: str) -> None:
     grammar = tokenized(assign, tokenize)
-    for m in grammar.matches(text):
+    for m in grammar.scan(text):
         assert grammar.parse_text(text[m.start : m.end]) == m.value
         assert not text[m.start].isspace()
         assert not text[m.end - 1].isspace()
 
 
 def test_a_match_does_not_start_at_what_the_tokenizer_skips() -> None:
-    matches = tokenized(total, tokenize).matches("  1 + 2 # c\n 3")
+    matches = tokenized(total, tokenize).scan("  1 + 2 # c\n 3")
     assert [(m.value, m.start, m.end) for m in matches] == [((1, [2]), 2, 7), ((3, []), 13, 14)]
 
 
@@ -195,7 +195,7 @@ def test_tokenizing_reads_each_offset_once_over_all_the_matches(
 
     monkeypatch.setattr(Tokenizer, "_read", counted)
     text = "word x = 1 # prose\n" * 200
-    assert len(list(tokenized(assign, tokenize).matches(text))) == 200
+    assert len(list(tokenized(assign, tokenize).scan(text))) == 200
     assert len(reads) == len(set(reads))
     assert len(reads) <= len(text)
 
@@ -229,7 +229,7 @@ def test_a_parse_keeps_no_text_once_it_returns() -> None:
     grammar = spaced.lit("calc") + tokenized(total, tokenize)
     text = Text("calc 1 + 2")
     assert grammar.parse_text(text) == ("calc", (1, [2]))
-    assert [m.value for m in grammar.matches(text)] == [("calc", (1, [2]))]
+    assert [m.value for m in grammar.scan(text)] == [("calc", (1, [2]))]
     assert grammar.compile().parse_text(text) == ("calc", (1, [2]))
     ref = weakref.ref(text)
     del text
@@ -250,7 +250,7 @@ def test_the_first_match_reads_the_text_only_as_far_as_it(monkeypatch: pytest.Mo
     statement = name + -tok("op", "=") + (number | tok("name"))
     statements = statement + many(-tok("op", ";") + statement) + maybe(-tok("op", ";"))
     text = "say a = 1; b = c;\n" + "and then c = 3; " * 10_000
-    first = next(tokenized(statements, tokenize).matches(text))
+    first = next(tokenized(statements, tokenize).scan(text))
     assert first == Located(("a", 1, [("b", "c")]), 4, 17)
     assert max(reads) < 40
 
@@ -275,5 +275,5 @@ def test_a_match_tells_the_end_of_its_tokens_without_reading_their_length(
     monkeypatch: pytest.MonkeyPatch, grammar: P, text: str, value: object
 ) -> None:
     monkeypatch.setattr(_TextTokens, "__len__", no_length)
-    m = next(tokenized(grammar, tokenize).matches(text))
+    m = next(tokenized(grammar, tokenize).scan(text))
     assert m.value == value

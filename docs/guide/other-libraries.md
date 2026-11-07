@@ -56,7 +56,7 @@ reads a PEG grammar from text and leaves the tree to a visitor class.
 | `skipping(r"\s+")` | Written by hand | The default | `%ignore` |
 | `p + -finished` | The default | `parse_all=True` | The default |
 | `p.located()` | `p.mark()` | `Located(p)` | `propagate_positions=True` |
-| `p.matches(text)` | | `p.scan_string(text)` | |
+| `p.scan(text)` | | `p.scan_string(text)` | |
 | `p.replace(text, f)` | | `p.transform_string(text)` | |
 
 ## Coming From parsy

@@ -46,8 +46,8 @@ its tokenizer.
 - **Spans are character offsets.** `located()` inside it gives offsets into the text, read from the offsets the tokens
   were read at, which the bound parser keeps beside its tokens. `parse(tokens)` of the token grammar gives token
   indexes.
-- **Its features of text are those of any `Parser[str, B]`.** `parse_text()`, `matches()`, `replace()` and errors with
-  a line and a column work as for a grammar without a tokenizer. `matches()` tries each offset, so text no spec reads
+- **Its features of text are those of any `Parser[str, B]`.** `parse_text()`, `scan()`, `replace()` and errors with
+  a line and a column work as for a grammar without a tokenizer. `scan()` tries each offset, so text no spec reads
   never matches, and a match may start inside what the global tokens make one word.
 - **`Parser.compile()` takes no tokenizer.** Compiled, a bound grammar at the root of what is compiled reads a text
   through generated functions over two lists instead of tokens, the values and the types, filled from the tokenizer's
@@ -73,10 +73,10 @@ Measured on Python 3.12 on an arm64 laptop, the 21 MB KDL benchmark, wall clock,
 
 Rejected:
 
-- **A tokenizer given to `compile()`.** The pair exists only once compiled, so `Parser.parse_text()`, `matches()`,
+- **A tokenizer given to `compile()`.** The pair exists only once compiled, so `Parser.parse_text()`, `scan()`,
   `replace()` and `located()` of a token grammar would need a second way in, and every feature of text would be built
   for each.
-- **A `tokenizer=` argument on `parse_text()`, `matches()` and `replace()`.** The pair is restated at each call, and a
+- **A `tokenizer=` argument on `parse_text()`, `scan()` and `replace()`.** The pair is restated at each call, and a
   bound part cannot sit inside a grammar.
 - **Token parsers of text made from the tokenizer, `tokenizer.tok("name")`.** A grammar of `tok()` would get none of
   the features of text, and every grammar would have two spellings.
@@ -85,7 +85,7 @@ Rejected:
 - **`skip=` given with the grammar.** A program would list the same types in its tokenizer wrapper and in the call, and
   the wrapper every tokenizer had would stay.
 - **Matches only where a token of the whole text starts.** A bound part inside a grammar has no tokens of the whole
-  text, so `matches()` would need a case of its own, and a parser would scan differently where it is embedded.
+  text, so `scan()` would need a case of its own, and a parser would scan differently where it is embedded.
 - **`g.tokenized(t)` and `tokenizer.parser(g)`.** A method on `Parser` is for what acts on a finished parser's value or
   name (ADR 0008), and a method on `Tokenizer` reads as a feature of the lexer where it makes a parser.
 
@@ -97,12 +97,12 @@ Rejected:
   tokens one at a time.
 - Tokenizing stays a `str` matter: `TokenSpec.pattern` is a `str`, and positions count `"\n"`.
 - `Parser.parse_text()` of a grammar of `tok()` raises `ValueError`, with a hint naming `tokenized()`.
-- `matches()` of a bound grammar starts a tokenizer at each offset it tries. A tokenizer reads a token by the text
+- `scan()` of a bound grammar starts a tokenizer at each offset it tries. A tokenizer reads a token by the text
   alone, so the token at an offset is read once for a text, and every start shares the tokens of the offsets it
   reaches. The length of the tokens is the rest of the text, so a parser of tokens tells their end by reading the token
   at its position, and a scan reads the text only as far as the matches it gives; the errors of a parse read the
   length. On 400 KB, 800 KB and 1.6 MB of
-  `"word x = 1 # prose; "` repeated, `matches()` of `tok("name") + -tok("op", "=") + tok("int")` took 0.97 s, 1.90 s and
+  `"word x = 1 # prose; "` repeated, `scan()` of `tok("name") + -tok("op", "=") + tok("int")` took 0.97 s, 1.90 s and
   3.86 s, against 0.42 s, 0.88 s and 1.74 s for the same grammar without a tokenizer (Python 3.12, arm64 laptop, one
   run each).
 - `tok("name", "if")` scanning `elif` matches at its second character, as `regex("if")` does. A grammar without a
