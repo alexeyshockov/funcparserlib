@@ -122,6 +122,7 @@ def recursive(body: P) -> P:
     return declared
 
 
+words = make_tokenizer([TokenSpec("space", r"[ \n]+"), TokenSpec("word", r"[ab]+")], skip={"space"})
 leaves: st.SearchStrategy[P] = st.sampled_from(
     [
         spaced.regex("a"),
@@ -142,6 +143,8 @@ leaves: st.SearchStrategy[P] = st.sampled_from(
         -spaced.regex("b"),
         spaced.regex("a") >> str.upper,
         pure("p"),
+        tokenized(tok("word"), words),
+        tokenized(many(tok("word")) >> " ".join, words),
     ]
 )
 

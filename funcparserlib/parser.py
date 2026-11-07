@@ -1967,6 +1967,35 @@ class _TextTokens(Sequence[Token]):
         return None
 
 
+class _Skipped:
+    """Where what a tokenizer skips ends, as a match of a pattern gives it."""
+
+    __slots__ = ("_end",)
+
+    def __init__(self, end: int) -> None:
+        self._end = end
+
+    def end(self) -> int:
+        """The offset after the skipped tokens."""
+        return self._end
+
+
+class _SkippedTokens:
+    """The tokens a tokenizer skips at a position, read as `re.Pattern.match()` reads a skip."""
+
+    __slots__ = ("_tokenizer",)
+
+    def __init__(self, tokenizer: Tokenizer) -> None:
+        self._tokenizer = tokenizer
+
+    def match(self, text: str, pos: int = 0, /) -> _Skipped | None:
+        """Where the skipped tokens from `pos` end, `None` where none starts there."""
+        tokenizer, end = self._tokenizer, pos
+        while (found := tokenizer._read(text, end)) is not None and found[0] in tokenizer._skip:
+            end = found[1]
+        return _Skipped(end) if end > pos else None
+
+
 class _Tokenized[B](Parser[str, B]):
     """The type of `tokenized()`: a grammar of tokens that reads text through its tokenizer."""
 
@@ -2002,8 +2031,9 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     `Parser.parse_text()`, `Parser.scan_text()`, `Parser.replace_text()` and `Parser.compile()`.
     Where it is reached, it tokenizes from there as `grammar` reads, and it ends where `grammar`
     stops. The tokens in the tokenizer's `skip` after its last token are skipped, and those where it
-    is reached are not read, as what comes before skips them; `Parser.parse_text()` of it reads them
-    at the start of the text. `Parser.located()` inside `grammar` gives offsets into the text.
+    is reached are not read, as what comes before skips them; `Parser.parse_text()` of a grammar
+    that starts with it reads them at the start of the text. `Parser.located()` inside `grammar`
+    gives offsets into the text.
 
     From the start of a text it reads the tokens `tokenizer` gives for the text. Where no token spec
     matches, its tokens end with one no grammar reads, so `grammar` fails there or stops before it.
@@ -2040,6 +2070,8 @@ def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str,
     p = _built(_Tokenized, run)._rename(grammar.name)
     p._grammar = grammar
     p._tokenizer = tokenizer
+    # What walks a grammar does not look inside: the bound grammar reads tokens, and this part text.
+    p._form = ("tokenized", grammar, _SkippedTokens(tokenizer))
     return cast("Parser[str, B]", p)
 
 

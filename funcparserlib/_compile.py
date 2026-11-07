@@ -22,7 +22,7 @@ from importlib import import_module
 from operator import attrgetter, index
 from pathlib import Path
 from re import IGNORECASE, Pattern
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from ._commons import valueclass
 from .lexer import Token
@@ -428,7 +428,7 @@ class _Compiler:
                 result = of(inner)[0], True
             case ("pure", _):
                 result = frozenset(), True
-            case ("finished",) | ("opaque",) | ("text_end", _):
+            case ("finished",) | ("opaque",) | ("text_end", _) | ("tokenized", _, _):
                 result = None, True
             case ("text", _, _, _) | ("byte",) | ("fixed", _, _):
                 result = None, False
@@ -708,7 +708,9 @@ class _Compiler:
         seen.add(id(p))
         parts: list[Parser[Any, Any]] = []
         match _form(p):
-            case ("test",) | ("opaque",) | ("text", _, _, _) | ("text_end", _):
+            case (
+                ("test",) | ("opaque",) | ("text", _, _, _) | ("text_end", _) | ("tokenized", _, _)
+            ):
                 return self.leaf_start_tests(p, pos)
             case ("byte",) | ("fixed", _, _) | ("prefixed" | "counted" | "switch", _, _):
                 return None
@@ -1148,6 +1150,9 @@ class _Compiler:
 
         self.block(_class_is(res, "ParsingFailure"), failed, succeeded)
 
+    def emit_tokenized(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
+        self.emit_opaque(p, pos, want, then)
+
     def emit_located(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         if self.values:
             raise _Declined(f"{p.name} gives offsets, and there are only the values of tokens")
@@ -1500,8 +1505,18 @@ def reads_text(root: Parser[Any, Any]) -> bool:
     return False
 
 
-def leading_skip(root: Parser[Any, Any]) -> Pattern[str] | None:
-    """The first skip pattern in the grammar, which text may start with."""
+class Skip(Protocol):
+    """What a text may start with: a skip pattern, or the skipped tokens of a tokenizer."""
+
+    def match(self, text: str, pos: int = 0, /) -> Any:
+        """What is skipped at `pos`, something with an `end()`, or `None`."""
+
+
+def leading_skip(root: Parser[Any, Any]) -> Skip | None:
+    """The first skip of the grammar, which text may start with, of `skipping()` or `tokenized()`.
+
+    It reads the grammar's forms, and stops at the first parser of text that skips.
+    """
     seen: set[int] = set()
     stack = [root]
     try:
@@ -1511,8 +1526,11 @@ def leading_skip(root: Parser[Any, Any]) -> Pattern[str] | None:
                 seen.add(id(p))
                 match _form(p):
                     case ("text", _, _, skip) | ("text_end", skip) if skip is not None:
-                        found: Pattern[str] = skip
+                        found: Skip = skip
                         return found
+                    case ("tokenized", _, skipped):
+                        tokens: Skip = skipped
+                        return tokens
                     case ("prefixed", length, _):
                         stack.append(length)
                     case _:

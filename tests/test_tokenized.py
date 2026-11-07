@@ -306,3 +306,10 @@ def test_a_parse_of_another_text_inside_a_scan_keeps_the_tokens_the_scan_read(
     assert len(list(outer.scan_text(text))) == 50
     of_text = [i for s, i in reads if s == id(text)]
     assert len(of_text) == len(set(of_text))
+
+
+def test_a_grammar_that_starts_with_a_bound_part_reads_the_skip_the_text_starts_with(
+    run: Run,
+) -> None:
+    assert run(tokenized(number, tokenize) >> (lambda n: n * 2), "  # c\n 21") == 42
+    assert run(tokenized(number, tokenize) + spaced.lit(";"), " 1 ;") == (1, ";")
