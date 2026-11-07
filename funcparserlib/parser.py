@@ -832,10 +832,12 @@ class Parser[A, B]:
 
         _require_text(text)
         skip = leading_skip(self)
-        m = skip.match(text) if skip is not None else None
-        start = m.end() if m is not None else 0
-        res = _sharing_tokens(lambda: self._run_input(text, start, "text"))
-        return self._result(res, _TextPlaces(text), _describe)
+
+        def run() -> ParsingResult[B]:
+            m = skip.match(text) if skip is not None else None
+            return self._run_input(text, m.end() if m is not None else 0, "text")
+
+        return self._result(_sharing_tokens(run), _TextPlaces(text), _describe)
 
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
@@ -2081,9 +2083,12 @@ class _SkippedTokens:
         self._tokenizer = tokenizer
 
     def match(self, text: str, pos: int = 0, /) -> _Skipped | None:
-        """Where the skipped tokens from `pos` end, `None` where none starts there."""
-        tokenizer, end = self._tokenizer, pos
-        while (found := tokenizer._read(text, end)) is not None and found[0] in tokenizer._skip:
+        """Where the skipped tokens from `pos` end, `None` where none starts there.
+
+        Inside a parse, the tokens it reads are those of the parse.
+        """
+        chain, end = _chain_of(text, self._tokenizer), pos
+        while (found := chain.read(end)) is not None and found[0] in chain.skip:
             end = found[1]
         return _Skipped(end) if end > pos else None
 

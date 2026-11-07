@@ -552,11 +552,32 @@ def test_a_scan_inside_a_parse_of_the_same_text_reads_its_tokens_once(
     text = "a = 1 " * 20
     inner = tokenized(assign, tokenize)
     pairs = tokenized(many(tok("name") + -tok("op") + number), tokenize)
-    assert (pairs >> len).parse_text(text) == 20
-    alone = list(reads)
-    reads.clear()
     assert (pairs >> (lambda _: len(list(inner.scan_text(text))))).parse_text(text) == 20
-    assert reads == alone
+    assert len(reads) == len(set(reads))
+
+
+@pytest.mark.interpreted_only
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize("text", ["1 + 2 + 3", "  # c\n 1 + 2"])
+@pytest.mark.parametrize(
+    "wrap", [lambda g: g >> (lambda v: v), lambda g: g + -spaced.end], ids=[">>", "+ end"]
+)
+def test_a_parse_of_a_grammar_that_starts_with_a_bound_part_reads_each_offset_once(
+    monkeypatch: pytest.MonkeyPatch, compiled: bool, text: str, wrap: Callable[[P], P]
+) -> None:
+    reads: list[int] = []
+    read = Tokenizer._read
+
+    def counted(self: Tokenizer, s: str, i: int) -> tuple[str, int] | None:
+        reads.append(i)
+        return read(self, s, i)
+
+    grammar = wrap(tokenized(total, tokenize))
+    parser = grammar.compile() if compiled else grammar
+    monkeypatch.setattr(Tokenizer, "_read", counted)
+    parser.parse_text(text)
+    assert reads
+    assert len(reads) == len(set(reads))
 
 
 def test_the_starts_of_a_scan_know_every_form_the_compiler_generates() -> None:
