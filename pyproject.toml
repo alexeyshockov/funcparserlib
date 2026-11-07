@@ -122,7 +122,7 @@ fail-under = 30
 extend = "shared.ruff.toml"
 # The examples, and the docs that include them, teach the newest syntax: PEP 695 generics and
 # `type` aliases, from 3.12. Every type checker reads this table too, and `conftest.py` leaves the
-# examples, the docs and the README out of a run on an older interpreter (ADR 0010).
+# examples, the docs and the README out of a run on an older interpreter (ADR 0001).
 per-file-target-version = { "examples/**" = "py312" }
 
 [tool.deptry]
