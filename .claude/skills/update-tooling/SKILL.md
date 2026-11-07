@@ -19,7 +19,7 @@ has beyond the shared ones below, and it is the authority where the two disagree
 
 | Channel | Pinned in | Bumped by |
 | --- | --- | --- |
-| GitHub Actions | `uses:` refs in `.github/workflows/` | Dependabot, monthly (7-day cooldown), one PR |
+| GitHub Actions | `uses:` refs in `.github/workflows/` | this skill, step 4; Dependabot too, monthly, where the repository has a GitHub remote |
 | Linters/formatters | `rev:` in `.pre-commit-config.yaml` | maintained upstream; do not bump them here; `just frozen-revs` checks them |
 | Project deps (deptry, slotscheck in `lint`) | `uv.lock` | `just venv-upgrade` |
 | Dev tools | `tools/uv.lock`, constrained by `tools/pyproject.toml` | `just tools-upgrade` — `just pins` only *reports* |
@@ -45,32 +45,43 @@ Three invariants that must survive any update:
 
 1. Confirm a clean tree (`git status`), then `just venv-upgrade` and `just pins`. Hook revs in
    `.pre-commit-config.yaml` are maintained upstream; do not bump them here; `just frozen-revs` checks them.
-2. Check `just frozen-revs` passed. Some revs are pinned on purpose: they are `frozen_revs` in the
-   justfile, each with its reason commented beside its hook in `.pre-commit-config.yaml`. A failure
-   means a pinned rev moved; restore it from the `master` branch and report it in an issue.
+2. Check `just frozen-revs` passed. Some revs are pinned on purpose: `shared_frozen_revs` in
+   `shared.just` for the shared hooks, `frozen_revs` in the justfile for any of the project's own,
+   each with its reason commented beside its hook in `.pre-commit-config.yaml`. The shared record and
+   the revs arrive together through `copier update`, so a failure means a rev moved in this
+   repository; restore it from the `master` branch.
 3. `just tools-upgrade` moves `tools/uv.lock` within the constraints
    `tools/pyproject.toml` states. When several tools move at once and the fallout needs to be
    attributable, take them one at a time with `uv lock --project tools --upgrade-package <tool>`.
    A tool that must stay below a release gets a ceiling in `tools/pyproject.toml` with the reason
    beside it — an ordinary requirement, not a second mechanism.
-4. Re-run the gates and triage, plus whatever `PROJECT.md` adds:
-   - `just check` — new ruff rules, new typo/markdownlint/editorconfig findings
+4. Bump every `uses:` ref in the workflows this repository owns to the action's latest release
+   (`gh api repos/<owner>/<repo>/releases/latest`, or its tags where it publishes no releases).
+   Leave the workflows the template owns, `tests.yaml` and `pypi-publish.yaml`: they arrive through `copier update`.
+   Keep each ref's form: a tag stays a tag at the same precision, a commit SHA becomes the new tag's
+   commit with the tag in the comment beside it, and a branch ref (`release/v1`) stays as it is.
+   Read the release notes of every major and check each input the workflow passes still means the
+   same. Do this whether or not Dependabot is configured: it runs only on a repository with a
+   GitHub remote, and a ref already at its latest release is left unchanged.
+5. Re-run the gates and triage, plus whatever `PROJECT.md` adds:
+   - `just check` — new ruff rules, new typo/markdownlint/editorconfig findings, actionlint and
+     zizmor over the bumped workflows
    - `just types-all` and `just types-api` — new diagnostics per checker
    - `just imports deps slots` — the structural gates; a ruff or deptry bump changes what they see
    - `just tests` — dependency regressions
 
-   Remember the tiers: `just gate` is what blocks — mypy over the package (`types`), pyrefly
-   coverage on API completeness (`type-coverage`), basedpyright on `tests/typesafety` (`types-api`),
-   ty on examples, tests and checks. The `-`-prefixed lines (`types-info`, the non-basedpyright checkers in
-   `types-api`) are informational on purpose — don't promote them to gating to "fix" a diagnostic.
-5. For each new finding, decide: fix the code, `noqa`/ignore with a reason, or configure the rule
+   Remember the tiers: `just gate` is what blocks — mypy over the package, the examples, the tests
+   and the checks (`types`, `types-checks`), pyrefly coverage on API completeness (`type-coverage`),
+   basedpyright on `tests/typesafety` (`types-api`). The `-`-prefixed lines (`types-info`, the
+   non-basedpyright checkers in `types-api`) are informational on purpose — don't promote them to gating to "fix" a diagnostic.
+6. For each new finding, decide: fix the code, `noqa`/ignore with a reason, or configure the rule
    in `pyproject.toml`. Prefer fixing. A blanket ignore needs a comment saying why.
    Read every hunk a hook *rewrote* — `git diff` after `just fix`, don't just trust a green run.
    An auto-fixer applying a "correction" to a third-party identifier can produce working-looking
    code that silently binds the wrong name.
-6. Read the changelog for anything with a major bump, or anything whose diagnostics changed
+7. Read the changelog for anything with a major bump, or anything whose diagnostics changed
    shape — don't infer intent from the diff alone.
-7. Commit. Deps/hooks/pins in one commit is fine; **code fixed as fallout goes in its own commit**,
+8. Commit. Deps/hooks/pins/actions in one commit is fine; **code fixed as fallout goes in its own commit**,
    so a revert of the bump doesn't drag source changes with it. Include in the message which
    version moved and what it forced.
 

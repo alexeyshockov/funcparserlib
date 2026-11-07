@@ -90,7 +90,7 @@ def short(value: object) -> bool:
 
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define(tok("a") + maybe(body + declared))
     return declared
 
@@ -253,7 +253,7 @@ def test_the_test_grammars_compile() -> None:
 
 
 def test_a_compiled_parser_reads_nesting_too_deep_for_its_parser() -> None:
-    nested: P = forward_decl()
+    nested = forward_decl()
     nested.define(-a("(") + maybe(nested) + -a(")"))
     text = "(" * 400 + ")" * 400
     with pytest.raises(RecursionError):
@@ -262,7 +262,7 @@ def test_a_compiled_parser_reads_nesting_too_deep_for_its_parser() -> None:
 
 
 def test_too_deep_for_both_raises_recursion_error() -> None:
-    nested: P = forward_decl()
+    nested = forward_decl()
     nested.define(-a("(") + maybe(nested) + -a(")"))
     with pytest.raises(RecursionError):
         nested.compile().parse("(" * 5000 + ")" * 5000)
@@ -335,15 +335,15 @@ def test_a_commit_in_a_parsing_function_is_final() -> None:
 
 @pytest.mark.parametrize("define", [lambda e: e + tok("a") | tok("b"), lambda e: e + tok("a")])
 def test_left_recursion_raises_recursion_error(define: Callable[[P], P]) -> None:
-    expr: P = forward_decl()
+    expr = forward_decl()
     expr.define(define(expr))
     with pytest.raises(RecursionError):
         expr.compile().parse(tokens("b"))
 
 
 def test_forward_decls_defined_as_each_other_raise_recursion_error() -> None:
-    first: P = forward_decl()
-    second: P = forward_decl()
+    first = forward_decl()
+    second = forward_decl()
     first.define(second)
     second.define(first)
     with pytest.raises(RecursionError):
@@ -480,7 +480,7 @@ def source_of(path: Path) -> str:
 def test_a_source_file_holds_the_source_and_frames_report_it(tmp_path: Path) -> None:
     path = tmp_path / "grammar.py"
     lines: list[tuple[str, int]] = []
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define((tok("a") >> recording(lines)) + maybe(declared))
     compiled = (Parser(tok("b").run) + declared).compile(source_file=path)
     assert compiled._fast is not None
@@ -722,7 +722,7 @@ def test_a_failed_parse_calls_a_conversion_in_both_passes() -> None:
 
 
 def test_a_forward_decl_defined_again_keeps_its_meaning_in_the_compiled_pass() -> None:
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define(tok("a"))
     compiled = (declared + -finished).compile()
     declared.define(tok("b"))
@@ -915,13 +915,11 @@ def test_a_failed_parse_of_text_calls_a_conversion_in_two_passes() -> None:
     assert seen == ["a", "a"]
 
 
+a_token: Parser[Token, Token] = some(lambda t: t.type == "a")
+
+
 @pytest.mark.parametrize(
-    "grammar",
-    [
-        some(lambda t: t.type == "a") + tok("b"),
-        a(Token("a", "a")) + tok("b"),
-        Parser(tok("a").run) + tok("b"),
-    ],
+    "grammar", [a_token + tok("b"), a(Token("a", "a")) + tok("b"), Parser(tok("a").run) + tok("b")]
 )
 def test_a_grammar_that_reads_tokens_parses_text_through_tokens(grammar: P) -> None:
     compiled = tokenized(grammar, tokenizer).compile()

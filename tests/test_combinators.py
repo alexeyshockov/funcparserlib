@@ -107,19 +107,21 @@ def test_many_over_a_parser_that_matches_nothing_raises(expr: Parser[str, Any]) 
 
 
 def test_expand_tuple_args_for_a_function() -> None:
-    expr = (a("1") + a("2")) >> expand_tuple_args(lambda x, y: x + y)
+    # The lambda takes its types from the tuple it is given, which mypy does not see.
+    add = expand_tuple_args(lambda x, y: x + y)  # type: ignore[operator]
+    expr = (a("1") + a("2")) >> add
     assert expr.parse("12") == "12"
 
 
 def test_expand_tuple_args_for_a_method_keeps_self() -> None:
     class Pair:
         @expand_tuple_args
-        def join(self, x: str, y: str) -> str:
+        def join(self, x: str, y: str) -> str:  # type: ignore[misc]
             return f"{x}-{y}"
 
     pair = Pair()
     # The overloads type a function; checkers do not bind `self` through the returned callable.
-    assert pair.join(("a", "b")) == "a-b"  # type: ignore[call-arg, arg-type]  # ty: ignore[too-many-positional-arguments]
+    assert pair.join(("a", "b")) == "a-b"  # type: ignore[call-arg, misc]  # ty: ignore[too-many-positional-arguments]
 
 
 # Properties of the combinators, over inputs of single characters.
@@ -133,10 +135,10 @@ def test_a_sequence_is_the_tuple_of_what_it_keeps(parts: list[tuple[str, bool]])
     parsers = [a(c) if keep else -a(c) for c, keep in parts]
     expr = parsers[0]
     for p in parsers[1:]:
-        expr = expr + p  # type: ignore[operator]
+        expr = expr + p
     kept = tuple(c for c, keep in parts if keep)
     expected = kept if len(kept) > 1 else kept[0]
-    assert expr.parse("".join(c for c, _ in parts)) == expected  # type: ignore[union-attr]
+    assert expr.parse("".join(c for c, _ in parts)) == expected
 
 
 @given(st.integers(min_value=0, max_value=50), st.text(alphabet="yz"))
@@ -196,8 +198,8 @@ def test_the_error_names_the_first_token_that_differs(grammar: str, text: str) -
     assume(text != grammar)
     expr = a(grammar[0])
     for c in grammar[1:]:
-        expr = expr + a(c)  # type: ignore[assignment]
-    expr = expr + finished  # type: ignore[assignment]
+        expr = expr + a(c)
+    expr = expr + finished
     k = next((i for i, (g, t) in enumerate(zip(grammar, text, strict=False)) if g != t), None)
     if k is None:
         k = min(len(grammar), len(text))
@@ -438,4 +440,4 @@ def test_expand_tuple_args_of_a_function_with_a_parameter_called_cls() -> None:
         return cls + name
 
     assert expand_tuple_args(named)(("a", "b")) == "ab"
-    assert expand_tuple_args(lambda cls, name: cls + name)(("a", "b")) == "ab"
+    assert expand_tuple_args(lambda cls, name: cls + name)(("a", "b")) == "ab"  # type: ignore[operator]

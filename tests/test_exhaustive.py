@@ -53,7 +53,7 @@ def short(value: object) -> bool:
 
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define(spaced.regex("a") + maybe(body + declared))
     return declared
 
@@ -106,6 +106,11 @@ BYTE_UNARY = [form for form in UNARY if form is not recursive]
 BINARY: list[Callable[[P, P], P]] = [lambda p, q: p + q, lambda p, q: p | q]
 
 
+def _applied(form: Callable[[P], P], make: Callable[[], P]) -> Callable[[], P]:
+    """`make`, then `form` of what it makes."""
+    return lambda: form(make())
+
+
 def chains(
     depth: int, leaves: list[Callable[[], P]], unary: list[Callable[[P], P]]
 ) -> Iterator[Callable[[], P]]:
@@ -115,7 +120,7 @@ def chains(
         return
     yield from chains(depth - 1, leaves, unary)
     for form, make in product(unary, chains(depth - 1, leaves, unary)):
-        yield lambda form=form, make=make: form(make())
+        yield _applied(form, make)
 
 
 def grammars(leaves: list[Callable[[], P]], unary: list[Callable[[P], P]]) -> Iterator[P]:

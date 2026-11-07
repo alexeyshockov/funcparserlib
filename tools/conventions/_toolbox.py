@@ -428,6 +428,23 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
 type Tool = Callable[[Path, Sequence[str], Sequence[str] | None], int]
 
 
+def _python_paths(root: Path, name: str, paths: Sequence[str]) -> list[str]:
+    """The paths a checker of owned code reads: directories and Python files, outside `tools/`.
+
+    `tools/` runs on the toolbox's interpreter (`just types-checks`), and the noxfile imports nox,
+    which `.venv` does not install.
+    """
+    kept = []
+    for path in paths:
+        if Path(path).parts[:1] == (TOOLBOX,) or Path(path) == Path(NOXFILE):
+            print(f"{name}: {path} is checked on the Python in .venv-tools, not here")
+        elif (root / path).is_dir() or Path(path).suffix in PYTHON_SUFFIXES:
+            kept.append(path)
+    if not kept:
+        print(f"{name}: skipped, no Python files among the given paths")
+    return kept
+
+
 def _mypy_files(root: Path) -> list[str]:
     """`[mypy] files` in `mypy.ini`: what a mypy run without paths checks."""
     config = configparser.ConfigParser()
@@ -446,10 +463,22 @@ def _pyrefly_includes(root: Path) -> list[str]:
         _refuse(f"cannot read pyrefly.toml: {e}")
 
 
+def pyrefly_config(root: Path) -> list[str]:
+    """`--config pyrefly.toml` when the project has one.
+
+    Named, not found: pyrefly 1.4 imports `mypy.ini` as a migration when the files it reaches
+    include a dependency that ships a `pyproject.toml` inside its package (pandas does). It prints a
+    warning per mypy error code it cannot map, and misses errors it reports with the config named.
+    """
+    return ["--config", "pyrefly.toml"] if (root / "pyrefly.toml").is_file() else []
+
+
 def _checker(
-    flags: Callable[[str], list[str]],
+    flags: Callable[[Path, str], list[str]],
     scope: Callable[[Path], list[str]] | None,
     subcommands: frozenset[str] = frozenset(),
+    *,
+    gate: bool = False,
 ) -> Tool:
     """A type checker run against `.venv`, once per distribution and version when given paths.
 
@@ -458,6 +487,10 @@ def _checker(
     file there is pinned, it runs as if those paths were named, and a checker whose configuration
     the toolbox cannot read refuses. A run whose targets are the tool's own arguments runs once, at
     the floor.
+
+    The checker that gates owned code (`gate`) is handed any paths, as `just check` names them: it
+    skips what is not Python, `tools/` and the noxfile, and leaves out each typesafety suite a
+    directory would sweep up without naming it, as `ty()` does.
     """
 
     def run(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
@@ -470,7 +503,7 @@ def _checker(
         versions = target_versions(root)
 
         def base(version: str) -> list[str]:
-            return [name, *lead, *flags(version), *args]
+            return [name, *lead, *flags(root, version), *args]
 
         if paths is None and any(not arg.startswith("-") for arg in args):
             return _run(base(at))
@@ -487,6 +520,12 @@ def _checker(
             paths = covered
         _existing(root, paths)
         paths = [_relative(root, path) for path in paths]
+        if gate:
+            paths = _python_paths(root, name, paths)
+            if not paths:
+                return 0
+            swept = [s for s in suites(root, paths, dists) if s not in paths]
+            args = [*args, *(arg for s in swept for arg in ("--exclude", f"^{re.escape(s)}/"))]
         dirs = [p for p in paths if (root / p).is_dir()]
         pins = pinned(root, dirs, versions) if dirs else {}
         for path in paths:
@@ -519,11 +558,21 @@ def _checker(
 
 CHECKERS: Mapping[str, Tool] = {
     "mypy": _checker(
-        lambda v: ["--python-executable", INTERPRETER, "--python-version", v], _mypy_files
+        lambda _, v: ["--python-executable", INTERPRETER, "--python-version", v],
+        _mypy_files,
+        gate=True,
     ),
-    "basedpyright": _checker(lambda v: ["--pythonpath", INTERPRETER, "--pythonversion", v], None),
+    "basedpyright": _checker(
+        lambda _, v: ["--pythonpath", INTERPRETER, "--pythonversion", v], None
+    ),
     "pyrefly": _checker(
-        lambda v: ["--python-interpreter-path", INTERPRETER, "--python-version", v],
+        lambda root, v: [
+            *pyrefly_config(root),
+            "--python-interpreter-path",
+            INTERPRETER,
+            "--python-version",
+            v,
+        ],
         _pyrefly_includes,
         frozenset({"check", "coverage"}),
     ),

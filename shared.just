@@ -23,7 +23,8 @@
 # gate that rewrote its own subject was able to hide.
 #
 # The importing justfile provides `conventions` (the first step of `gate`), the `frozen_revs`
-# list `frozen-revs` reads, plus whatever is the project's own.
+# list of the project's own frozen hook revs (empty when it has none), plus whatever is the
+# project's own.
 
 # Runs a tool from the toolbox. `--project tools` syncs the toolbox environment on demand.
 # `--locked` fails when tools/pyproject.toml is ahead of tools/uv.lock, instead of re-resolving and
@@ -90,55 +91,49 @@ tool *args:
 pins:
     @just tools::pins
 
-# The list is this project's, like the hooks themselves; `frozen_revs` is in the importing justfile.
-[doc("Verify the pre-commit revs that must not move (frozen_revs) have not moved")]
+# The shared hooks' revs pinned on purpose, as `<repo>=<rev>`, where `<repo>` is the last segment
+# of the hook's repository URL. The reason for each is commented beside its hook in
+# .pre-commit-config.yaml, which arrives with this list in the same update.
+shared_frozen_revs := "typos=v1.50.3"
+
+[doc("Verify the pre-commit revs that must not move (shared_frozen_revs, frozen_revs) have not moved")]
 frozen-revs:
-    @just tools::frozen-revs '{{ frozen_revs }}'
+    @just tools::frozen-revs '{{ shared_frozen_revs }},{{ frozen_revs }}'
 
 
 # --- Types ---
 
-# mypy is the whole-package gate, over `mypy.ini`'s file list. It analyses `.venv` through
-# `--python-executable` while running from the toolbox. Presence of annotations on the public
-# API is pyrefly's question (`type-coverage`); this one is correctness.
-[doc("Check types (mypy, blocking; config in mypy.ini)")]
+# mypy gates the code the project owns: the packages and the examples strict, the tests at the depth
+# `mypy.ini` gives them. It analyses `.venv` through `--python-executable` while running from the
+# toolbox, once per distribution, and leaves out each typesafety suite, which `types-api` judges.
+# Presence of annotations on the public API is pyrefly's question (`type-coverage`); this one is
+# correctness.
+[doc("Check types of the packages, the examples and the tests (mypy, blocking; config in mypy.ini)")]
 types:
-    {{ tools }} toolbox mypy
+    {{ tools }} toolbox mypy -- {{ packages }} examples {{ test_dirs }}
 
-# `-` is just's ignore-failure prefix, and it is the point: ty and pyrefly run so a disagreement
-# is seen, not so it can block.
-[doc("Second opinions on the package from ty and pyrefly (informational, never blocks)")]
+# `-` is just's ignore-failure prefix, and it is the point: ty, pyrefly and basedpyright run so a
+# disagreement is seen, not so it can block. basedpyright reads `tools/basedpyright.json` here only.
+# ty reads the examples and the tests too, as it did when it gated them; `toolbox ty` leaves out a
+# typesafety suite it is not named.
+[doc("Second opinions from ty, pyrefly and basedpyright (informational, never blocks)")]
 types-info:
-    -{{ tools }} toolbox ty -- {{ packages }}
+    -{{ tools }} toolbox ty -- {{ packages }} examples {{ test_dirs }}
     -{{ tools }} toolbox pyrefly check {{ packages }}
-
-# `examples/` holds runnable programs a reader can copy, and the one place the public API
-# is exercised the way a user meets it (they are also the docs' snippet source, via --8<-- includes).
-# mypy gates them in `types`, ty reads them here too.
-[doc("Check the examples with ty (blocking)")]
-types-examples:
-    {{ tools }} toolbox ty -- examples
+    -{{ tools }} toolbox basedpyright --project=tools/basedpyright.json -- {{ packages }}
 
 # The repository's own checks import pytest and the standard library only. They walk `ast`, where
 # reading an attribute off the wrong node is the likely mistake and a checker catches it. They run
 # from inside `tools/`; see the module.
-[doc("Check the repository's own checks with ty (blocking)")]
+[doc("Check the repository's own checks with mypy (blocking)")]
 types-checks:
     @just tools::types-checks
 
-# tests/typesafety is left out on purpose: ty disagrees with it by design, and basedpyright gates it in `types-api`.
-# The rest of tests/ is type-clean and stays that way — no `-` prefix here. `toolbox ty` checks each
-# distribution's suite as that distribution, leaves out a typesafety suite it is not named, and
-# gives each other exclusion to the run it belongs to.
-[doc("Check the tests with ty (blocking)")]
-types-tests:
-    {{ tools }} toolbox ty -- {{ test_dirs }}
-
-[doc("Check the benchmarks with ty (blocking)")]
+[doc("Check the benchmarks with mypy (blocking)")]
 types-benchmarks: bench::types
 
-[doc("Check types (including examples, tests, benchmarks and the checks)")]
-types-all: types types-info types-examples types-tests types-benchmarks types-checks
+[doc("Check types (the gates, the second opinions, the benchmarks and the checks)")]
+types-all: types types-info types-benchmarks types-checks
 
 # `--public-only` counts the symbols a caller reaches through the public modules and their
 # re-exports, each reported where it is defined. The threshold is pyrefly's default, 100%. A public
@@ -207,7 +202,7 @@ test *args:
 # Not here, on purpose: `lint` (pre-commit.ci runs the hooks from the same config). The type-checking
 # rows are the target-level table in CONVENTIONS.md, one recipe per row that gates.
 [doc("Everything a pull request must pass, the local test matrix last")]
-gate: conventions imports deps slots types type-coverage types-api types-examples types-tests types-benchmarks types-checks tests
+gate: conventions imports deps slots types type-coverage types-api types-benchmarks types-checks tests
 
 
 # --- Structure ---

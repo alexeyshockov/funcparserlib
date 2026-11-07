@@ -12,14 +12,15 @@
 - Example-only dependencies belong in a development dependency group, not in the shipped package
   unless the package actually requires them.
 
-Examples are gated, not decorative: mypy reads them through `mypy.ini`'s file list and ty blocks on
-them. They are checked at the floor. An example that needs a newer Python than the package does
+Examples are gated, not decorative: mypy checks them in `just types`, at the depth `mypy.ini`'s
+`[mypy-examples.*]` section gives them, and ty reads them as a second opinion. They are checked at
+the floor. An example that needs a newer Python than the package does
 states it once, as ruff's `per-file-target-version` in `pyproject.toml`
 (`"examples/t_strings.py" = "py314"`), and every checker reads it from there.
 
 ```shell
-just types-examples
 just types
+just check examples/<file>.py
 ```
 
 If snippet highlighting drifts, run `just docs-hl-fix` and review the resulting documentation diff.

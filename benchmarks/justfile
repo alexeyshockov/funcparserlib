@@ -16,17 +16,18 @@ dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --lock
 # Each distribution's `benchmarks/` directory that exists.
 bench_dirs := shell('for d in $1; do b=$([ "$d" = . ] && echo benchmarks || echo "$d/benchmarks"); [ -d "$b" ] && printf "%s " "$b"; done; true', dists)
 
-# Benchmarks sit at the tests level: ty blocking, no mypy. Against `.venv`, which `venv` syncs with every
-# group, so the benchmark stacks' dependencies are already there — ty in an environment missing them
-# reports each import unresolved, and suppressing that rule would hide a genuinely missing import.
-[doc("Check the benchmarks with ty (blocking)")]
+# Benchmarks sit at the tests level: mypy blocking, at the depth `mypy.ini` gives `benchmarks.*`. Against
+# `.venv`, which `venv` syncs with every group, so the benchmark stacks' dependencies are already there —
+# mypy in an environment missing them reports each import unresolved, and suppressing that would hide a
+# genuinely missing import.
+[doc("Check the benchmarks with mypy (blocking)")]
 types:
     #!/usr/bin/env bash
     set -euo pipefail
     dirs=({{ bench_dirs }})
-    # With no path, `toolbox ty` checks the whole repository.
-    [ ${#dirs[@]} -gt 0 ] || { echo "ty: no benchmarks/ directory to check"; exit 1; }
-    exec {{ tools }} toolbox ty -- "${dirs[@]}"
+    # With no path, `toolbox mypy` checks what `mypy.ini` names instead.
+    [ ${#dirs[@]} -gt 0 ] || { echo "mypy: no benchmarks/ directory to check"; exit 1; }
+    exec {{ tools }} toolbox mypy -- "${dirs[@]}"
 
 # `results/` keeps every run, with the machine, the interpreter and the commit it ran on. Another
 # interpreter's session runs by name: `just tools::nox -s "bench(python='3.14')" -- benchmarks`.

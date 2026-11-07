@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .._project import Project, RunError
-from .._toolbox import INTERPRETER, distributions, floor
+from .._toolbox import INTERPRETER, distributions, floor, pyrefly_config
 from ._ast import all_value, bare_names, resolved
 
 
@@ -208,6 +208,7 @@ def _pyrefly_public(project: Project) -> frozenset[str]:
         return frozenset()
     roots = [project.relative(root) for root in project.package_roots.values()]
     command = [str(Path(sys.executable).parent / "pyrefly"), "coverage", "report", "--public-only"]
+    command += pyrefly_config(project.root)
     if (project.root / INTERPRETER).is_file():
         command += ["--python-interpreter-path", INTERPRETER]
         command += ["--python-version", floor(project.root, distributions(project.root))]

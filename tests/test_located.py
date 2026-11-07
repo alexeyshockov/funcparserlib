@@ -165,7 +165,7 @@ def test_a_rejected_value_has_no_location() -> None:
     def rejected(_: str) -> str:
         raise Invalid("not this one")
 
-    called = []
+    called: list[object] = []
     grammar = regex("a").validated(rejected).located() >> called.append
     with pytest.raises(ParseErrors, match="1 parsing error"):
         grammar.parse_text("a")
@@ -198,7 +198,7 @@ def test_a_position_inside_a_prefixed_region_is_relative_to_it() -> None:
 
 
 def test_a_position_in_bytes_is_an_offset() -> None:
-    byte = some(lambda v: v == 97)
+    byte: Parser[int, int] = some(lambda v: v == 97)
     assert many(byte.located()).parse_bytes(b"aa") == [Located(97, 0, 1), Located(97, 1, 2)]
 
 
@@ -232,7 +232,13 @@ def test_replace_gives_what_re_gives(text: str) -> None:
 @pytest.mark.interpreted_only
 def test_matches_stop_where_the_program_stops() -> None:
     seen: list[str] = []
-    grammar = regex("a") >> (lambda value: seen.append(value) or value)
+
+    def record(value: str) -> str:
+        """`value`, noted in `seen`."""
+        seen.append(value)
+        return value
+
+    grammar = regex("a") >> record
     assert next(grammar.scan_text("a a a")) == Located("a", 0, 1)
     assert seen == ["a"]
 
@@ -300,7 +306,8 @@ def test_a_match_that_reads_nothing_is_an_error() -> None:
 
 def test_matches_refuse_what_is_not_text() -> None:
     with pytest.raises(TypeError, match="bytes cannot be parsed as text"):
-        word.scan_text(b"a")  # ty: ignore[invalid-argument-type]
+        # The `TypeError` for bytes is what is under test.
+        word.scan_text(b"a")  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
 
 
 def test_matches_refuse_a_grammar_of_tokens_at_the_call() -> None:

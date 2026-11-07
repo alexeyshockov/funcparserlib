@@ -10,6 +10,7 @@ from hypothesis import strategies as st
 from funcparserlib import parser as parser_module
 from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
+    ForwardDeclParser,
     Invalid,
     NoParseError,
     ParseErrors,
@@ -256,7 +257,7 @@ def test_describe_shows_a_foreign_token() -> None:
     def describe(t: Foreign) -> TokenDescription:
         return TokenDescription(t.kind, (t.line, 1), (t.line, 3))
 
-    kind = some(lambda t: t.kind == "word").named("word")
+    kind: Parser[Foreign, Foreign] = some(lambda t: t.kind == "word").named("word")
     e = error(kind, [Foreign("number", 2)], describe=describe)
     assert str(e) == "2,1-2,3: got unexpected token: number, expected: word"
 
@@ -381,7 +382,7 @@ def test_the_optimised_parsers_parse_as_the_plain_ones(grammar: Any, text: str) 
 
 def nested() -> Parser[str, Any]:
     """Lists of `n` and `m`, and a list of a list, chosen among by the next token."""
-    value: Any = forward_decl().named("value")
+    value: ForwardDeclParser[str, Any] = forward_decl().named("value")
     items = -a("[") + maybe(value) + -a("]")
     pair = -a("(") + value + -a(",") + value + -a(")")
     value.define(items | pair | a("n") | a("m"))
@@ -441,7 +442,7 @@ def test_the_message_of_dispatched_alternatives_is_the_last_alternatives() -> No
 
 def declared(p: Parser[str, Any]) -> Parser[str, Any]:
     """`p` behind a forward declaration: `|` cannot tell which tokens it starts with."""
-    declaration: Any = forward_decl()
+    declaration: ForwardDeclParser[str, Any] = forward_decl()
     declaration.define(p)
     return declaration
 
@@ -462,9 +463,13 @@ def test_a_choice_named_after_use_among_dispatched_alternatives_is_named_by_its_
 def test_a_chain_of_alternatives_builds_one_dispatch_table(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[object] = []
     table = parser_module._dispatch_table
-    monkeypatch.setattr(
-        parser_module, "_dispatch_table", lambda alts: calls.append(alts) or table(alts)
-    )
+
+    def counted_table(alts: Any) -> Any:
+        """The dispatch table of `alts`, counting the call."""
+        calls.append(alts)
+        return table(alts)
+
+    monkeypatch.setattr(parser_module, "_dispatch_table", counted_table)
     p = functools.reduce(operator.or_, [a(c) for c in "abcdefgh"])
     assert calls == []
     assert [p.parse("h"), p.parse("a")] == ["h", "a"]
@@ -569,19 +574,22 @@ def test_a_rejection_on_a_branch_that_fails_later_is_forgotten() -> None:
 
 def test_a_nested_grammar_rejects_with_its_own_error() -> None:
     inner = many(a("i")) + -finished
-    p = (some(lambda _: True).validated(inner.parse)) + -finished
+    anything: Parser[str, str] = some(lambda _: True)
+    p = anything.validated(inner.parse) + -finished
     assert messages(p, ["iw"]) == ["got unexpected token: 'w', expected: 'i' or end of input"]
 
 
 def test_a_nested_grammar_rejects_with_every_error_it_has() -> None:
     inner = many(digit.validated(odd)) + -finished
-    p = some(lambda _: True).validated(inner.parse) + -finished
+    anything: Parser[str, str] = some(lambda _: True)
+    p = anything.validated(inner.parse) + -finished
     assert messages(p, ["24"]) == ["2 is even", "4 is even"]
 
 
 def test_a_label_names_what_a_nested_grammar_expected() -> None:
     inner = many(a("i")) + -finished
-    p = some(lambda _: True).validated(inner.parse, "a word of i") + -finished
+    anything: Parser[str, str] = some(lambda _: True)
+    p = anything.validated(inner.parse, "a word of i") + -finished
     with pytest.raises(ParseErrors) as e:
         p.parse(["iw"], describe=lambda t: TokenDescription(f"<{t}>"))
     [error] = e.value.exceptions
@@ -596,8 +604,9 @@ def test_the_exception_of_the_function_is_the_cause() -> None:
 
 
 def test_any_other_exception_is_a_bug_and_propagates() -> None:
+    known: dict[str, int] = {}
     with pytest.raises(KeyError):
-        digit.validated({}.__getitem__).parse(["2"])
+        digit.validated(known.__getitem__).parse(["2"])
 
 
 @pytest.mark.parametrize(
@@ -648,7 +657,7 @@ def test_recover_goes_on_from_until_after_a_part_that_stopped() -> None:
 
 
 def test_recover_without_until_leaves_a_part_that_stopped() -> None:
-    row = counted(digit.validated(odd), a("x")).recover(default=[])
+    row = counted(digit.validated(odd), a("x")).recover(default=list[str]())
     assert isinstance(row.run(list("2x"), State(0, 0)), ParsingFailure)
 
 

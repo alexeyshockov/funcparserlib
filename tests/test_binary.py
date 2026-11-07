@@ -156,7 +156,7 @@ def small(value: int) -> int:
 
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define(b.byte() + maybe(body + declared))
     return declared
 
@@ -304,7 +304,7 @@ def decided(grammar: P, data: bytes) -> tuple[Any, int]:
     code = grammar.compile()
     assert code._fast_text is not None, "the grammar stays interpreted"
     try:
-        res = loose(code._fast_text)(data)
+        res: tuple[Any, int] | None = loose(code._fast_text)(data)
     except _Undecided as e:
         pytest.fail(f"generated code leaves the decision to the parser: {e.__cause__!r}")
     assert res is not None, "generated code rejects what the parser parses"
@@ -337,13 +337,13 @@ def without_parser(code: CompiledParser[Any, Any]) -> CompiledParser[Any, Any]:
     return code
 
 
-tree: P = forward_decl()
+tree = forward_decl()
 tree.define(counted(b.byte(), tree))
 
-sized: P = forward_decl()
+sized = forward_decl()
 sized.define(prefixed(b.byte(), many(sized)))
 
-expression: P = forward_decl()
+expression = forward_decl()
 expression.define(
     switch(
         b.byte(),
@@ -1012,7 +1012,9 @@ def token_outcomes(grammar: P, text: str) -> list[tuple[object, ...]]:
     with_tokenizer = tokenized(grammar, tokenize).compile()
     without = grammar.compile()
 
-    def parse(parser: Any, how: str) -> Callable[[str], Any]:
+    def parse(
+        parser: Parser[Any, Any] | CompiledParser[Any, Any], how: str
+    ) -> Callable[[str], Any]:
         if how == "tokens":
             return lambda _: parser.parse(tokens)
         return parser.parse_text
@@ -1059,9 +1061,12 @@ def test_a_body_over_tokens_that_does_not_read_to_the_end_fails() -> None:
 
 def test_a_body_over_tokens_with_finished_sees_the_end_of_the_region() -> None:
     grammar = prefixed(count, many(tok("w")) + finished) + tok("w")
-    assert grammar.parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
-    assert grammar.compile().parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
-    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == (["a", "b"], None, "c")
+    # `prefixed()` gives the tuple of its body, which `+` goes on as it does a tuple of its own; its
+    # type is one value.
+    assert grammar.parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
+    assert grammar.compile().parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
+    text = tokenized(grammar, tokenize).compile().parse_text("2 a b c")
+    assert text == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
 
 
 def test_prefixed_over_tokens_with_a_length_past_the_end_fails() -> None:
@@ -1132,10 +1137,11 @@ def test_prefixed_over_any_tokens_that_are_not_text_or_bytes() -> None:
 
 
 def test_prefixed_over_a_list_of_integers_is_a_list() -> None:
-    byte = some(lambda v: isinstance(v, int))
+    byte: Parser[int, int] = some(lambda v: isinstance(v, int))
     grammar = prefixed(byte)
-    assert grammar.parse([2, 7, 8, 9]) == [7, 8]
-    assert grammar.compile().parse([2, 7, 8, 9]) == [7, 8]
+    # The overload for a length of integers types its body as `bytes`, the case of a byte grammar.
+    assert grammar.parse([2, 7, 8, 9]) == [7, 8]  # type: ignore[comparison-overlap]
+    assert grammar.compile().parse([2, 7, 8, 9]) == [7, 8]  # type: ignore[comparison-overlap]
     assert grammar.parse(b"\x02\x07\x08\x09") == b"\x07\x08"
 
 
@@ -1339,7 +1345,7 @@ def test_switch_does_not_change_with_the_mapping_after_it_is_built(run: Runner) 
 
 
 def test_switch_of_a_case_that_is_a_forward_declaration(run: Runner) -> None:
-    case: P = forward_decl()
+    case = forward_decl()
     grammar = switch(b.byte(), {1: case})
     case.define(b.fixed(">H"))
     assert run(grammar, b"\x01\x00\x05") == 5
@@ -1826,9 +1832,10 @@ def test_binary_parsers_on_text_raise_what_the_standard_library_raises() -> None
 
 
 def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
-    assert b.byte().parse_text("a") == "a"
+    # Over text a byte parser reads a character, which its type, `int`, cannot say.
+    assert b.byte().parse_text("a") == "a"  # type: ignore[comparison-overlap]
     assert finished.parse_text("") is None
-    assert (b.byte() + b.byte() + finished).parse_text("ab") == ("a", "b", None)
+    assert (b.byte() + b.byte() + finished).parse_text("ab") == ("a", "b", None)  # type: ignore[comparison-overlap]
 
 
 @pytest.mark.interpreted_only
@@ -1840,7 +1847,8 @@ def test_tok_on_bytes_is_a_parser_of_tokens_that_bytes_are_not() -> None:
 
 
 def test_some_reads_bytes_as_integers_in_a_byte_grammar(run: Runner) -> None:
-    grammar = some(lambda v: v == 97) + b.byte()
+    first: Parser[int, int] = some(lambda v: v == 97)
+    grammar = first + b.byte()
     assert shape(run(grammar, b"ab")) == shape((97, 98))
     assert shape(run(prefixed(b.byte(), many(some(lambda v: v > 96))), b"\x02ab")) == shape(
         [97, 98]
@@ -1848,7 +1856,8 @@ def test_some_reads_bytes_as_integers_in_a_byte_grammar(run: Runner) -> None:
 
 
 def test_parse_of_bytes_is_a_parse_of_integers() -> None:
-    grammar = prefixed(some(lambda v: True), many(some(lambda v: True)))
+    anything: Parser[int, int] = some(lambda v: True)
+    grammar = prefixed(anything, many(anything))
     assert grammar.parse(b"\x02ab") == [97, 98]
     assert grammar.compile().parse(b"\x02ab") == [97, 98]
     assert prefixed(some(lambda v: True)).parse(b"\x02ab") == b"ab"
@@ -1955,14 +1964,14 @@ def test_a_failure_after_a_commit_of_a_switch_is_final(run: Runner) -> None:
 
 
 def test_a_region_declared_before_it_is_defined(run: Runner) -> None:
-    declared: P = forward_decl()
+    declared = forward_decl()
     grammar = prefixed(b.byte(), declared)
     declared.define(many(b.byte()))
     assert run(grammar, b"\x02ab") == [97, 98]
 
 
 def test_a_recursive_grammar_of_the_three_forms(run: Runner) -> None:
-    value: P = forward_decl()
+    value = forward_decl()
     value.define(
         switch(
             b.byte(),
@@ -1995,13 +2004,13 @@ def test_recover_at_its_first_token_fails_though_another_branch_got_further(run:
 
 
 def test_oneplus_of_an_ignored_rule_keeps_its_first_item(run: Runner) -> None:
-    rule: P = forward_decl()
+    rule = forward_decl()
     rule.define(-(b.lit(b"ab") + maybe(rule)))
     assert len(run(oneplus(rule), b"ab")) == 1
 
 
 def test_a_rule_of_an_ignored_value_gives_it_to_a_context(run: Runner) -> None:
-    rule: P = forward_decl()
+    rule = forward_decl()
     rule.define(-(b.lit(b"a") + maybe(rule)))
     assert isinstance(run(rule.context("c"), b"a"), IgnoredValue)
 

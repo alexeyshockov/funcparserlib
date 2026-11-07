@@ -145,7 +145,8 @@ end"""
         x = a("x")
         y = a("y")
         expr: Parser[str, tuple[IgnoredValue | None, str]] = maybe(-x) + y
-        assert expr.parse("xy") == "y"
+        # `maybe(-x)` is dropped from the tuple where it matched, which its type cannot say.
+        assert expr.parse("xy") == "y"  # type: ignore[comparison-overlap]
         assert expr.parse("y") == (None, "y")
 
     def test_ignored_maybe_ignored(self) -> None:

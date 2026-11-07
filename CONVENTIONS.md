@@ -99,8 +99,8 @@ section (CON800). The code width is the one setting the project answers for itse
 - **The public API is fully typed, and `py.typed` ships.** Presence is gated by `just type-coverage`
   (`pyrefly coverage check --public-only`, at 100%): every public function, parameter, attribute and
   variable is annotated, except a constant assigned a literal. Correctness is gated by `just types` (mypy over the
-  package and the examples, configured in `mypy.ini`). ty and pyrefly run as
-  second opinions and never block.
+  package, the examples and the tests, configured in
+`mypy.ini`). ty, pyrefly and basedpyright run as second opinions and never block.
 - **Each distribution's `tests/typesafety/` pins what an end user's checker infers** from the public API, through
   `assert_type`. basedpyright gates it (`just types-api`); a change in public inference is a
   behaviour change, even when runtime behaviour is identical.
@@ -112,11 +112,15 @@ config.
 
 | tree | mypy | ty | basedpyright | pyrefly | recipe |
 | --- | --- | --- | --- | --- | --- |
-| the package | **gate** | informational | — | informational; **`coverage` at 100%** | `types`, `types-info`, `type-coverage` |
-| `examples/` | **gate** (in `files`) | **blocking** | — | — | `types`, `types-examples` |
-| `tests/` | — | **blocking** | — | — | `types-tests` |
+| the package | **gate** | informational | informational | informational; **`coverage` at 100%** | `types`, `types-info`, `type-coverage` |
+| `examples/` | **gate** | informational | — | — | `types`, `types-info` |
+| `tests/` | **gate**, at the tests' depth | informational | — | — | `types`, `types-info` |
 | each distribution's `tests/typesafety/` | informational | informational | **gate** | informational | `types-api` |
-| the `benchmarks/` directories | — | **blocking** | — | — | `types-benchmarks` |
+| the `benchmarks/` directories | **gate**, at the tests' depth | — | — | — | `types-benchmarks` |
+
+One checker gates the code a project owns, so a finding has one semantics to meet: mypy, and
+`just check` runs it on the paths it is given. basedpyright gates what a user's checker infers,
+as Pylance and the agents' editors run it. ty runs as a second opinion everywhere.
 
 **Every checker runs at the floor**, the version `requires-python` starts from, except for a file
 that ruff's `per-file-target-version` (`[tool.ruff]` in `pyproject.toml`) gives a version of its
@@ -124,9 +128,10 @@ own: the toolbox checks that file at that version, in a run of its own, with eve
 for a file that shows a newer Python than the package needs, an example of a newer syntax say, and
 the one place that version is stated. A test that runs the file skips it on an older interpreter.
 
-Tests are type-checked by ty alone: mypy's findings there are mostly the declarations under test.
-A project whose tests were written under mypy strict from the start keeps them there, and says so
-next to its config.
+Tests and benchmarks are checked at the examples' depth, a section of `mypy.ini`: a fixture
+parameter or a helper may go unannotated, and a generic bare. What they call on the package is
+checked in full. A test that hands the package a value of the wrong type on purpose says so with a
+`# type: ignore[code]` and the reason; the declarations under test are the ignores, not the rule.
 
 ## Source
 
@@ -255,9 +260,9 @@ CON5xx); `conventions explain CODE` gives each one's reason and scope.
 ## Benchmarks
 
 - Benchmark code may reach into the package's internals; the package never imports it.
-- It is type-checked at the tests level: `just types-benchmarks` runs ty over it, blocking, in
-  `just gate`. mypy does not read it. An environment missing a benchmark's dependency shows up as
-  an unresolved import — fix the environment (`just venv`), never the rule.
+- It is type-checked at the tests level: `just types-benchmarks` runs mypy over it, blocking, in
+  `just gate`, at the depth `mypy.ini` gives tests. An environment missing a benchmark's dependency
+  shows up as an unresolved import — fix the environment (`just venv`), never the rule.
 - Micro-benchmarks are pytest-benchmark cases, `bench_*.py` files in a `benchmarks/` directory
   beside a distribution's `tests/`, and run in-process with no server or network. A case whose
   timing includes threads or sockets is compared with others of the same run only.

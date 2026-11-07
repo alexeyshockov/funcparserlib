@@ -15,6 +15,7 @@ from funcparserlib._compile import (
     _form,
     _least_fixed_point,
     _scanned_nodes,
+    _Starts,
     _starts_of,
     _target,
 )
@@ -267,12 +268,14 @@ def test_the_first_match_reads_the_text_only_as_far_as_it(monkeypatch: pytest.Mo
         return read(self, s, i)
 
     monkeypatch.setattr(Tokenizer, "_read", counted)
-    name = some(lambda t: t.type == "name") >> (lambda t: t.value)
+    names: Parser[Token, Token] = some(lambda t: t.type == "name")
+    name = names >> (lambda t: t.value)
     statement = name + -tok("op", "=") + (number | tok("name"))
     statements = statement + many(-tok("op", ";") + statement) + maybe(-tok("op", ";"))
     text = "say a = 1; b = c;\n" + "and then c = 3; " * 10_000
     first = next(tokenized(statements, tokenize).scan_text(text))
-    assert first == Located(("a", 1, [("b", "c")]), 4, 17)
+    # `maybe(-p)` is dropped from the tuple at runtime, which its type keeps.
+    assert first == Located(("a", 1, [("b", "c")]), 4, 17)  # type: ignore[comparison-overlap]
     assert max(reads) < 40
 
 
@@ -302,7 +305,7 @@ def test_a_match_tells_the_end_of_its_tokens_without_reading_their_length(
 
 
 def test_a_scan_that_reaches_a_tok_it_cannot_see_says_it_cannot_parse_text() -> None:
-    hidden = Parser(lambda tokens, s: tok("name").run(tokens, s))
+    hidden: Parser[Token, str] = Parser(lambda tokens, s: tok("name").run(tokens, s))
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
         list(hidden.scan_text("a"))
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
@@ -528,7 +531,9 @@ def test_the_starts_of_each_part_of_a_grammar_are_what_it_reads_first(
 ) -> None:
     real, rest = built(recipe, bound_parts=True), built(recipe, bound_parts=False)
     for part, without in zip(real, rest, strict=True):
-        known = _least_fixed_point(_scanned_nodes(part), (frozenset(), False), _starts_of)
+        known: dict[int, _Starts] = _least_fixed_point(
+            _scanned_nodes(part), (frozenset(), False), _starts_of
+        )
         starts, nullable = known[id(_target(part))]
         for offset in range(len(text)):
             # A part that reads nothing only where it says it can, and starts only where it says.
@@ -585,7 +590,7 @@ def test_the_starts_of_a_scan_know_every_form_the_compiler_generates() -> None:
         return pure(None).run(_tokens, s)
 
     one = spaced.lit("a")
-    forms = [
+    forms: list[Parser[Any, Any]] = [
         one + one,
         one | one,
         one.but_not(one),

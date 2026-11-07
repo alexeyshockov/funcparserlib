@@ -118,7 +118,8 @@ repos:
 
   # Held at a concrete tag: upstream also publishes a moving `v1` tag, which
   # `pre-commit autoupdate` prefers — and a floating major would let the hook's
-  # dictionary change with no diff to review. Bump the patch by hand.
+  # dictionary change with no diff to review. Bump the patch by hand, and `shared_frozen_revs` in
+  # shared.just with it; `just smoke` fails while the two disagree.
   - repo: https://github.com/crate-ci/typos
     rev: v1.50.3
     hooks:

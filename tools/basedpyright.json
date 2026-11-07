@@ -1,0 +1,20 @@
+// basedpyright's rules for `just types-info`, its informational run over the package.
+// Generated; propose changes in an issue rather than editing this file.
+//
+// `types-api` and editors read basedpyright's defaults, not this file: there `reportAny` watches the
+// typesafety suite for an `Any` that reaches a caller. Over the package the rules below are off.
+// A library's internals take `Any` in and hand typed values out, unstubbed dependencies are
+// `Unknown` throughout, and a package root that re-exports its submodules is reported as an import
+// cycle with each of them; left on, they bury the other findings.
+{
+  "reportAny": "none",
+  "reportExplicitAny": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownVariableType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportMissingTypeStubs": "none",
+  "reportImplicitStringConcatenation": "none",
+  "reportImportCycles": "none"
+}

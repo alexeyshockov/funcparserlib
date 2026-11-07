@@ -117,7 +117,7 @@ def short(value: object) -> bool:
 
 def recursive(body: P) -> P:
     """A grammar that reads `body` inside itself."""
-    declared: P = forward_decl()
+    declared = forward_decl()
     declared.define(spaced.regex("a") + maybe(body + declared))
     return declared
 
@@ -319,10 +319,18 @@ def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
 @pytest.mark.interpreted_only
 def test_the_function_after_arrows_of_each_alternative_runs() -> None:
     seen: list[str] = []
-    grammar = longest(
-        spaced.lit("a") >> (lambda s: seen.append("short") or s),
-        spaced.lit("ab") >> (lambda s: seen.append("long") or s),
-    )
+
+    def noting(label: str) -> Callable[[str], str]:
+        """A function that gives its argument, noting `label` in `seen`."""
+
+        def note(s: str) -> str:
+            """`s`, with `label` noted."""
+            seen.append(label)
+            return s
+
+        return note
+
+    grammar = longest(spaced.lit("a") >> noting("short"), spaced.lit("ab") >> noting("long"))
     assert grammar.parse_text("ab") == "ab"
     assert seen == ["short", "long"]
     seen.clear()
@@ -411,7 +419,8 @@ def test_a_text_without_skip_reads_whitespace_as_text(run: Runner) -> None:
 def quoted(text: Any) -> P:
     """A string written as a grammar: a quote, characters, a quote."""
     chars = many(text.regex(r'[^"\\]+') | text.regex(r"\\."))
-    return (-text.lit('"') + chars + -text.lit('"')) >> "".join
+    grammar: P = (-text.lit('"') + chars + -text.lit('"')) >> "".join
+    return grammar
 
 
 def test_a_string_grammar_of_a_text_without_skip_keeps_its_whitespace(run: Runner) -> None:
@@ -731,7 +740,7 @@ def test_a_grammar_of_tokens_parses_text_as_the_interpreted_parser_parses_the_to
 def test_the_text_of_a_token_grammar_is_explained_when_the_grammar_is_not_generated(
     tokenize: Any,
 ) -> None:
-    opaque = Parser(lambda toks, s: sum_of_two().run(toks, s))
+    opaque: P = Parser(lambda toks, s: sum_of_two().run(toks, s))
     code = tokenized(opaque, tokenize).compile()
     assert code._fast_text is None
     with pytest.raises(NoParseError, match="got unexpected token: '\\$', expected: num"):
@@ -784,7 +793,7 @@ def test_try_parse_of_a_commit_around_a_parsing_function(tokenize: Any) -> None:
 
 
 def test_try_parse_gives_none_for_nesting_too_deep_for_the_parser() -> None:
-    nested: P = forward_decl()
+    nested = forward_decl()
     nested.define(spaced.lit("(") + maybe(nested) + spaced.lit(")"))
     code = nested.compile()
     deep = "(" * 5000 + ")" * 5000
@@ -825,7 +834,8 @@ def test_a_grammar_of_characters_reports_where_it_stopped() -> None:
 
 
 def test_characters_and_a_text_in_one_grammar_agree_when_compiled(run: Runner) -> None:
-    grammar = some(lambda c: c == "a") + spaced.lit("b") + spaced.end
+    first: Parser[str, str] = some(lambda c: c == "a")
+    grammar = first + spaced.lit("b") + spaced.end
     assert run(grammar, "ab ") == ("a", "b", None)
     assert message(run, grammar, "ax") == "1,2-1,2: got unexpected token: 'x', expected: 'b'"
 
@@ -1110,7 +1120,8 @@ def test_a_grammar_of_tok_says_it_cannot_parse_bytes() -> None:
 
 def test_a_function_keeps_its_attribute_error_in_a_grammar_with_a_tok() -> None:
     with pytest.raises(AttributeError, match="nothing"):
-        ((regex("a") >> (lambda s: s.nothing)) | loose(tok("n"))).parse_text("a")
+        # The `AttributeError` a function after `>>` raises is what is under test.
+        ((regex("a") >> (lambda s: s.nothing)) | loose(tok("n"))).parse_text("a")  # type: ignore[attr-defined]
 
 
 def test_a_grammar_says_it_cannot_parse_text_where_it_reaches_a_tok() -> None:
@@ -1122,7 +1133,7 @@ def test_a_grammar_says_it_cannot_parse_text_where_it_reaches_a_tok() -> None:
 
 def test_a_function_after_a_text_parser_keeps_its_attribute_error() -> None:
     with pytest.raises(AttributeError, match="nothing"):
-        (regex("a") >> (lambda s: s.nothing)).parse_text("a")
+        (regex("a") >> (lambda s: s.nothing)).parse_text("a")  # type: ignore[attr-defined]
 
 
 def scanned(scan: Callable[[str], Any], text: str) -> object:

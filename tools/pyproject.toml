@@ -19,9 +19,9 @@ version = "0"
 requires-python = "==3.14.*"
 dependencies = [
     # --- Type checkers ---
-    "ty >=0.0.95",           # informational over the package, blocking at the tests level
+    "ty >=0.0.95",           # informational: a second opinion over the owned code
     "basedpyright >=1.40.2", # the typesafety suite (`types-api`, the gate there)
-    "mypy >=2.4.1",          # the whole-package gate, over mypy.ini's file list
+    "mypy >=2.4.1",          # the gate over the owned code: packages, examples, tests, benchmarks
     "pyrefly >=1.4.0",       # `coverage` gates the public API at 100%; informational as a checker
 
     # --- The conventions ---
