@@ -39,10 +39,11 @@ A grammar has one definition of its language, and there are two kinds.
   the grammar is read before parsing starts, so a failed attempt moves nothing. Its generated code reads the text
   directly.
 
-The two ways of reading never share a grammar, so they cannot disagree on what is accepted. When
-`CompiledParser.parse_text()` of a token grammar stops at text no spec matches, the tokens before it
-parse with one more token no grammar reads, and the error is theirs: a mistake among them, or what the
-grammar expected in place of that text.
+The two ways of reading meet only where a grammar holds a token grammar bound to its tokenizer, a
+part whose tokens its own token grammar reads from where it starts (ADR 0003), so they cannot disagree
+on what is accepted. When the tokenizer of a bound grammar stops at text no spec matches, the tokens
+before it parse with one more token no grammar reads, and the error is theirs: a mistake among them, or
+what the grammar expected in place of that text.
 
 Runners sit on top of one grammar, and a program picks one by what it wants from a failure.
 `CompiledParser.parse_text()` is fast and gives the full error, and `CompiledParser.try_parse()` gives

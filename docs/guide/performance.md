@@ -230,4 +230,4 @@ at its last token:
 | `compile(tokenizer)`, then `try_parse()` | | | 0.48 s |
 
 The decisions behind these steps are in [ADR 0002](../adr/0002-a-compiled-pass-for-parses-that-succeed.md) and
-[ADR 0003](../adr/0003-compiled-grammars-read-text-without-tokens.md).
+[ADR 0003](../adr/0003-a-token-grammar-reads-text-through-its-tokenizer.md).

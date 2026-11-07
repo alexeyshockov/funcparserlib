@@ -26,8 +26,8 @@ for what acts on what a finished parser gives, and it works on any value, as `to
 
 `Located` has `value`, `start` and `end`, indexes into what was parsed, `end` exclusive: character offsets for
 text, token indexes for tokens. A span ends where its value ends, before the skip read after it. A token grammar
-reads the place of a span from its tokens, `tokens[m.start].start`, which also serves the tokens of another
-library.
+bound to its tokenizer reads text, so its spans are character offsets (ADR 0003). One given tokens reads the place
+of a span from them, `tokens[m.start].start`, which also serves the tokens of another library.
 
 `located()` has the form `("located", inner)`, so that what walks a grammar sees through it: a first skip inside it is
 still the skip a text may start with, and a `tok()` inside it still makes a grammar of tokens. Generated code calls it
@@ -44,9 +44,8 @@ gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar re
 - `p.replace(text, f)` gives the text with each match replaced by what `f` returns for its `Located[B]`, and every
   character outside a span as it was. The skip after a match is outside its span.
 
-They read text. A grammar of `tok()` raises `ValueError`, as `CompiledParser.parse_text()` does without a tokenizer,
-since a tokenizer stops at text it cannot read (ADR 0004), and bytes are left out, as `funcparserlib.binary` is
-experimental.
+They read text, and a token grammar scans a text bound to its tokenizer (ADR 0003). A grammar of `tok()` itself
+raises `ValueError`, as it reads tokens, and bytes are left out, as `funcparserlib.binary` is experimental.
 
 A plain failure at an offset means no match there. A failed `commit()` and a value `Parser.validated()` rejected
 raise what `Parser.parse_text()` raises, with the line and column, so `commit(link)` says that what starts as a
