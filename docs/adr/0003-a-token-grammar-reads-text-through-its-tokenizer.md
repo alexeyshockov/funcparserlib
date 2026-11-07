@@ -97,9 +97,11 @@ Rejected:
   tokens one at a time.
 - Tokenizing stays a `str` matter: `TokenSpec.pattern` is a `str`, and positions count `"\n"`.
 - `Parser.parse_text()` of a grammar of `tok()` raises `ValueError`, with a hint naming `tokenized()`.
-- `matches()` of a bound grammar starts a tokenizer at each offset it tries, and a parser reads the length of its
-  tokens, which is the rest of the text. A tokenizer reads a token by the text alone, so the token at an offset is read
-  once for a text, and every start shares the tokens of the offsets it reaches. On 400 KB, 800 KB and 1.6 MB of
+- `matches()` of a bound grammar starts a tokenizer at each offset it tries. A tokenizer reads a token by the text
+  alone, so the token at an offset is read once for a text, and every start shares the tokens of the offsets it
+  reaches. The length of the tokens is the rest of the text, so a parser of tokens tells their end by reading the token
+  at its position, and a scan reads the text only as far as the matches it gives; the errors of a parse read the
+  length. On 400 KB, 800 KB and 1.6 MB of
   `"word x = 1 # prose; "` repeated, `matches()` of `tok("name") + -tok("op", "=") + tok("int")` took 0.97 s, 1.90 s and
   3.86 s, against 0.42 s, 0.88 s and 1.74 s for the same grammar without a tokenizer (Python 3.12, arm64 laptop, one
   run each).

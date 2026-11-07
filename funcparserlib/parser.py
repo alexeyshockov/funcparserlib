@@ -1358,7 +1358,7 @@ class Parser[A, B]:
                     alts = _alternatives(self, other)
                     table = _dispatch_table(alts)
                 pos = s.pos
-                if pos < len(tokens):
+                if _has_token(tokens, pos):
                     t = tokens[pos]
                     by_key, unknown = table
                     try:
@@ -2037,6 +2037,18 @@ def _lexer_error(text: str, offset: int) -> LexerError:
     """The error of a tokenizer that stopped at `offset` of `text`."""
     place = place_of(text, offset)
     return LexerError(place, line_of(text, place[0]))
+
+
+def _has_token(tokens: Sequence[Any], pos: int) -> bool:
+    """Whether there is a token at `pos`, read without the length of `tokens`.
+
+    The tokens of `tokenized()` know their length only once read to the end of the text.
+    """
+    try:
+        tokens[pos]
+    except IndexError:
+        return False
+    return True
 
 
 def _unexpected(
@@ -2832,9 +2844,10 @@ def _token_test(test: _TokenTest) -> Parser[Any, Any]:
 
     def run(tokens: Sequence[Any], s: State) -> ParsingResult[Any]:
         pos = s.pos
-        if pos >= len(tokens):
+        try:
+            t = tokens[pos]
+        except IndexError:
             return ParsingFailure(s.expect(expected()), "got unexpected end of input")
-        t = tokens[pos]
         if pred(t):
             return ParsingSuccess(t if conv is None else conv(t), s.reset_pos(pos + 1))
         return ParsingFailure(s.expect(expected()))
@@ -2921,11 +2934,10 @@ def some[A](pred: Callable[[A], bool]) -> Parser[A, A]:
 
     @_parser("some(...)", leaf=True)
     def _some(tokens: Sequence[A], s: State) -> ParsingResult[A]:
-        if s.pos >= len(tokens):
-            s2 = s.expect(_some)
-            return ParsingFailure(s2, "got unexpected end of input")
-
-        t = tokens[s.pos]
+        try:
+            t = tokens[s.pos]
+        except IndexError:
+            return ParsingFailure(s.expect(_some), "got unexpected end of input")
         pos = s.pos + 1
         if pred(t):
             s2 = s.reset_pos(pos)
@@ -3145,9 +3157,8 @@ def anything_but[A](p: Parser[A, Any]) -> Parser[A, A]:
 
     @_parser(f"anything but {name}" if name else "anything else", leaf=True)
     def _anything_but(tokens: Sequence[A], s: State) -> ParsingResult[A]:
-        if s.pos >= len(tokens):
-            s2 = s.expect(_anything_but)
-            return ParsingFailure(s2, "got unexpected end of input")
+        if not _has_token(tokens, s.pos):
+            return ParsingFailure(s.expect(_anything_but), "got unexpected end of input")
         res = p.run(tokens, s)
         if isinstance(res, ParsingFailure):
             if res.committed:
@@ -3294,7 +3305,7 @@ def _end_of_input() -> EndOfInput:
     """A parser that succeeds only at the end of input, naming itself when it fails."""
 
     def run(tokens: Sequence[Any], s: State) -> ParsingResult[None]:
-        if s.pos >= len(tokens):
+        if not _has_token(tokens, s.pos):
             return ParsingSuccess(None, s)
         return ParsingFailure(s.expect(p))
 

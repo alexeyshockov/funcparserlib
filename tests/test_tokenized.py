@@ -19,11 +19,13 @@ from funcparserlib.parser import (
     State,
     _Chain,
     _TextTokens,
+    anything_but,
     finished,
     lit,
     many,
     maybe,
     skipping,
+    some,
     tok,
     tokenized,
 )
@@ -233,3 +235,45 @@ def test_a_parse_keeps_no_text_once_it_returns() -> None:
     del text
     gc.collect()
     assert ref() is None
+
+
+def test_the_first_match_reads_the_text_only_as_far_as_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    reads: list[int] = []
+    read = Tokenizer._read
+
+    def counted(self: Tokenizer, s: str, i: int) -> tuple[str, int] | None:
+        reads.append(i)
+        return read(self, s, i)
+
+    monkeypatch.setattr(Tokenizer, "_read", counted)
+    name = some(lambda t: t.type == "name") >> (lambda t: t.value)
+    statement = name + -tok("op", "=") + (number | tok("name"))
+    statements = statement + many(-tok("op", ";") + statement) + maybe(-tok("op", ";"))
+    text = "say a = 1; b = c;\n" + "and then c = 3; " * 10_000
+    first = next(tokenized(statements, tokenize).matches(text))
+    assert first == Located(("a", 1, [("b", "c")]), 4, 17)
+    assert max(reads) < 40
+
+
+def no_length(self: _TextTokens) -> int:
+    """`len()` of the tokens of a text, which a parser asks for only to report an error."""
+    msg = "a parser read the length of the tokens of a text"
+    raise AssertionError(msg)
+
+
+@pytest.mark.parametrize(
+    ("grammar", "text", "value"),
+    [
+        (some(lambda t: t.type == "int"), "x 1", Token("int", "1")),
+        ((tok("int") + tok("name")) | (tok("op") + tok("int")) | assign, "a = 1", ("a", 1)),
+        (tok("name") + anything_but(tok("op", ";")), "a 1;", ("a", Token("int", "1"))),
+        (tok("name") + -tok("op", "=") + number.recover(tok("op", ";")), "a = 1;", ("a", 1)),
+        (assign + finished, "a = 1", ("a", 1, None)),
+    ],
+)
+def test_a_match_tells_the_end_of_its_tokens_without_reading_their_length(
+    monkeypatch: pytest.MonkeyPatch, grammar: P, text: str, value: object
+) -> None:
+    monkeypatch.setattr(_TextTokens, "__len__", no_length)
+    m = next(tokenized(grammar, tokenize).matches(text))
+    assert m.value == value
