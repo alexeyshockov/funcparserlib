@@ -274,8 +274,7 @@ def test_the_first_match_reads_the_text_only_as_far_as_it(monkeypatch: pytest.Mo
     statements = statement + many(-tok("op", ";") + statement) + maybe(-tok("op", ";"))
     text = "say a = 1; b = c;\n" + "and then c = 3; " * 10_000
     first = next(tokenized(statements, tokenize).scan_text(text))
-    # `maybe(-p)` is dropped from the tuple at runtime, which its type keeps.
-    assert first == Located(("a", 1, [("b", "c")]), 4, 17)  # type: ignore[comparison-overlap]
+    assert first == Located(("a", 1, [("b", "c")]), 4, 17)
     assert max(reads) < 40
 
 

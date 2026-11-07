@@ -128,10 +128,12 @@ own: the toolbox checks that file at that version, in a run of its own, with eve
 for a file that shows a newer Python than the package needs, an example of a newer syntax say, and
 the one place that version is stated. A test that runs the file skips it on an older interpreter.
 
-Tests and benchmarks are checked at the examples' depth, a section of `mypy.ini`: a fixture
-parameter or a helper may go unannotated, and a generic bare. What they call on the package is
-checked in full. A test that hands the package a value of the wrong type on purpose says so with a
-`# type: ignore[code]` and the reason; the declarations under test are the ignores, not the rule.
+Tests and benchmarks are read first, and mypy checks them for what they call on the package: a
+section of `mypy.ini` turns off what would make one harder to read (annotations a fixture or helper
+does not need, a helper returning `Any`, an assertion against what a type says a value cannot be,
+`seen.append(v) or v`). A test that hands the package a value of the wrong type on purpose says so
+with a `# type: ignore[code]` and the reason. The typesafety suites are correctness, at the
+package's depth: their section undoes the tests'.
 
 ## Source
 

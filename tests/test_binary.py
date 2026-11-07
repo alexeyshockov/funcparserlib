@@ -71,7 +71,7 @@ def compiled(grammar: P, data: bytes) -> Any:
 @pytest.fixture(params=[interpreted, compiled], ids=["interpreted", "compiled"])
 def run(request: pytest.FixtureRequest) -> Runner:
     """Both ways of parsing bytes: the grammar itself and its generated code."""
-    return request.param  # type: ignore[no-any-return]
+    return request.param
 
 
 def message(run: Runner, grammar: P, data: bytes) -> str:
@@ -304,7 +304,7 @@ def decided(grammar: P, data: bytes) -> tuple[Any, int]:
     code = grammar.compile()
     assert code._fast_text is not None, "the grammar stays interpreted"
     try:
-        res: tuple[Any, int] | None = loose(code._fast_text)(data)
+        res = loose(code._fast_text)(data)
     except _Undecided as e:
         pytest.fail(f"generated code leaves the decision to the parser: {e.__cause__!r}")
     assert res is not None, "generated code rejects what the parser parses"
@@ -1061,12 +1061,9 @@ def test_a_body_over_tokens_that_does_not_read_to_the_end_fails() -> None:
 
 def test_a_body_over_tokens_with_finished_sees_the_end_of_the_region() -> None:
     grammar = prefixed(count, many(tok("w")) + finished) + tok("w")
-    # `prefixed()` gives the tuple of its body, which `+` goes on as it does a tuple of its own; its
-    # type is one value.
-    assert grammar.parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
-    assert grammar.compile().parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
-    text = tokenized(grammar, tokenize).compile().parse_text("2 a b c")
-    assert text == (["a", "b"], None, "c")  # type: ignore[comparison-overlap]
+    assert grammar.parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
+    assert grammar.compile().parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
+    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == (["a", "b"], None, "c")
 
 
 def test_prefixed_over_tokens_with_a_length_past_the_end_fails() -> None:
@@ -1139,9 +1136,8 @@ def test_prefixed_over_any_tokens_that_are_not_text_or_bytes() -> None:
 def test_prefixed_over_a_list_of_integers_is_a_list() -> None:
     byte: Parser[int, int] = some(lambda v: isinstance(v, int))
     grammar = prefixed(byte)
-    # The overload for a length of integers types its body as `bytes`, the case of a byte grammar.
-    assert grammar.parse([2, 7, 8, 9]) == [7, 8]  # type: ignore[comparison-overlap]
-    assert grammar.compile().parse([2, 7, 8, 9]) == [7, 8]  # type: ignore[comparison-overlap]
+    assert grammar.parse([2, 7, 8, 9]) == [7, 8]
+    assert grammar.compile().parse([2, 7, 8, 9]) == [7, 8]
     assert grammar.parse(b"\x02\x07\x08\x09") == b"\x07\x08"
 
 
@@ -1832,10 +1828,9 @@ def test_binary_parsers_on_text_raise_what_the_standard_library_raises() -> None
 
 
 def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
-    # Over text a byte parser reads a character, which its type, `int`, cannot say.
-    assert b.byte().parse_text("a") == "a"  # type: ignore[comparison-overlap]
+    assert b.byte().parse_text("a") == "a"
     assert finished.parse_text("") is None
-    assert (b.byte() + b.byte() + finished).parse_text("ab") == ("a", "b", None)  # type: ignore[comparison-overlap]
+    assert (b.byte() + b.byte() + finished).parse_text("ab") == ("a", "b", None)
 
 
 @pytest.mark.interpreted_only

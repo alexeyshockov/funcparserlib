@@ -61,7 +61,7 @@ def compiled(grammar: P, text: str) -> Any:
 @pytest.fixture(params=[interpreted, compiled], ids=["interpreted", "compiled"])
 def run(request: pytest.FixtureRequest) -> Runner:
     """Both ways of parsing text: the grammar itself and its generated code."""
-    return request.param  # type: ignore[no-any-return]
+    return request.param
 
 
 def message(run: Runner, grammar: P, text: str) -> str:
@@ -320,17 +320,10 @@ def test_a_rule_on_the_alternative_that_won_is_reported(run: Runner) -> None:
 def test_the_function_after_arrows_of_each_alternative_runs() -> None:
     seen: list[str] = []
 
-    def noting(label: str) -> Callable[[str], str]:
-        """A function that gives its argument, noting `label` in `seen`."""
-
-        def note(s: str) -> str:
-            """`s`, with `label` noted."""
-            seen.append(label)
-            return s
-
-        return note
-
-    grammar = longest(spaced.lit("a") >> noting("short"), spaced.lit("ab") >> noting("long"))
+    grammar = longest(
+        spaced.lit("a") >> (lambda s: seen.append("short") or s),
+        spaced.lit("ab") >> (lambda s: seen.append("long") or s),
+    )
     assert grammar.parse_text("ab") == "ab"
     assert seen == ["short", "long"]
     seen.clear()
@@ -419,8 +412,7 @@ def test_a_text_without_skip_reads_whitespace_as_text(run: Runner) -> None:
 def quoted(text: Any) -> P:
     """A string written as a grammar: a quote, characters, a quote."""
     chars = many(text.regex(r'[^"\\]+') | text.regex(r"\\."))
-    grammar: P = (-text.lit('"') + chars + -text.lit('"')) >> "".join
-    return grammar
+    return (-text.lit('"') + chars + -text.lit('"')) >> "".join
 
 
 def test_a_string_grammar_of_a_text_without_skip_keeps_its_whitespace(run: Runner) -> None:

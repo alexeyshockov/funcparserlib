@@ -464,12 +464,9 @@ def test_a_chain_of_alternatives_builds_one_dispatch_table(monkeypatch: pytest.M
     calls: list[object] = []
     table = parser_module._dispatch_table
 
-    def counted_table(alts: Any) -> Any:
-        """The dispatch table of `alts`, counting the call."""
-        calls.append(alts)
-        return table(alts)
-
-    monkeypatch.setattr(parser_module, "_dispatch_table", counted_table)
+    monkeypatch.setattr(
+        parser_module, "_dispatch_table", lambda alts: calls.append(alts) or table(alts)
+    )
     p = functools.reduce(operator.or_, [a(c) for c in "abcdefgh"])
     assert calls == []
     assert [p.parse("h"), p.parse("a")] == ["h", "a"]

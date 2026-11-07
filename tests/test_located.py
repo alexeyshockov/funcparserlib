@@ -233,12 +233,7 @@ def test_replace_gives_what_re_gives(text: str) -> None:
 def test_matches_stop_where_the_program_stops() -> None:
     seen: list[str] = []
 
-    def record(value: str) -> str:
-        """`value`, noted in `seen`."""
-        seen.append(value)
-        return value
-
-    grammar = regex("a") >> record
+    grammar = regex("a") >> (lambda value: seen.append(value) or value)
     assert next(grammar.scan_text("a a a")) == Located("a", 0, 1)
     assert seen == ["a"]
 
