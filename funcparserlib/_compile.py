@@ -395,16 +395,7 @@ class _Compiler:
 
     def _first_sets(self) -> dict[int, _First]:
         """The least fixed point of `_first_of`, which recursive grammars need."""
-        first: dict[int, _First] = dict.fromkeys(self.nodes, (frozenset(), False))
-        changed = True
-        while changed:
-            changed = False
-            for i, p in self.nodes.items():
-                new = self._first_of(p, first)
-                if new != first[i]:
-                    first[i] = new
-                    changed = True
-        return first
+        return _least_fixed_point(self.nodes, (frozenset(), False), self._first_of)
 
     @staticmethod
     def _first_of(p: Parser[Any, Any], known: dict[int, _First]) -> _First:
@@ -456,16 +447,8 @@ class _Compiler:
                     regexes[id(p)] = _regex_chars(match.__self__)
                 case _:
                     pass
-        known: dict[int, _Chars | None] = dict.fromkeys(self.nodes, _NO_CHARS)
-        changed = True
-        while changed:
-            changed = False
-            for i, p in self.nodes.items():
-                new = self._chars_of(p, known, regexes)
-                if new != known[i]:
-                    known[i] = new
-                    changed = True
-        return known
+        bottom: _Chars | None = _NO_CHARS
+        return _least_fixed_point(self.nodes, bottom, lambda p, k: self._chars_of(p, k, regexes))
 
     def _chars_of(
         self,
@@ -1586,8 +1569,12 @@ def leading_skip(root: Parser[Any, Any]) -> Skip | None:
     return None
 
 
-_NO_READ = ("pure", "finished", "text_end", "previous")
-"""The forms of parsers that read nothing."""
+type _Starts = tuple[frozenset[Any], bool]
+"""The tokenizers of the bound parts a parser can start with, `None` for a start that reads text,
+and whether the parser can read nothing.
+"""
+
+_TEXT: frozenset[Any] = frozenset({None})
 
 
 def leading_tokenizer(root: Parser[Any, Any]) -> Any:
@@ -1595,49 +1582,97 @@ def leading_tokenizer(root: Parser[Any, Any]) -> Any:
 
     A start is a parser the grammar can read first: a bound part of `tokenized()` reads tokens, and
     any other parser that reads reads text, so where one can start, the grammar can start anywhere.
+    A parser this cannot see into, such as one of `Parser.bind()`, counts as a start of text.
     """
-    found: set[int] = set()
-    tokenizers: list[Any] = []
-    seen: set[int] = set()
-
-    def starts(p: Parser[Any, Any]) -> bool:
-        """Read the starts of `p` into `tokenizers`, and say whether `p` can read nothing."""
-        p = _target(p)
-        if id(p) in seen:
-            return False
-        seen.add(id(p))
-        empty = False
-        match _form(p):
-            case ("seq", left, right):
-                empty = starts(left) and starts(right)
-            case ("alt" | "but_not", left, right):
-                empty = starts(left)
-                empty = starts(right) or empty
-            case ("longest", parsers):
-                for q in parsers:
-                    empty = starts(q) or empty
-            case ("map" | "starmap" | "when", inner, _) | ("ignore" | "commit" | "context", inner):
-                empty = starts(inner)
-            case ("located" | "oneplus", inner) | ("prefixed" | "counted" | "switch", inner, _):
-                empty = starts(inner)
-            case ("many", inner):
-                starts(inner)
-                empty = True
-            case ("tokenized", _, _, tokenizer):
-                if id(tokenizer) not in found:
-                    found.add(id(tokenizer))
-                    tokenizers.append(tokenizer)
-            case (name, *_) if name in _NO_READ:
-                empty = True
-            case _:
-                tokenizers.append(None)
-        return empty
-
     try:
-        starts(root)
+        nodes = _scanned_nodes(root)
     except _Declined:
         return None
-    return tokenizers[0] if len(tokenizers) == 1 else None
+    bottom: _Starts = (frozenset(), False)
+    starts, _ = _least_fixed_point(nodes, bottom, _starts_of)[id(_target(root))]
+    return next(iter(starts)) if len(starts) == 1 else None
+
+
+def _scanned_nodes(root: Parser[Any, Any]) -> dict[int, Parser[Any, Any]]:
+    """The parsers of the grammar, those of its bound parts' grammars included."""
+    nodes: dict[int, Parser[Any, Any]] = {}
+    stack = [_target(root)]
+    while stack:
+        p = stack.pop()
+        if id(p) not in nodes:
+            nodes[id(p)] = p
+            match _form(p):
+                case ("tokenized", grammar, _, _):
+                    stack.append(_target(grammar))
+                case _:
+                    stack += _parts(p)
+    return nodes
+
+
+def _starts_of(p: Parser[Any, Any], known: dict[int, _Starts]) -> _Starts:
+    def of(q: Parser[Any, Any]) -> _Starts:
+        return known[id(_target(q))]
+
+    result: _Starts
+    match _form(p):
+        case ("tokenized", grammar, _, tokenizer):
+            result = frozenset({tokenizer}), of(grammar)[1]
+        case ("seq", left, right):
+            first, rest = of(left), of(right)
+            result = (first[0] | rest[0], rest[1]) if first[1] else (first[0], False)
+        case ("alt", left, right):
+            result = of(left)[0] | of(right)[0], of(left)[1] or of(right)[1]
+        case ("longest", parsers):
+            found = [of(q) for q in parsers]
+            result = frozenset().union(*(f for f, _ in found)), any(n for _, n in found)
+        case ("many", inner):
+            result = of(inner)[0], True
+        case ("prefixed" | "counted" | "switch", head, _):
+            result = _starts_after_head(p, of(head), of)
+        case ("pure", _) | ("finished",) | ("previous", _):
+            result = frozenset(), True
+        case ("text_end", _) | ("opaque",):
+            result = _TEXT, True
+        case ("text", _, _, _) | ("test",) | ("byte",) | ("fixed", _, _):
+            result = _TEXT, False
+        case ("map" | "starmap" | "when" | "but_not", inner, _) | (
+            "ignore" | "commit" | "context" | "located" | "oneplus",
+            inner,
+        ):
+            result = of(inner)
+        case _:
+            raise AssertionError(f"no starts for form {_form(p)!r}")
+    return result
+
+
+def _starts_after_head(
+    p: Parser[Any, Any], first: _Starts, of: Callable[[Parser[Any, Any]], _Starts]
+) -> _Starts:
+    """The starts of a `prefixed()`, `counted()` or `switch()` whose head has the starts `first`.
+
+    What runs after a head that read nothing starts where the head did.
+    """
+    if not first[1]:
+        return first[0], False
+    rest = [of(q)[0] for q in _parts(p)[1:]]
+    raw = _TEXT if _form(p)[0] == "prefixed" and _form(p)[2] is None else frozenset()
+    return first[0].union(raw, *rest), True
+
+
+def _least_fixed_point[T](
+    nodes: dict[int, Parser[Any, Any]], bottom: T, of: Callable[[Parser[Any, Any], dict[int, T]], T]
+) -> dict[int, T]:
+    """What `of` gives each of the `nodes`, from `bottom`, once nothing changes."""
+    known: dict[int, T] = dict.fromkeys(nodes, bottom)
+    changed = True
+    while changed:
+        changed = False
+        for i, p in nodes.items():
+            new = of(p, known)
+            if new != known[i]:
+                known[i] = new
+                changed = True
+    return known
 
 
 def reads_tokens(root: Parser[Any, Any]) -> bool:

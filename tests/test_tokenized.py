@@ -6,9 +6,10 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
+from funcparserlib._compile import leading_tokenizer
 from funcparserlib.lexer import LexerError, Token, Tokenizer, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     Invalid,
@@ -21,12 +22,18 @@ from funcparserlib.parser import (
     _TextTokens,
     anything_but,
     commit,
+    counted,
     finished,
+    forward_decl,
     lit,
+    longest,
     many,
     maybe,
+    prefixed,
+    pure,
     skipping,
     some,
+    switch,
     tok,
     tokenized,
 )
@@ -403,3 +410,116 @@ def test_a_grammar_that_can_start_with_text_is_tried_at_each_offset() -> None:
     grammar = tokenized(setting, words) | spaced.lit("q")
     found = [(m.value, m.start) for m in grammar.scan_text('say "a = 1" q')]
     assert found == [(("a", "1"), 5), ("q", 12)]
+
+
+bound = tokenized(number, tokenize)
+shared = maybe(bound)
+mark = spaced.lit("?")
+
+
+@pytest.mark.parametrize("compiled", [False, True])
+@pytest.mark.parametrize(
+    ("grammar", "found"),
+    [
+        ((shared + bound) | (shared + mark), [((None, "?"), 3)]),
+        (tokenized(many(number), tokenize) + mark, [(([], "?"), 3)]),
+        (bound | counted(pure(1), mark), [(["?"], 3), (12, 5)]),
+        (bound | prefixed(pure(1), mark), [("?", 3), (12, 5)]),
+        (bound | switch(pure(0), {0: mark}), [("?", 3), (12, 5)]),
+        (longest(maybe(bound) + mark, bound), [((None, "?"), 3), (12, 5)]),
+        (many(bound) + mark, [(([], "?"), 3)]),
+        (bound | (pure(0).bind(lambda _: mark)), [("?", 3), (12, 5)]),
+    ],
+)
+def test_a_start_after_a_part_that_can_read_nothing_is_tried_at_each_offset(
+    compiled: bool, grammar: P, found: list[tuple[object, int]]
+) -> None:
+    scanner = grammar.compile() if compiled else grammar
+    assert [(m.value, m.start) for m in scanner.scan_text("ab ? 12")] == found
+
+
+def test_a_recursive_grammar_with_a_start_of_text_is_tried_at_each_offset() -> None:
+    nested = forward_decl()
+    nested.define(-spaced.lit("(") + maybe(nested) + -spaced.lit(")") | bound)
+    assert [(m.value, m.start) for m in nested.scan_text("ab (1) 2")] == [(1, 3), (2, 7)]
+
+
+Recipe = list[tuple[str, int, int]]
+recipes = st.lists(
+    st.tuples(
+        st.sampled_from(
+            [
+                "bound",
+                "nothing",
+                "mark",
+                "pure",
+                "seq",
+                "alt",
+                "maybe",
+                "many",
+                "counted",
+                "located",
+            ]
+        ),
+        st.integers(0, 20),
+        st.integers(0, 20),
+    ),
+    min_size=1,
+    max_size=12,
+)
+
+
+def built(recipe: Recipe, *, bound_parts: bool) -> P:
+    """The grammar of `recipe`, each step on earlier ones, and those it reuses shared.
+
+    Without `bound_parts`, a bound part reads nothing where it can, and fails where it cannot.
+    """
+    made: list[P] = []
+    for name, i, j in recipe:
+        left = made[i % len(made)] if made else pure(None)
+        right = made[j % len(made)] if made else pure(None)
+        match name:
+            case "bound":
+                p = bound if bound_parts else some(lambda _: False)
+            case "nothing":
+                p = tokenized(many(number), tokenize) if bound_parts else pure([])
+            case "mark":
+                p = mark
+            case "pure":
+                p = pure(None)
+            case "seq":
+                p = left + right
+            case "alt":
+                p = left | right
+            case "maybe":
+                p = maybe(left)
+            case "many":
+                p = many(left)
+            case "counted":
+                p = counted(pure(1), left)
+            case _:
+                p = left.located()
+        made.append(p)
+    return made[-1]
+
+
+@given(recipes, st.text(alphabet="1 ?a", max_size=8))
+# A part reused after it read nothing, a bound part that reads nothing, a count that reads nothing.
+@example(
+    [("bound", 0, 0), ("maybe", 0, 0), ("mark", 0, 0), ("seq", 1, 0), ("seq", 1, 2), ("alt", 3, 4)],
+    "a ?",
+)
+@example([("nothing", 0, 0), ("mark", 0, 0), ("seq", 0, 1)], "a ?")
+@example([("bound", 0, 0), ("mark", 0, 0), ("counted", 1, 0), ("alt", 0, 2)], "a ?")
+def test_a_grammar_scanned_by_tokens_reads_nothing_at_any_offset_but_through_its_bound_parts(
+    recipe: Recipe, text: str
+) -> None:
+    if leading_tokenizer(built(recipe, bound_parts=True)) is None:
+        return
+    rest = built(recipe, bound_parts=False)
+    for offset in range(len(text)):
+        try:
+            res = rest.run(cast("Any", text), State(offset, offset))
+        except ValueError:
+            return
+        assert not res.state.pos > offset, (offset, res)
