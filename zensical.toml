@@ -25,8 +25,10 @@ nav = [
     ] },
     { "Guides" = [
         { "Error Handling" = "guide/errors.md" },
+        { "Debugging a Grammar" = "guide/debugging.md" },
         { "Performance" = "guide/performance.md" },
         { "Parsing Without a Tokenizer" = "guide/without-a-tokenizer.md" },
+        { "Other Libraries" = "guide/other-libraries.md" },
     ] },
     { "Recipes" = [
         { "Overview" = "recipes/index.md" },

@@ -17,8 +17,8 @@ from funcparserlib.parser import NoParseError, ParseErrors, Parser
 
 Outcome = tuple[object, ...]
 
-# A doc page whose example counts what a parse calls.
-COUNTING_PAGES = {"performance.md"}
+# Doc pages whose examples count or print what a parse calls.
+COUNTING_PAGES = {"debugging.md", "performance.md"}
 
 _compiled: dict[int, tuple[Parser[Any, Any], Any]] = {}
 _inside = False

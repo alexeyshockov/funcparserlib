@@ -1,7 +1,8 @@
 # Recipes
 
 Each recipe is a complete parser of a real format, with the whole program in `examples/`. Pick the one closest to your
-input.
+input. For a first read, [Parsing HTTP Headers](http-headers.md) is short and builds up from shared pieces, while
+[Parsing KDL](kdl.md) and [Parsing YAML](yaml.md) have the largest programs.
 
 ## External Tokenizers
 

@@ -35,18 +35,55 @@ pip install funcparserlib
 
 There are no dependencies on other libraries.
 
+## A First Grammar
+
+A grammar is a Python expression, and it can read text directly. This one reads a sum:
+
+```pycon
+>>> from funcparserlib.parser import NoParseError, many, skipping
+
+>>> spaced = skipping(r"\s+")
+>>> number = (spaced.regex(r"\d+") >> int).named("number")
+>>> total = number + many(-spaced.lit("+") + number) + -spaced.end
+
+>>> total.parse_text("1 + 2 + 3")
+(1, [2, 3])
+
+```
+
+Your type checker knows this value is a `tuple[int, list[int]]`. When the text is wrong, the error says where parsing
+stopped and what could have been there:
+
+```pycon
+>>> text = "1 + + 3"
+>>> try:
+...     total.parse_text(text)
+... except NoParseError as e:
+...     print(e.render(text))
+1,5-1,5: got unexpected token: '+', expected: number
+1 | 1 + + 3
+        ^
+
+```
+
+[Parsing Without a Tokenizer](https://funcparserlib.pirx.ru/guide/without-a-tokenizer/) has more on this kind of grammar,
+and [the example below](#example) splits the text into tokens first.
+
 ## Documentation
 
 * [Getting Started](https://funcparserlib.pirx.ru/getting-started/)
     * Your **starting point** with `funcparserlib`
 * [Guides](https://funcparserlib.pirx.ru/guide/errors/)
-    * Error handling, performance, and parsing without a tokenizer
+    * Error handling, debugging, performance, and parsing without a tokenizer
 * [Recipes](https://funcparserlib.pirx.ru/recipes/)
     * Complete parsers of real formats
 * [API Reference](https://funcparserlib.pirx.ru/api/)
     * Learn the details of the API
+* [Other Libraries](https://funcparserlib.pirx.ru/guide/other-libraries/)
+    * How `funcparserlib` differs from Lark, parsy and pyparsing, and when to use them instead
 
-There are several examples available in the `tests/` directory:
+The programs of the recipes are in the [`examples/`](https://github.com/vlasovskikh/funcparserlib/tree/master/examples)
+directory, and there are two more grammars in `tests/`:
 
 * [GraphViz DOT parser](https://github.com/vlasovskikh/funcparserlib/blob/master/tests/dot.py)
 * [JSON parser](https://github.com/vlasovskikh/funcparserlib/blob/master/tests/json.py)

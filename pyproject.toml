@@ -71,7 +71,7 @@ build-backend.module-name = "funcparserlib"
 
 [tool.pytest.ini_options]
 timeout = 30
-testpaths = ["tests", "funcparserlib", "docs"]
+testpaths = ["tests", "funcparserlib", "docs", "README.md"]
 # `-p no:benchmark`: `.venv` holds pytest-benchmark for `just bench::micro`, and loaded here it
 # creates `.benchmarks/`.
 addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark", "-m", "not exhaustive"]

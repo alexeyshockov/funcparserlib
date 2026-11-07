@@ -183,6 +183,8 @@ Remember that your parsers have to consume at least one token from the input bef
 That's it for the tutorial. Depending on what you are building, you may want to read about:
 
 * [Error Handling](../guide/errors.md): the errors your users see, and how to make them better
+* [Debugging a Grammar](../guide/debugging.md): finding out why a grammar does what it does
 * [Performance](../guide/performance.md): compiling a grammar that parses a lot
 * [Parsing Without a Tokenizer](../guide/without-a-tokenizer.md): grammars that read text directly
 * [Recipes](../recipes/index.md): complete parsers of real formats
+* [Other Libraries](../guide/other-libraries.md): how funcparserlib differs, if you know another parsing library
