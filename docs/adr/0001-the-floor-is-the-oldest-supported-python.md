@@ -25,10 +25,15 @@ needs to run. The docs teach the newest syntax, and that does not depend on the 
   `TypeVar`s and `TypeAlias` annotations. A type variable has the name its type parameter had and
   will have again, with no underscore and no variance suffix, so the API reference reads the same
   on either side of 3.12; only two variables that would share a name keep apart, as `B` and
-  `B_co`. Each class's type variables have the variance PEP 695 inferred for it, as mypy reported
+  `B_co`. Each class's type variables have the variance PEP 695 infers for it, as mypy reports
   it (a probe that assigns `C[Sub]` to `C[Base]` and back for each parameter): `ParsingResult`,
-  `ParsingSuccess` and `Located` are covariant, and every parser class is invariant in every
-  parameter. An alias that names a class defined later in its module comes after that class, so a
+  `ParsingSuccess` and `Located` are covariant. The parser classes are covariant in their value
+  by their structure: `run` and `_fn` are `Final` to checkers, and no member takes the value as
+  input, which moves the private helpers that did off `Parser`. Their input is invariant, as
+  `parse()` passes it to `describe` and each combinator method takes a `Parser[A, C]`.
+  `ForwardDeclParser` stays invariant: `define()` takes a `Parser[A, B]`. An invariant value
+  refused a recursive union, `forward_decl()` of `Json` defined from alternatives that each give
+  one member. An alias that names a class defined later in its module comes after that class, so a
   public alias stays a subscriptable object at runtime. Value classes are slotted and frozen for
   type checkers.
 - **The examples, the docs and the README teach the newest syntax**, whatever the floor. ruff's
@@ -61,5 +66,7 @@ Rejected:
   up, not on the floor.
 - Moving the floor to 3.12 turns the package back to PEP 695 syntax, which ruff's UP040, UP046 and
   UP047 rewrite, and drops the note on the getting-started page.
+- PEP 695 syntax cannot declare variance, and infers for the parser classes the variance they
+  declare, so they take PEP 695 syntax at that move as every other class does.
 - Typing tuple parsers of any length with `TypeVarTuple` (native since 3.11) is open to a later
   change; today `Tuple2Parser` to `Tuple5Parser` cover sequences up to five values.

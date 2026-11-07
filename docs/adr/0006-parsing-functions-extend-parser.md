@@ -22,9 +22,10 @@ Only `EndOfInput` and `ForwardDeclParser` have instances.
 `parser()` decorator, `ParserFn` and `Parser.run` are public, so a function may call other parsers,
 reading `p.run` at each call. A subclass may add to a parser; overriding `run` is not supported.
 
-`run` stays a field: the call of a parser is the call of its function. Making it a method over a stored
-function adds a frame to each call. Best of 6 alternating processes on an arm64 laptop, against the
-field, with the range of the runs where there were several:
+`run` stays a field: the call of a parser is the call of its function. It is `Final` to type checkers,
+so a parser is covariant in its value (ADR 0001); the library assigns it when it builds a parser, and
+in `named()` and `define()`. Making it a method over a stored function adds a frame to each call. Best of 6 alternating
+processes on an arm64 laptop, against the field, with the range of the runs where there were several:
 
 | | 3.12 (3 runs) | 3.14 (2 runs) | 3.15t (2 runs) |
 | --- | --- | --- | --- |
