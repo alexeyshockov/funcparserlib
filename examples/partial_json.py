@@ -35,6 +35,7 @@ from funcparserlib.parser import (
     tok,
     tokenized,
 )
+from funcparserlib.util import pretty_tree
 
 # --8<-- [start:values]
 type Json = bool | int | float | str | list[Json] | dict[str, Json] | None
@@ -232,8 +233,35 @@ def find(reply: str) -> Iterator[Located[dict[str, Json]]]:
 
 # --8<-- [end:find]
 
+# --8<-- [start:tree]
+type Labeled = tuple[str, object]
+
+
+def kids(node: Labeled) -> list[Labeled]:
+    _, v = node
+    if isinstance(v, dict):
+        return [(f"{k!r}: ", x) for k, x in v.items()]
+    if isinstance(v, list):
+        return [("", x) for x in v]
+    return []
+
+
+def show(node: Labeled) -> str:
+    label, v = node
+    text = "{}" if isinstance(v, dict) else "[]" if isinstance(v, list) else repr(v)
+    return label + text + ("  (open)" if isinstance(v, Open) else "")
+
+
+def tree(value: Document) -> str:
+    """`value` drawn as a tree, with the parts the text ends inside marked as open."""
+    root: Labeled = ("", value)
+    return pretty_tree(root, kids, show)
+
+
+# --8<-- [end:tree]
+
 if __name__ == "__main__":
     import sys
-    from pprint import pprint
 
-    pprint(parse(sys.stdin.read()))  # noqa: T203 — the program's output
+    result = parse(sys.stdin.read())
+    print(result if result is MISSING else tree(result))

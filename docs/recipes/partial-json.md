@@ -164,6 +164,28 @@ True
 
 A finished part stays as it is in every longer prefix, so a program that ran the first call does not see it change.
 
+An `Open` value prints as its type does, so `print()` and `pprint()` show none of this. `tree()` draws a value with
+`pretty_tree()`, and marks each open part:
+
+```python
+--8<-- "examples/partial_json.py:tree"
+```
+
+```pycon
+>>> from examples.partial_json import tree
+>>> print(tree(reply))
+{}  (open)
+`-- 'calls': []  (open)
+    |-- {}
+    |   |-- 'tool': 'search'
+    |   `-- 'query': 'parsers'
+    `-- {}  (open)
+        `-- 'tool': 'fe'  (open)
+
+```
+
+`python -m examples.partial_json` prints the tree of what it reads from standard input.
+
 ## The document inside a reply
 
 A model asked for JSON often writes a sentence around it. `Parser.scan_text()` finds each match of a grammar in a text,
