@@ -78,6 +78,7 @@ class Internals:
     ignore: Callable[[Any], IgnoredValue]
     token_value: Callable[[Any], Any]
     undecided: type[Exception]
+    located: Callable[[Any, Any, int, int], Any]
 
 
 class _Declined(Exception):
@@ -328,7 +329,12 @@ class _Compiler:
     """Generates the functions of the grammar `root`."""
 
     def __init__(
-        self, root: Parser[Any, Any], internals: Internals, *, values: bool = False
+        self,
+        root: Parser[Any, Any],
+        internals: Internals,
+        *,
+        values: bool = False,
+        text: bool = False,
     ) -> None:
         self.root = _target(root)
         self.internals = internals
@@ -341,6 +347,7 @@ class _Compiler:
             "State": State,
             "Undecided": internals.undecided,
             "_T": internals.tuple_class,
+            "LOC": internals.located,
         }
         self.constants: dict[int, str] = {}
         self.functions: dict[tuple[int, bool], str] = {}
@@ -359,6 +366,10 @@ class _Compiler:
         self.uses: dict[int, int] = {}
         self.cycle_heads: set[int] = set()
         self._walk(self.root, set())
+        # Where the value read last ends, before the skip after it: what `located()` of text needs.
+        # Generated functions give it back in `Y[0]`, which a grammar of text has no use for.
+        self.tracks_ends = text and any(_form(q)[0] == "located" for q in self.nodes.values())
+        self.end: _Expr = -1
         self.first = self._first_sets()
         self.chars = self._first_chars()
         self.kinds: dict[int, _Kind] = {}
@@ -747,7 +758,8 @@ class _Compiler:
         _, match, literal, skip = _form(p)
 
         def finish(end: str, value: _Expr) -> None:
-            then(self.after_skip(skip, end), _Value("plain", value) if want else None)
+            at = self.after_skip(skip, end)
+            self.ending(end, lambda: then(at, _Value("plain", value) if want else None))
 
         if literal is not None:
             text = self.literal(literal)
@@ -764,6 +776,22 @@ class _Compiler:
             lambda: finish(self.named_position(_call(_attr(m, "end"))), _call(_attr(m, "group"))),
         )
 
+    def ending(self, end: _Expr, then: Callable[[], None]) -> None:
+        """`then()`, where the value read last ends at `end`."""
+        if not self.tracks_ends:
+            then()
+            return
+        outer, self.end = self.end, end
+        try:
+            then()
+        finally:
+            self.end = outer
+
+    def kept_end(self, name: str) -> None:
+        """`name` set to where the value read last ends, for a path that joins others."""
+        if self.tracks_ends:
+            self.assign(name, self.end)
+
     def named_position(self, expr: _Expr) -> str:
         at = self.fresh("p")
         self.assign(at, expr)
@@ -778,7 +806,7 @@ class _Compiler:
     def emit_byte(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         def body() -> None:
             at = self.named_position(_plus(pos, 1))
-            then(at, _Value("plain", _item("T", pos)) if want else None)
+            self.ending(at, lambda: then(at, _Value("plain", _item("T", pos)) if want else None))
 
         self.block(_compare(pos, ast.Lt(), _length()), body)
 
@@ -792,10 +820,8 @@ class _Compiler:
 
         def body() -> None:
             at = self.named_position(_plus(pos, size))
-            if want:
-                then(at, _Value("plain", _item(_call(self.constant(unpack, "U"), "T", pos), 0)))
-            else:
-                then(at, None)
+            value = _Value("plain", _item(_call(self.constant(unpack, "U"), "T", pos), 0))
+            self.ending(at, lambda: then(at, value if want else None))
 
         self.block(_compare(_plus(pos, size), ast.LtE(), _length()), body)
 
@@ -817,6 +843,8 @@ class _Compiler:
         _, length, body = _form(p)
         if self.values:
             raise _Declined(f"{p.name} reads tokens, and there are only their values")
+        if self.tracks_ends and body is not None:
+            raise _Declined(f"{p.name} reads a region, and spans in it are the parser's")
 
         def after(at: str, value: _Value | None) -> None:
             size = self.bound(value or _Value("ignored")).expr
@@ -824,7 +852,8 @@ class _Compiler:
 
             def read() -> None:
                 if body is None:
-                    then(end, _Value("plain", _slice("T", at, end)) if want else None)
+                    region = _Value("plain", _slice("T", at, end))
+                    self.ending(end, lambda: then(end, region if want else None))
                     return
                 function = self.function_for(body, True)
                 res, name, stop = self.fresh("r"), self.fresh("v"), self.fresh("p")
@@ -851,6 +880,8 @@ class _Compiler:
 
         def after(start: str, value: _Value | None) -> None:
             size, at, acc, count, read = (self.fresh(x) for x in ("n", "p", "a", "c", "ok"))
+            last = self.fresh("e")
+            self.kept_end(last)
             # What `range()` does to a count that is no integer.
             self.assign(size, _call("INDEX", _read(value)))
             self.assign(at, start)
@@ -868,6 +899,7 @@ class _Compiler:
                         self.undecided_if(_compare(end, ast.Eq(), at))
                     self.add(ast.Expr(_call(_attr(acc, "append"), _read(value))))
                     self.assign(at, end)
+                    self.kept_end(last)
                     self.add(ast.Continue())
 
                 self.emit(item, at, True, store)
@@ -875,7 +907,8 @@ class _Compiler:
                 self.add(ast.Break())
 
             self.loop(_compare(count, ast.Lt(), size), body)
-            self.block(read, lambda: then(at, _Value("plain", acc) if want else None))
+            done = _Value("plain", acc)
+            self.block(read, lambda: self.ending(last, lambda: then(at, done if want else None)))
 
         self.emit(length, pos, True, after)
 
@@ -903,12 +936,14 @@ class _Compiler:
         self.emit(key, pos, True, after)
 
     def emit_longest(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        best, name = self.fresh("p"), self.fresh("v")
+        best, name, last = self.fresh("p"), self.fresh("v"), self.fresh("e")
         self.assign(best, -1)
+        self.kept_end(last)
 
         def keep(end: str, value: _Value | None) -> None:
             def store() -> None:
                 self.assign(best, end)
+                self.kept_end(last)
                 if want:
                     self.assign(name, _read(value))
 
@@ -925,8 +960,10 @@ class _Compiler:
             for parser in _form(p)[1]:
                 attempt(parser)
         kind = self.kind(p)
+        found = _Value(kind, name)
         self.block(
-            _compare(best, ast.GtE(), 0), lambda: then(best, _Value(kind, name) if want else None)
+            _compare(best, ast.GtE(), 0),
+            lambda: self.ending(last, lambda: then(best, found if want else None)),
         )
 
     def emit_map(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
@@ -971,16 +1008,26 @@ class _Compiler:
     ) -> None:
         """A call of `function`; `then` gets the position after it and the name of its value."""
         at = self.fresh("p")
+
+        def called(value: str | None) -> None:
+            if not self.tracks_ends:
+                then(at, value)
+                return
+            # The function gives -1 where it read nothing, and the value read before it ends here.
+            end, given = self.fresh("e"), _item("Y", 0)
+            self.assign(end, ast.IfExp(_compare(given, ast.GtE(), 0), given, _node(self.end)))
+            self.ending(end, lambda: then(at, value))
+
         if not want:
             self.assign(at, _call(function, "T", "Y", pos))
-            self.block(_compare(at, ast.GtE(), 0), lambda: then(at, None))
+            self.block(_compare(at, ast.GtE(), 0), lambda: called(None))
             return
         res, value = self.fresh("r"), self.fresh("v")
         self.assign(res, _call(function, "T", "Y", pos))
 
         def body() -> None:
             self.unpack(value, at, res)
-            then(at, value)
+            called(value)
 
         self.block(_compare(res, ast.IsNot(), None), body)
 
@@ -1002,7 +1049,8 @@ class _Compiler:
                     name = self.fresh("v")
                     self.assign(name, _call(self.constant(conv), expr))
                     expr, kind = name, "unknown"
-            then(at, _Value(kind, expr) if want else None)
+            value = _Value(kind, expr)
+            self.ending(at, lambda: then(at, value if want else None))
 
         self.block(self.test_condition(p, pos), body)
 
@@ -1041,18 +1089,20 @@ class _Compiler:
         inner = _form(p)[1]
         # A failure is final once `inner` read a token, which is when one of its token tests passed
         # at `pos`. The interpreted parser decides that failure, as it has what the error needs.
-        done, at, name = self.fresh("ok"), self.fresh("p"), self.fresh("v")
+        done, at, name, last = self.fresh("ok"), self.fresh("p"), self.fresh("v"), self.fresh("e")
         self.assign(done, False)
 
         def store(end: str, value: _Value | None) -> None:
             self.assign(at, end)
+            self.kept_end(last)
             if want:
                 self.assign(name, _read(value))
             self.assign(done, True)
 
         self.emit(inner, pos, want, store)
         kind = self.kind(inner)
-        body = self.nested(lambda: then(at, _Value(kind, name) if want else None))
+        found = _Value(kind, name)
+        body = self.nested(lambda: self.ending(last, lambda: then(at, found if want else None)))
         tests = self.start_tests(inner, pos, set())
         orelse: list[ast.stmt] = []
         if tests is None or len(tests) > _MAX_START_TESTS:
@@ -1089,12 +1139,30 @@ class _Compiler:
             at, value = self.fresh("p"), self.fresh("v")
             self.assign(at, _attr(_attr(res, "state"), "pos"))
             self.assign(value, _attr(res, "value"))
-            then(at, _Value("unknown", value))
+            if not self.tracks_ends:
+                then(at, _Value("unknown", value))
+                return
+            end = self.fresh("e")
+            self.assign(end, _call(_attr(_attr(res, "state"), "_value_end"), pos))
+            self.ending(end, lambda: then(at, _Value("unknown", value)))
 
         self.block(_class_is(res, "ParsingFailure"), failed, succeeded)
 
     def emit_located(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
-        self.emit_opaque(p, pos, want, then)
+        if self.values:
+            raise _Declined(f"{p.name} gives offsets, and there are only the values of tokens")
+        inner = _form(p)[1]
+
+        def after(at: str, value: _Value | None) -> None:
+            end: _Expr = at
+            if self.tracks_ends:
+                end = self.fresh("e")
+                self.assign(end, _call("max", pos, self.end))
+            name = self.fresh("v")
+            self.assign(name, _call("LOC", "T", _read(value), pos, end))
+            then(at, _Value("unknown", name))
+
+        self.emit(inner, pos, True, after)
 
     def emit_seq(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         items: list[Parser[Any, Any]] = []
@@ -1211,11 +1279,12 @@ class _Compiler:
     def emit_alt(self, p: Parser[Any, Any], pos: str, want: bool, then: _Next) -> None:
         alts = self.alternatives(_form(p)[1:])
         kind = self.kind(p)
-        at, name = self.fresh("p"), self.fresh("v")
+        at, name, ended = self.fresh("p"), self.fresh("v"), self.fresh("e")
 
         def store(flag: str | None) -> _Next:
             def stored(end: str, value: _Value | None) -> None:
                 self.assign(at, end)
+                self.kept_end(ended)
                 if want:
                     self.assign(name, _read(value))
                 if flag:
@@ -1224,7 +1293,7 @@ class _Compiler:
             return stored
 
         def result() -> None:
-            then(at, _Value(kind, name) if want else None)
+            self.ending(ended, lambda: then(at, _Value(kind, name) if want else None))
 
         def attempt(alt: Parser[Any, Any], flag: str | None, *conditions: ast.expr) -> None:
             def run() -> None:
@@ -1270,8 +1339,9 @@ class _Compiler:
         self, inner: Parser[Any, Any], pos: str, want: bool, then: _Next, head: _Value | None
     ) -> None:
         item = _target(inner)
-        at, acc = self.fresh("p"), self.fresh("a")
+        at, acc, last = self.fresh("p"), self.fresh("a"), self.fresh("e")
         self.assign(at, pos)
+        self.kept_end(last)
         if want:
             self.assign(acc, ast.List([head.expr] if head else [], ast.Load()))
 
@@ -1280,13 +1350,14 @@ class _Compiler:
                 if want:
                     self.add(ast.Expr(_call(_attr(acc, "append"), _read(value))))
                 self.assign(at, end)
+                self.kept_end(last)
                 self.add(ast.Continue())
 
             self.emit(item, at, want and self.kind(item) != "ignored", after)
             self.add(ast.Break())
 
         self.loop(True, body)
-        then(at, _Value("plain", acc) if want else None)
+        self.ending(last, lambda: then(at, _Value("plain", acc) if want else None))
 
     def module(self) -> tuple[ast.Module, str]:
         """The functions as a module, and the name of the one that runs the grammar."""
@@ -1300,9 +1371,12 @@ class _Compiler:
         functions: list[ast.stmt] = []
         while self.pending:
             body, want, name = self.pending.pop()
-            self.body, self.depth, self.loops = [], 1, 0
+            self.body, self.depth, self.loops, self.end = [], 1, 0, -1
 
             def result(at: str, value: _Value | None, *, want: bool = want) -> None:
+                if self.tracks_ends:
+                    slot = ast.Subscript(_node("Y"), _node(0), ast.Store())
+                    self.add(ast.Assign([slot], _node(self.end)))
                 self.add(ast.Return(_tuple(_read(value), at) if want else _node(at)))
 
             self.returns = result
@@ -1339,14 +1413,20 @@ def _with_lines(module: ast.Module, line: int = 1) -> ast.Module:
 
 
 def _functions(
-    root: Parser[Any, Any], internals: Internals, *, values: bool, filename: str | None, line: int
-) -> tuple[Callable[[Any, list[str | None], int], Any], bool, bool, str | None] | None:
+    root: Parser[Any, Any],
+    internals: Internals,
+    *,
+    values: bool,
+    filename: str | None,
+    line: int,
+    text: bool = False,
+) -> tuple[Callable[[Any, list[Any], int], Any], bool, bool, str | None] | None:
     """The function running `root` and its source for a `filename`, `None` when it cannot be.
 
     Between them, whether it reads token types and whether it tests characters of a `str`.
     """
     try:
-        compiler = _Compiler(root, internals, values=values)
+        compiler = _Compiler(root, internals, values=values, text=text)
         module, entry = compiler.module()
         code = compile(_with_lines(module, line), filename or _FILENAME, "exec")
         source = None if filename is None else ast.unparse(module)
@@ -1474,7 +1554,10 @@ def compile_text[B](
     grammar that reads a token any other way than through `tok()` then stays interpreted. Without
     `scan` the grammar reads the text itself. Its frames report `filename`.
     """
-    functions = _functions(root, internals, values=scan is not None, filename=filename, line=1)
+    reads_text = scan is None
+    functions = _functions(
+        root, internals, values=not reads_text, filename=filename, line=1, text=reads_text
+    )
     if functions is None:
         return None, None
     run, _, tests_chars, source = functions
@@ -1487,7 +1570,8 @@ def compile_text[B](
         try:
             if scan is None:
                 m = skip.match(text) if skip is not None else None
-                result: tuple[B, int] | None = run(text, [], m.end() if m else 0)
+                # `Y[0]` is where the value read last ends, for `located()`.
+                result: tuple[B, int] | None = run(text, [-1], m.end() if m else 0)
             else:
                 scanned = scan(text)
                 result = None if scanned is None else run(scanned[0], scanned[1], 0)

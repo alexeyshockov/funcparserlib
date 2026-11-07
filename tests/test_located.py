@@ -358,3 +358,27 @@ def test_an_offset_outside_the_text_is_an_error(offset: int) -> None:
 def test_a_place_outside_the_text_is_an_error(place: tuple[int, int]) -> None:
     with pytest.raises(ValueError, match="is outside the text"):
         Lines("a\nb").offset(place)
+
+
+def test_a_round_of_many_that_fails_leaves_the_end_of_the_span_where_it_was(run: Run) -> None:
+    pairs = many(word + spaced.lit("=")).located()
+    assert run(pairs + word + -spaced.end, "a = b =  c # end\n") == (
+        Located([("a", "="), ("b", "=")], 0, 7),
+        "c",
+    )
+
+
+def test_a_span_of_a_rule_ends_where_the_rule_read_last(run: Run) -> None:
+    expr: Any = forward_decl()
+    expr.define(word + maybe(spaced.lit("(") + expr + spaced.lit(")")))
+    nested = ("a", ("(", ("b", ("(", ("c", None), ")")), ")"))
+    assert run(expr.located() + -spaced.end, "a ( b ( c ) )  # end\n") == Located(nested, 0, 13)
+
+
+def test_spans_of_text_are_generated_code() -> None:
+    grammar = many(word.located()) + -spaced.end
+    compiled = grammar.compile()
+    assert compiled._fast_text is not None
+    res = compiled._fast_text("a  bb # c\n")
+    assert res is not None
+    assert res[0] == [Located("a", 0, 1), Located("bb", 3, 5)]

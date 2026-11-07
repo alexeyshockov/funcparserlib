@@ -30,8 +30,13 @@ bound to its tokenizer reads text, so its spans are character offsets (ADR 0003)
 of a span from them, `tokens[m.start].start`, which also serves the tokens of another library.
 
 `located()` has the form `("located", inner)`, so that what walks a grammar sees through it: a first skip inside it is
-still the skip a text may start with, and a `tok()` inside it still makes a grammar of tokens. Generated code calls it
-through `run`.
+still the skip a text may start with, and a `tok()` inside it still makes a grammar of tokens. Generated code builds
+the `Located` itself. Over tokens a span ends at the position. Over text, the compiler carries where the value read
+last ends, beside the position: a part of text sets it before its skip, a test of a character or a byte at its
+position, and every place where generated code joins paths keeps it as it keeps the position, as `|`, `many()`,
+`commit()`, `longest()` and `counted()` do. A generated function gives it back in `Y[0]`, which a grammar of text has no
+use for, and -1 where it read nothing. This code is generated only for a grammar of text with a `located()` in it, and
+a `prefixed()` with a body in such a grammar stays with the parser, as a span in it is relative to its region.
 
 **Line and column.** `Lines(text)`, in `funcparserlib.util`, is built once from a text. `lines.place(offset)`
 gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar reach both kinds of position.
@@ -56,8 +61,8 @@ Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without 
 
 | Grammar | Interpreted | Compiled |
 | --- | ---: | ---: |
-| Plain | 27 ms | 6.1 ms |
-| `located()` on each value | 29 ms | 29 ms |
+| Plain | 26 ms | 5.6 ms |
+| `located()` on each value | 30 ms | 7.4 ms |
 
 On 800 KB of text, best of 3, `scan()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
 one in 0.017 ms, and `replace()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
@@ -89,9 +94,9 @@ Rejected:
 ## Consequences
 
 - `Located`, `Lines`, `Parser.located()`, `scan()` and `replace()` are public, and the glossary gets their terms.
-- A compiled grammar with `located()` runs at about the speed of the interpreted one, and `scan()` of a compiled
-  grammar reads through its parser. Generated code for `located()` and a generated entry can come later, without
-  changing what they give.
+- A compiled grammar with `located()` on each value takes about a third more than one without, against four times as
+  much when it ran through the parser. `scan()` of a compiled grammar reads through its parser; a generated entry can
+  come later, without changing what it gives.
 - `State` keeps how much the last parser of text skipped, so a span ends where that parser stopped, whatever the skip
   pattern matches inside the value. A parser function of a user's that skips by moving `pos` has its skip in the span.
 - Inside a `prefixed()` region, positions are relative to the region, as it is parsed as its own input (ADR 0005).

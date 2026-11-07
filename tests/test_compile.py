@@ -405,6 +405,7 @@ def generated_module(grammar: P) -> ast.Module:
         parser_module._ignore,
         parser_module._token_value,
         parser_module._Undecided,
+        parser_module._located_at,
     )
     module, _ = compile_module._Compiler(grammar, internals).module()
     return module

@@ -1016,7 +1016,7 @@ class Parser[A, B]:
         )
 
         path = None if source_file is None else str(Path(source_file).resolve())
-        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
+        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided, _located_at)
         # What reads text reads bytes too: generated code takes either.
         if reads_text(self):
             fast_text, source = compile_text(self, internals, None, path)
@@ -1416,7 +1416,8 @@ class Parser[A, B]:
         parser that read text stopped, before the skip read after it. Inside a `prefixed()` region,
         they are relative to the region.
 
-        A grammar with `located()` compiles, and runs this part of it as the parser does.
+        A grammar with `located()` compiles to generated code as any other grammar does; a
+        `prefixed()` with a body in a grammar of text with a `located()` runs as the parser does.
 
         Examples:
             ```pycon
@@ -1433,12 +1434,8 @@ class Parser[A, B]:
             res = self.run(tokens, s)
             if res.state.problems is not s.problems and res.state.rejected_since(s):
                 return cast("ParsingResult[Located[B]]", res)
-            if isinstance(tokens, _TextTokens):
-                start = tokens.offset(s.pos)
-                end = res.state.pos
-                stop = tokens.end(end - 1) if end > s.pos else start
-                return res.map(lambda value: Located(value, start, stop))
-            return res.map(lambda value: Located(value, s.pos, res.state._value_end(s.pos)))
+            end = res.state._value_end(s.pos)
+            return res.map(lambda value: _located_at(tokens, value, s.pos, end))
 
         _located._form = ("located", self)
         return _located
@@ -1902,7 +1899,7 @@ class _Tokenized[B](Parser[str, B]):
         from ._compile import Internals, compile_grammar, compile_text, line_after, write_source  # noqa: PLC0415
 
         path = None if source_file is None else str(Path(source_file).resolve())
-        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
+        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided, _located_at)
         grammar, tokenizer = self._grammar, self._tokenizer
         fast_text, text_source = None, None
         if tokenizer._pattern is not None:
@@ -2054,6 +2051,14 @@ def _lexer_error(text: str, offset: int) -> LexerError:
     """The error of a tokenizer that stopped at `offset` of `text`."""
     place = place_of(text, offset)
     return LexerError(place, line_of(text, place[0]))
+
+
+def _located_at[B](tokens: Sequence[Any], value: B, start: int, end: int) -> Located[B]:
+    """`value` read from `start` to `end` of `tokens`; for the tokens of a text, in the text."""
+    if isinstance(tokens, _TextTokens):
+        first = tokens.offset(start)
+        return Located(value, first, tokens.end(end - 1) if end > start else first)
+    return Located(value, start, end)
 
 
 def _has_token(tokens: Sequence[Any], pos: int) -> bool:
