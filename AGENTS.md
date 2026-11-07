@@ -16,7 +16,7 @@ local file.
 ## Layout
 
 ```text
-funcparserlib/parser.py   Parser, the primitives (tok, a, some, lit, regex, skipping, forward_decl, finished), the combinators, the results
+funcparserlib/parser.py   Parser, the primitives (tok, a, some, lit, regex, skipping, forward_decl, finished), tokenized, the combinators, the results
 funcparserlib/lexer.py    make_tokenizer, TokenSpec, Token, LexerError
 funcparserlib/binary.py   regex(), lit(), fixed(), byte(), previous(), parsers that read bytes; experimental
 funcparserlib/_compile.py Parser.compile(): a grammar as generated Python functions

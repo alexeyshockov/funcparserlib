@@ -26,6 +26,7 @@ from funcparserlib.parser import (
     skipping,
     some,
     tok,
+    tokenized,
 )
 from funcparserlib.util import Lines
 
@@ -175,7 +176,9 @@ def test_a_value_of_tokens_knows_their_indexes() -> None:
     expected = [Located(("a", "b"), 0, 3), Located(("c", "d"), 4, 7)]
     assert grammar.parse(tokens) == expected
     assert grammar.compile().parse(tokens) == expected
-    assert grammar.compile(tokenize).parse_text("a = b;\nc = d;") == expected
+    in_text = [Located(("a", "b"), 0, 5), Located(("c", "d"), 7, 12)]
+    assert tokenized(grammar, tokenize).parse_text("a = b;\nc = d;") == in_text
+    assert tokenized(grammar, tokenize).compile().parse_text("a = b;\nc = d;") == in_text
     assert tokens[expected[1].start].start == (2, 1)
 
 
@@ -297,10 +300,18 @@ def test_matches_refuse_what_is_not_text() -> None:
 
 
 def test_matches_refuse_a_grammar_of_tokens_at_the_call() -> None:
-    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text") as caught:
         tok("name").matches("a")
-    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
-        tok("name").located().compile(tokenize).matches("a")
+    assert "tokenized()" in caught.value.__notes__[0]
+
+
+def test_a_grammar_of_tokens_bound_to_its_tokenizer_matches_in_a_text() -> None:
+    grammar = tokenized(tok("name") + -tok("op", "=") + tok("name"), tokenize)
+    text = "say a = b, then c=d."
+    expected = [Located(("a", "b"), 4, 9), Located(("c", "d"), 16, 19)]
+    assert list(grammar.matches(text)) == expected
+    assert list(grammar.compile().matches(text)) == expected
+    assert grammar.replace(text, lambda m: "=".join(reversed(m.value))) == "say b=a, then d=c."
 
 
 # `Token` positions and the text say what a place is.

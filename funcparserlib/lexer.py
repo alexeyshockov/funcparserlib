@@ -222,6 +222,22 @@ class Tokenizer:
                 return token_type, m
         return "", None
 
+    def _read(self, s: str, i: int) -> tuple[str, int] | None:
+        """The type and the end of the token at `i` in `s`, `None` where no token spec matches."""
+        if self._pattern is not None:
+            m = self._pattern.match(s, i)
+            token_type = self._types[m.lastindex or 0] if m is not None else ""
+        else:
+            token_type, m = self._first_match(s, i)
+        if m is None:
+            return None
+        if m.end() == i:
+            line, column = s.count("\n", 0, i) + 1, i - s.rfind("\n", 0, i)
+            raise ValueError(
+                f"the pattern of token {token_type!r} matched the empty string at {line},{column}"
+            )
+        return token_type, m.end()
+
     def __call__(self, s: str) -> Iterable[Token]:
         """The tokens of `s`, one at a time.
 

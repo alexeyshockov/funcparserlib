@@ -12,6 +12,7 @@ The structure of the language:
 * Primitive parsers
     * `tok(type, value)`, `a(value)`, `some(pred)`, `forward_decl()`, `finished`
     * `lit(value)`, `regex(pattern)` and `skipping(pattern)` read text, with no tokenizer
+    * `tokenized(grammar, tokenizer)` reads text with the tokenizer of a grammar of tokens
 * Parser combinators
     * `p1 + p2`, `p1 | p2`, `p >> f`, `-p`, `maybe(p)`, `many(p)`, `oneplus(p)`, `skip(p)`
 * Abstraction
@@ -51,6 +52,7 @@ __all__ = [
     "Parser",
     "CompiledParser",
     "Located",
+    "tokenized",
     "longest",
     "prefixed",
     "counted",
@@ -93,6 +95,7 @@ from typing import Any, NoReturn, Protocol, Self, TypeGuard, cast, final, overlo
 
 from ._commons import valueclass, with_hint
 from .lexer import LexerError, Place, Token, Tokenizer
+from .util import Lines
 
 _log = logging.getLogger("funcparserlib")
 
@@ -815,11 +818,13 @@ class Parser[A, B]:
         """Parse the text, with the line and column of the text in errors.
 
         It is for a grammar that reads text: `lit()`, `regex()`, the parsers of `skipping()`, and
-        `a()` and `some()` of a character. A grammar of `tok()` reads tokens: give those to
-        `Parser.parse()`, or a tokenizer to `Parser.compile()`.
+        `a()` and `some()` of a character, and `tokenized()`. A grammar of `tok()` reads tokens:
+        give those to `Parser.parse()`, or bind it to its tokenizer with `tokenized()`.
 
         It raises what `Parser.parse()` raises, `TypeError` for anything but a `str`, and
-        `ValueError` for a grammar of `tok()` that reaches a character.
+        `ValueError` for a grammar of `tok()` that reaches a character. For `tokenized()`, it raises
+        the errors of the tokens, and `LexerError` where the grammar succeeds before text no token
+        spec matches.
         """
         # Imported here: the module reads the classes of this one.
         from ._compile import leading_skip  # noqa: PLC0415
@@ -941,9 +946,7 @@ class Parser[A, B]:
             )
         return res.value
 
-    def compile(
-        self, tokenizer: Tokenizer | None = None, *, source_file: str | PathLike[str] | None = None
-    ) -> CompiledParser[A, B]:
+    def compile(self, *, source_file: str | PathLike[str] | None = None) -> CompiledParser[A, B]:
         """Generate Python functions that parse as this parser does, several times faster.
 
         Use it on a finished grammar that parses a lot of tokens, or a lot of times. The generated
@@ -957,16 +960,16 @@ class Parser[A, B]:
         again afterwards. A grammar nested too deeply to compile stays interpreted, as does a
         `many()` of a parser that matches no tokens.
 
-        Given the `tokenizer` of the grammar, `CompiledParser.parse_text()` parses text, faster and
-        in less memory still. A grammar that reads no `tok()`, such as one of `lit()` and `regex()`
-        or of `funcparserlib.binary`, needs no tokenizer.
+        A grammar of `tokenized()` reads text through generated functions too, faster and in less
+        memory still, and so does a grammar that reads no `tok()`, such as one of `lit()` and
+        `regex()` or of `funcparserlib.binary`.
 
         Given a `source_file`, the Python source of the generated functions is written there, and
-        their frames report that file, so tracebacks, `pdb` and an IDE can show them. Given a
-        tokenizer too, the file holds what `CompiledParser.parse_text()` runs, then what
-        `CompiledParser.parse()` runs. The file is rewritten on each call and left alone for a
-        grammar that stays interpreted, and `OSError` reaches the caller. It is for reading: the
-        names in it stand for objects of the running parser, so it cannot be imported.
+        their frames report that file, so tracebacks, `pdb` and an IDE can show them. For a grammar
+        of `tokenized()`, the file holds what `CompiledParser.parse_text()` runs, then what it runs
+        over the tokens. The file is rewritten on each call and left alone for a grammar that stays
+        interpreted, and `OSError` reaches the caller. It is for reading: the names in it stand for
+        objects of the running parser, so it cannot be imported.
 
         Examples:
             ```pycon
@@ -997,16 +1000,14 @@ class Parser[A, B]:
         if reads_text(self):
             fast_text, source = compile_text(self, internals, None, path)
             write_source(path, source)
-            return CompiledParser(self, None, None, fast_text, reads_tokens=False)
+            return CompiledParser(self, None, fast_text, reads_tokens=False)
         fast_text, text_source = None, None
         tokens_read = reads_tokens(self)
-        if tokenizer is not None and tokenizer._pattern is not None:
-            fast_text, text_source = compile_text(self, internals, tokenizer._scan, path)
-        elif tokenizer is None and not tokens_read:
+        if not tokens_read:
             fast_text, text_source = compile_text(self, internals, None, path)
         fast, source = compile_grammar(self, internals, path, line_after(text_source))
         write_source(path, text_source, source)
-        return CompiledParser(self, fast, tokenizer, fast_text, reads_tokens=tokens_read)
+        return CompiledParser(self, fast, fast_text, reads_tokens=tokens_read)
 
     @overload
     def recover(self, until: Parser[A, Any] | None = None) -> Parser[A, B | None]: ...
@@ -1411,6 +1412,11 @@ class Parser[A, B]:
             res = self.run(tokens, s)
             if res.state.problems is not s.problems and res.state.rejected_since(s):
                 return cast("ParsingResult[Located[B]]", res)
+            if isinstance(tokens, _TextTokens):
+                start = tokens.offset(s.pos)
+                end = res.state.pos
+                stop = tokens.end(end - 1) if end > s.pos else start
+                return res.map(lambda value: Located(value, start, stop))
             return res.map(lambda value: Located(value, s.pos, res.state._value_end(s.pos)))
 
         _located._form = ("located", self)
@@ -1568,22 +1574,27 @@ class CompiledParser[A, B]:
     Users get it from `Parser.compile()`; its constructor is internal.
     """
 
-    __slots__ = ("_fast", "_fast_text", "_parser", "_reads_tokens", "_tokenizer")
+    __slots__ = ("_bound", "_fast", "_fast_text", "_parser", "_reads_tokens")
 
     def __init__(
         self,
         parser: Parser[A, B],
         fast: Callable[[Sequence[A]], tuple[B, int] | None] | None,
-        tokenizer: Tokenizer | None = None,
         fast_text: Callable[[str], tuple[B, int] | None] | None = None,
         *,
+        bound: tuple[Parser[Token, Any], Tokenizer, Callable[[Sequence[Any]], Any] | None]
+        | None = None,
         reads_tokens: bool = True,
     ) -> None:
-        """`parser`, with its generated functions, `None` for a grammar that stays interpreted."""
+        """`parser`, with its generated functions, `None` for a grammar that stays interpreted.
+
+        `bound` is the grammar of tokens, the tokenizer and the functions over the tokens of a
+        parser of `tokenized()`.
+        """
         self._parser = parser
         self._fast = fast
-        self._tokenizer = tokenizer
         self._fast_text = fast_text
+        self._bound = bound
         self._reads_tokens = reads_tokens
 
     def parse(
@@ -1598,20 +1609,16 @@ class CompiledParser[A, B]:
         return self._parser.parse(tokens, describe=describe) if res is None else res[0]
 
     def parse_text(
-        self, text: str, *, describe: Callable[[A], TokenDescription] | None = None
+        self, text: str, *, describe: Callable[[Token], TokenDescription] | None = None
     ) -> B:
-        """Parse the text, with the tokenizer given to `Parser.compile()` if the grammar needs one.
+        """Parse the text, as `Parser.parse_text()` does.
 
-        It gives what `Parser.parse()` gives for the tokens of `text`. Where the tokenizer stops at
-        text no token spec matches, the error is a mistake among the tokens before it, or what the
-        grammar expected in place of that text. A grammar that reads tokens only through `tok()`,
-        with a tokenizer whose specs join into one regex, runs on the text without making a `Token`:
-        for any other, this is `CompiledParser.parse()` of the tokens.
+        A grammar of `tokenized()` that reads tokens only through `tok()`, with a tokenizer whose
+        specs join into one regex, runs on the text without making a `Token`; any other tokenizes
+        and runs the functions generated for the tokens. `describe` is for the tokens of
+        `tokenized()`.
 
-        Raises `NoParseError` and `ParseErrors` for text the grammar does not cover, `LexerError`
-        for text past where a grammar without `finished` stops, `ValueError` when a grammar of
-        tokens has no tokenizer, and `TypeError` for anything but a `str`. `describe` is for tokens,
-        so a grammar of text does not use it.
+        Raises what `Parser.parse_text()` raises.
         """
         _require_text(text)
         return self._read(text, describe)
@@ -1621,7 +1628,7 @@ class CompiledParser[A, B]:
         _require_bytes(data)
         return self._read(cast("Any", data), None)
 
-    def _read(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
+    def _read(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
         """The result of `text` or bytes, through the functions generated for text if there are."""
         res = None
         if self._fast_text is not None and not debug:
@@ -1631,42 +1638,20 @@ class CompiledParser[A, B]:
                 res = None
         return res[0] if res is not None else self._interpreted(text, describe)
 
-    def _interpreted(self, text: str, describe: Callable[[A], TokenDescription] | None) -> B:
+    def _interpreted(self, text: str, describe: Callable[[Token], TokenDescription] | None) -> B:
         """The result of `text` without the functions generated for text."""
-        if self._tokenizer is None:
-            if self._reads_tokens:
-                raise with_hint(
-                    ValueError("a compiled parser of tokens without a tokenizer cannot parse text"),
-                    "Pass the tokenizer of the grammar to `Parser.compile()`:"
-                    " `grammar.compile(tokenize)`.",
-                )
-            if isinstance(text, bytes | bytearray):
-                return self._parser.parse_bytes(text)
-            return self._parser.parse_text(text)
-        tokens: list[Any] = []
-        try:
-            tokens.extend(self._tokenizer(text))
-        except LexerError as e:
-            return self._explained(tokens, e, describe)
-        if self._fast_text is None and not debug:
-            return self.parse(tokens, describe=describe)
-        return self._parser.parse(tokens, describe=describe)
-
-    def _explained(
-        self, tokens: list[Any], error: LexerError, describe: Callable[[A], TokenDescription] | None
-    ) -> B:
-        """Raise the error of `tokens`, then one more for the text the tokenizer stopped at.
-
-        No grammar reads that token, so parsing fails there at the latest, saying what it expected.
-        `error` is what is left when the grammar stops before it.
-        """
-        word = _WORD.match(error.msg, error.place[1] - 1)
-        token = Token(_UNREADABLE, word.group() if word else "\r", error.place, error.place)
-        try:
-            self._parser.parse(cast("Sequence[A]", [*tokens, token]), describe=describe)
-        except (NoParseError, ParseErrors) as e:
-            raise e from error
-        raise error
+        if self._bound is not None:
+            grammar, tokenizer, fast = self._bound
+            _require_text(text)
+            # After the functions for text, the parser decides: a pass over tokens would be a third.
+            fast = fast if self._fast_text is None else None
+            return cast("B", _parse_tokens_of_text(grammar, tokenizer, text, fast, describe))
+        if self._reads_tokens:
+            data: object = text
+            raise _reads_tokens_error("bytes" if isinstance(data, bytes | bytearray) else "text")
+        if isinstance(text, bytes | bytearray):
+            return self._parser.parse_bytes(text)
+        return self._parser.parse_text(text)
 
     def matches(self, text: str) -> Iterator[Located[B]]:
         """The parts of `text` the grammar reads, as `Parser.matches()` gives them.
@@ -1709,6 +1694,290 @@ class CompiledParser[A, B]:
             return None
 
 
+class _Chain:
+    """The tokens of a text from any offset, each read once.
+
+    A tokenizer reads a token from where it is by the text alone, so tokens read from two offsets
+    are the same from the first offset they share: what is read at an offset is kept for each start.
+    """
+
+    __slots__ = ("_counts", "_lines", "_read", "skip", "text", "tokenizer")
+
+    def __init__(self, text: str, tokenizer: Tokenizer) -> None:
+        self.text = text
+        self.tokenizer = tokenizer
+        self.skip = tokenizer._skip
+        self._lines: Lines | None = None
+        self._read: dict[int, tuple[str, int] | None] = {}
+        self._counts: dict[int, int] = {}
+
+    def read(self, pos: int) -> tuple[str, int] | None:
+        """The type and the end of the token at `pos`, `None` at the end or text no spec matches."""
+        try:
+            return self._read[pos]
+        except KeyError:
+            found = self.tokenizer._read(self.text, pos) if pos < len(self.text) else None
+            self._read[pos] = found
+            return found
+
+    def count(self, pos: int) -> int:
+        """How many tokens a parser reads from `pos`: those not skipped, and one for unreadable
+        text.
+        """
+        counts = self._counts
+        path: list[int] = []
+        at = pos
+        while at not in counts:
+            found = self.read(at)
+            if found is None:
+                counts[at] = 1 if at < len(self.text) else 0
+                break
+            path.append(at)
+            at = found[1]
+        n = counts[at]
+        for start in reversed(path):
+            token_type = cast("tuple[str, int]", self._read[start])[0]
+            if token_type not in self.skip:
+                n += 1
+            counts[start] = n
+        return counts[pos]
+
+    def place(self, offset: int) -> Place:
+        """The line and the column of `offset`."""
+        if self._lines is None:
+            self._lines = Lines(self.text)
+        return self._lines.place(offset)
+
+
+class _TextTokens(Sequence[Token]):
+    """The tokens of a text from `start`, read as a parser asks for them, with their offsets.
+
+    Where no token spec matches, the last token is one no grammar reads.
+    """
+
+    __slots__ = ("_chain", "_ends", "_next", "_start", "_starts", "_tokens")
+
+    def __init__(self, chain: _Chain, start: int) -> None:
+        self._chain = chain
+        self._start = start
+        self._next = start
+        self._tokens: list[Token] = []
+        self._starts: list[int] = []
+        self._ends: list[int] = []
+
+    def __len__(self) -> int:
+        return self._chain.count(self._start)
+
+    def _fill(self, i: int) -> bool:
+        """Whether there is a token `i`, reading the tokens up to it."""
+        chain, tokens = self._chain, self._tokens
+        while len(tokens) <= i:
+            pos = self._next
+            found = chain.read(pos)
+            if found is None:
+                if pos >= len(chain.text) or (self._starts and self._starts[-1] == pos):
+                    return False
+                word = _WORD.match(chain.text, pos)
+                place = chain.place(pos)
+                tokens.append(Token(_UNREADABLE, word.group() if word else "\r", place, place))
+                self._starts.append(pos)
+                self._ends.append(pos)
+                continue
+            token_type, end = found
+            self._next = end
+            if token_type in chain.skip:
+                continue
+            line, column = chain.place(end)
+            value = chain.text[pos:end]
+            tokens.append(Token(token_type, value, chain.place(pos), (line, column - 1)))
+            self._starts.append(pos)
+            self._ends.append(end)
+        return True
+
+    @overload
+    def __getitem__(self, i: int) -> Token: ...
+
+    @overload
+    def __getitem__(self, i: slice) -> list[Token]: ...
+
+    def __getitem__(self, i: int | slice) -> Token | list[Token]:
+        if isinstance(i, slice):
+            return [self[j] for j in range(*i.indices(len(self)))]
+        if i < 0:
+            i += len(self)
+        if i < 0 or not self._fill(i):
+            raise IndexError(i)
+        return self._tokens[i]
+
+    def offset(self, i: int) -> int:
+        """Where token `i` starts in the text; for `i` past the last token, where the tokens end."""
+        if self._fill(i):
+            return self._starts[i]
+        # A failed `_fill()` has read past the skipped tokens after the last one.
+        if self._starts and self._starts[-1] == self._ends[-1]:
+            return self._starts[-1]
+        return self._next
+
+    def end(self, i: int) -> int:
+        """Where token `i` ends in the text."""
+        self._fill(i)
+        return self._ends[i]
+
+    def unreadable(self) -> int | None:
+        """The offset of the text no token spec matches, `None` where every token reads."""
+        n = len(self)
+        if n and self._fill(n - 1) and self._tokens[n - 1].type == _UNREADABLE:
+            return self._starts[n - 1]
+        return None
+
+
+class _Tokenized[B](Parser[str, B]):
+    """The type of `tokenized()`: a grammar of tokens that reads text through its tokenizer."""
+
+    _grammar: Parser[Token, B]
+    _tokenizer: Tokenizer
+
+    def parse_text(self, text: str) -> B:
+        """Parse the text, as `Parser.parse()` parses its tokens, with the errors of the tokens."""
+        _require_text(text)
+        return _parse_tokens_of_text(self._grammar, self._tokenizer, text, None, None)
+
+    def compile(self, *, source_file: str | PathLike[str] | None = None) -> CompiledParser[str, B]:
+        """Generate the functions of the grammar for its text, and for its tokens."""
+        # Imported here: the module reads the classes of this one.
+        from ._compile import Internals, compile_grammar, compile_text, line_after, write_source  # noqa: PLC0415
+
+        path = None if source_file is None else str(Path(source_file).resolve())
+        internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided)
+        grammar, tokenizer = self._grammar, self._tokenizer
+        fast_text, text_source = None, None
+        if tokenizer._pattern is not None:
+            fast_text, text_source = compile_text(grammar, internals, tokenizer._scan, path)
+        fast, source = compile_grammar(grammar, internals, path, line_after(text_source))
+        write_source(path, text_source, source)
+        bound = (grammar, tokenizer, fast)
+        return CompiledParser(self, None, fast_text, bound=bound, reads_tokens=False)
+
+
+def tokenized[B](grammar: Parser[Token, B], tokenizer: Tokenizer) -> Parser[str, B]:
+    """A parser of text that reads it through `tokenizer`, as `grammar` reads the tokens.
+
+    It is a parser of text as `lit()` and `regex()` are, so it combines with them and has
+    `Parser.parse_text()`, `Parser.matches()`, `Parser.replace()` and `Parser.compile()`. Where it
+    is reached, it tokenizes from there as `grammar` reads, and it ends where `grammar` stops. The
+    tokens in the tokenizer's `skip` after its last token are skipped, and those where it is reached
+    are not read, as what comes before skips them; `Parser.parse_text()` of it reads them at the
+    start of the text. `Parser.located()` inside `grammar` gives offsets into the text.
+
+    From the start of a text it reads the tokens `tokenizer` gives for the text. Where no token spec
+    matches, its tokens end with one no grammar reads, so `grammar` fails there or stops before it.
+    `Parser.parse_text()` of it raises the error of the tokens, and `LexerError` when `grammar`
+    succeeds before the text no spec matches.
+
+    Examples:
+        ```pycon
+        >>> from funcparserlib.lexer import TokenSpec, make_tokenizer
+        >>> tokenize = make_tokenizer(
+        ...     [TokenSpec("space", r"\\s+"), TokenSpec("int", r"\\d+"), TokenSpec("op", r"[+]")],
+        ...     skip={"space"},
+        ... )
+        >>> number = tok("int") >> int
+        >>> total = tokenized(number + many(-tok("op", "+") + number), tokenize)
+        >>> total.parse_text("1 + 2 + 3")
+        (1, [2, 3])
+        >>> [m.value for m in total.matches("from 1 + 2 to 3")]
+        [(1, [2]), (3, [])]
+
+        ```
+    """
+    chains: list[_Chain] = []
+
+    def run(text: Any, s: State) -> ParsingResult[B]:
+        _require_text(text)
+        chain = chains[0] if chains and chains[0].text is text else None
+        if chain is None:
+            chain = _Chain(text, tokenizer)
+            chains[:] = [chain]
+        if (first := chain.read(s.pos)) is not None and first[0] in chain.skip:
+            # What a grammar of text skips, the parser before skips, as after `skipping()`.
+            return ParsingFailure(s.expect(p))
+        tokens = _TextTokens(chain, s.pos)
+        res = grammar.run(tokens, State(0, 0, (), s.context, ()))
+        return _from_tokens(res, tokens, s)
+
+    p = _built(_Tokenized, run)._rename(grammar.name)
+    p._grammar = grammar
+    p._tokenizer = tokenizer
+    return cast("Parser[str, B]", p)
+
+
+def _from_tokens[B](res: ParsingResult[B], tokens: _TextTokens, s: State) -> ParsingResult[B]:
+    """`res` of `tokens`, which start at the state `s` of a text, in that text."""
+    st = res.state
+    if st.pos == 0:
+        pos, skipped = s.pos, s._skipped
+    else:
+        pos = tokens.offset(st.pos)
+        skipped = pos - tokens.end(st.pos - 1)
+    furthest = max(tokens.offset(st.max), pos)
+    if furthest > s.max:
+        max_, expected = furthest, st.expected
+    elif furthest == s.max:
+        max_, expected = s.max, (*s.expected, *st.expected)
+    else:
+        max_, expected = s.max, s.expected
+    problems = s.problems
+    if st.problems:
+        found = tuple(_moved_to_text(p, tokens) for p in st.problems)
+        problems = (*problems, *found)
+    out = State(pos, max_, expected, s.context, problems, skipped)
+    if isinstance(res, ParsingFailure):
+        return ParsingFailure(out, res.message, res.committed)
+    return ParsingSuccess(res.value, out)
+
+
+def _moved_to_text(problem: Problem, tokens: _TextTokens) -> Problem:
+    """`problem` of `tokens`, at the offsets in the text of its tokens."""
+    n = len(tokens)
+    first = tokens.offset(min(problem.start, n))
+    if problem.start >= n:
+        return replace(problem, start=first, end=first + 1)
+    last = tokens.end(min(problem.end, n) - 1) if problem.end > problem.start else first
+    return replace(problem, start=first, end=last)
+
+
+def _parse_tokens_of_text[B](
+    grammar: Parser[Token, B],
+    tokenizer: Tokenizer,
+    text: str,
+    fast: Callable[[Sequence[Any]], Any] | None,
+    describe: Callable[[Any], TokenDescription] | None,
+) -> B:
+    """The value of the tokens of `text`, through `fast` first, with the errors of the tokens."""
+    tokens = _TextTokens(_Chain(text, tokenizer), 0)
+    stop = tokens.unreadable()
+    if fast is not None and not debug and stop is None:
+        res = fast(tokens)
+        if res is not None:
+            return cast("B", res[0])
+    try:
+        value = grammar.parse(tokens, describe=describe)
+    except (NoParseError, ParseErrors) as e:
+        if stop is not None:
+            raise e from _lexer_error(text, stop)
+        raise
+    if stop is not None:
+        raise _lexer_error(text, stop)
+    return value
+
+
+def _lexer_error(text: str, offset: int) -> LexerError:
+    """The error of a tokenizer that stopped at `offset` of `text`."""
+    line = text.count("\n", 0, offset) + 1
+    column = offset - text.rfind("\n", 0, offset)
+    return LexerError((line, column), text.split("\n")[line - 1].rstrip("\r"))
+
+
 def _unexpected(
     tokens: Sequence[Any], pos: int, expected: str, context: tuple[str, ...]
 ) -> Problem:
@@ -1741,7 +2010,7 @@ def _reads_tokens_error(kind: str) -> ValueError:
     """The error of a grammar of `tok()` given `kind` of input, text or bytes."""
     return with_hint(
         ValueError(f"a grammar of tokens cannot parse {kind}"),
-        "Pass tokens to `Parser.parse()`, or the tokenizer of the grammar to `Parser.compile()`.",
+        "Pass tokens to `Parser.parse()`, or the grammar and its tokenizer to `tokenized()`.",
     )
 
 

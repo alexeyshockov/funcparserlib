@@ -10,6 +10,9 @@ grammar is itself one parser.
 **token grammar**: a grammar that reads the tokens a tokenizer made before parsing began. `tok()` reads a token by its
 type.
 
+**tokenized grammar**: a token grammar bound to its tokenizer by `tokenized()`. It is a parser of text: it reads its
+tokens from where it is reached, and combines with the parsers of a grammar without a tokenizer.
+
 **grammar without a tokenizer**: a grammar that reads text at the position parsing has reached. `lit()`, `regex()` and
 `skipping()` make its parsers, and `Parser.parse_text()` runs it.
 

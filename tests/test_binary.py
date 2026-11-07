@@ -34,6 +34,7 @@ from funcparserlib.parser import (
     some,
     switch,
     tok,
+    tokenized,
 )
 from funcparserlib.parser import longest as typed_longest
 from tests.rules import breakages, conversions, kept
@@ -883,7 +884,7 @@ def fast_text(grammar: P, text: str, tokenizer: Any = None) -> tuple[Any, int]:
     """The value and the end `_fast_text` gives for `text`, which the interpreted parser has no part
     in.
     """
-    code = grammar.compile(tokenizer)
+    code = grammar.compile() if tokenizer is None else tokenized(grammar, tokenizer).compile()
     assert code._fast_text is not None, "the grammar stays interpreted"
     try:
         res = code._fast_text(text)
@@ -925,9 +926,10 @@ def test_generated_code_parses_counted_and_switch_over_tokens_given_a_tokenizer(
 
 
 def test_a_prefixed_over_tokens_stays_with_the_tokens_of_a_tokenizer() -> None:
-    code = prefixed(count, many(tok("w"))).compile(tokenize)
-    assert code.parse_text("2 a b c") == ["a", "b"]
-    assert code.parse(list(tokenize("2 a b c"))) == ["a", "b"]
+    assert tokenized(prefixed(count, many(tok("w"))), tokenize).compile().parse_text("2 a b c") == [
+        "a",
+        "b",
+    ]
 
 
 def test_a_body_over_text_sees_the_region_as_its_whole_input() -> None:
@@ -1003,11 +1005,11 @@ count = tok("n") >> int
 
 
 def token_outcomes(grammar: P, text: str) -> list[tuple[object, ...]]:
-    """What parsing the tokens of `text` gives: the parser, the compiled parser, and the compiled
-    parser given a tokenizer, as text and as tokens.
+    """What parsing the tokens of `text` gives: the parser and the compiled parser over the tokens,
+    and the compiled parser of `tokenized()` over the text.
     """
     tokens = list(tokenize(text))
-    with_tokenizer = grammar.compile(tokenize)
+    with_tokenizer = tokenized(grammar, tokenize).compile()
     without = grammar.compile()
 
     def parse(parser: Any, how: str) -> Callable[[str], Any]:
@@ -1018,7 +1020,6 @@ def token_outcomes(grammar: P, text: str) -> list[tuple[object, ...]]:
     return [
         outcome(parse(grammar, "tokens"), text),
         outcome(parse(without, "tokens"), text),
-        outcome(parse(with_tokenizer, "tokens"), text),
         outcome(parse(with_tokenizer, "text"), text),
     ]
 
@@ -1037,7 +1038,7 @@ def test_prefixed_over_tokens_reads_as_many_tokens() -> None:
     assert agree(grammar, "2 a b c")[0] == "value"
     assert grammar.parse(tokens) == tokens[1:3]
     assert grammar.compile().parse(tokens) == tokens[1:3]
-    assert grammar.compile(tokenize).parse_text("2 a b c") == tokens[1:3]
+    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == tokens[1:3]
     assert type(grammar.parse(tokens)) is list
 
 
@@ -1045,8 +1046,7 @@ def test_prefixed_with_a_body_over_tokens() -> None:
     grammar = prefixed(count, many(tok("w")))
     assert grammar.parse(list(tokenize("2 a b c"))) == ["a", "b"]
     assert grammar.compile().parse(list(tokenize("2 a b c"))) == ["a", "b"]
-    assert grammar.compile(tokenize).parse_text("2 a b c") == ["a", "b"]
-    assert grammar.compile(tokenize).parse(list(tokenize("2 a b c"))) == ["a", "b"]
+    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == ["a", "b"]
     for text in ("2 a", "3 a b", "2 a 1", "0", "1 1", "2 a b"):
         agree(grammar, text)
 
@@ -1061,7 +1061,7 @@ def test_a_body_over_tokens_with_finished_sees_the_end_of_the_region() -> None:
     grammar = prefixed(count, many(tok("w")) + finished) + tok("w")
     assert grammar.parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
     assert grammar.compile().parse(list(tokenize("2 a b c"))) == (["a", "b"], None, "c")
-    assert grammar.compile(tokenize).parse_text("2 a b c") == (["a", "b"], None, "c")
+    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == (["a", "b"], None, "c")
 
 
 def test_prefixed_over_tokens_with_a_length_past_the_end_fails() -> None:
@@ -1076,8 +1076,8 @@ def test_counted_over_tokens() -> None:
     grammar = counted(count, tok("w"))
     assert grammar.parse(list(tokenize("2 a b c"))) == ["a", "b"]
     assert grammar.compile().parse(list(tokenize("2 a b c"))) == ["a", "b"]
-    assert grammar.compile(tokenize).parse_text("2 a b c") == ["a", "b"]
-    assert grammar.compile(tokenize).parse_text("0 a") == []
+    assert tokenized(grammar, tokenize).compile().parse_text("2 a b c") == ["a", "b"]
+    assert tokenized(grammar, tokenize).compile().parse_text("0 a") == []
     for text in ("2 a", "3 a b", "2 a 1", "0", "2 a b"):
         agree(grammar, text)
     assert agree(grammar, "2 a 1")[1] == "1,5-1,5: got unexpected token: '1', expected: w"
@@ -1092,13 +1092,13 @@ def test_switch_over_tokens() -> None:
         agree(grammar, "4 a")[1]
         == "1,1-1,1: got unexpected token: '4', expected: one of the cases of n"
     )
-    assert grammar.compile(tokenize).parse_text("3 a b") == ("a", "b")
+    assert tokenized(grammar, tokenize).compile().parse_text("3 a b") == ("a", "b")
 
 
 def test_switch_over_tokens_with_a_key_of_values() -> None:
     grammar = switch(tok("w"), {"a": tok("n"), "b": tok("w")}) + -finished
     assert grammar.parse(list(tokenize("a 1"))) == "1"
-    assert grammar.compile(tokenize).parse_text("b c") == "c"
+    assert tokenized(grammar, tokenize).compile().parse_text("b c") == "c"
     for text in ("a 1", "b c", "c c", "a c"):
         agree(grammar, text)
 
@@ -1107,14 +1107,14 @@ def test_the_tokens_of_a_region_are_not_tokens_of_a_tokenizer_that_does_not_join
     separate = make_tokenizer([TokenSpec("q", r"(?P<q>a)(?P=q)"), TokenSpec("n", r"\d")])
     grammar = prefixed(tok("n") >> int, many(tok("q"))) + -finished
     assert grammar.parse(list(separate("1aa"))) == ["aa"]
-    assert grammar.compile(separate).parse_text("1aa") == ["aa"]
+    assert tokenized(grammar, separate).compile().parse_text("1aa") == ["aa"]
 
 
 def test_a_compiled_grammar_of_tokens_without_a_tokenizer_cannot_parse_bytes() -> None:
     grammar = prefixed(count, many(tok("w")))
-    with pytest.raises(ValueError, match="without a tokenizer"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
         grammar.compile().parse_bytes(b"\x01a")
-    with pytest.raises(ValueError, match="without a tokenizer"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
         grammar.compile().parse_text("1 a")
 
 
@@ -1835,7 +1835,7 @@ def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
 def test_tok_on_bytes_is_a_parser_of_tokens_that_bytes_are_not() -> None:
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
         tok("a").parse_bytes(b"a")
-    with pytest.raises(ValueError, match="without a tokenizer"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
         tok("a").compile().parse_bytes(b"a")
 
 

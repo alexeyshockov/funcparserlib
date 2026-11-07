@@ -36,7 +36,9 @@ its tokenizer.
   `many()`, so a grammar without a tokenizer can hold a language written with `tok()`. Where it is reached, it
   tokenizes from that offset as the token grammar reads, and it ends where the token grammar stops. The tokens of the
   tokenizer's `skip=` after its last token are its skip: the offset after them is where parsing goes on, and a span
-  ends before them, as after `skipping()`.
+  ends before them, as after `skipping()`. Where such a token is where it is reached, it fails, as what comes before
+  it skips, so neither a match nor a span starts with a skipped token; `parse_text()` of it reads them at the start of
+  the text.
 - **From the start of a text it reads the global tokens.** The tokenizer reads in order from where it starts, so from
   offset 0 the tokens are those of `list(tokenize(text))`, and a whole document keeps the definition of ADR 0004.
 - **Text no spec reads ends its tokens** with one more token, which no grammar reads: the token grammar fails there, and
@@ -95,8 +97,11 @@ Rejected:
   tokens one at a time.
 - Tokenizing stays a `str` matter: `TokenSpec.pattern` is a `str`, and positions count `"\n"`.
 - `Parser.parse_text()` of a grammar of `tok()` raises `ValueError`, with a hint naming `tokenized()`.
-- `matches()` of a bound grammar starts a tokenizer at each offset it tries. A sequence of tokens that has to know its
-  length reads to the end of the text, which over each offset is quadratic: a prototype shows that 800 KB scans in
-  about the time of a grammar without a tokenizer before the code follows this record.
+- `matches()` of a bound grammar starts a tokenizer at each offset it tries, and a parser reads the length of its
+  tokens, which is the rest of the text. A tokenizer reads a token by the text alone, so the token at an offset is read
+  once for a text, and every start shares the tokens of the offsets it reaches. On 400 KB, 800 KB and 1.6 MB of
+  `"word x = 1 # prose; "` repeated, `matches()` of `tok("name") + -tok("op", "=") + tok("int")` took 0.97 s, 1.90 s and
+  3.86 s, against 0.42 s, 0.88 s and 1.74 s for the same grammar without a tokenizer (Python 3.12, arm64 laptop, one
+  run each).
 - `tok("name", "if")` scanning `elif` matches at its second character, as `regex("if")` does. A grammar without a
   tokenizer guards with `\b`; a token grammar has no such place yet.

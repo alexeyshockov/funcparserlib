@@ -27,10 +27,11 @@ from benchmarks._json_other import lark_loads, parsy_loads, pyparsing_loads
 from benchmarks._json_text import COMPILED, GRAMMAR
 from benchmarks.bench_grammars import JSON_TEXT
 from examples import msgpack_format
+from funcparserlib.parser import tokenized
 from tests import json as json_grammar
 
 EXPECTED = json.loads(JSON_TEXT)
-TOKENS_COMPILED = json_grammar._grammar().compile(json_grammar._tokenizer())
+TOKENS_COMPILED = tokenized(json_grammar._grammar(), json_grammar._tokenizer()).compile()
 
 
 @pytest.mark.benchmark(group="json")

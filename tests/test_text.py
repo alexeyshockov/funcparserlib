@@ -32,6 +32,7 @@ from funcparserlib.parser import (
     skipping,
     some,
     tok,
+    tokenized,
 )
 from funcparserlib.parser import longest as typed_longest
 from tests.rules import breakages, conversions, kept
@@ -336,8 +337,8 @@ def test_longest_of_tokens_keeps_the_longest_match() -> None:
     tokenize = make_tokenizer([TokenSpec("a", "a"), TokenSpec("b", "b")])
     grammar = longest(tok("a"), tok("a") + tok("b")) + -finished
     assert grammar.parse(list(tokenize("ab"))) == ("a", "b")
-    assert grammar.compile(tokenize).parse_text("ab") == ("a", "b")
-    assert grammar.compile(tokenize).parse_text("a") == "a"
+    assert tokenized(grammar, tokenize).compile().parse_text("ab") == ("a", "b")
+    assert tokenized(grammar, tokenize).compile().parse_text("a") == "a"
 
 
 def test_longest_of_characters_keeps_the_longest_match() -> None:
@@ -352,7 +353,7 @@ def test_longest_of_tokens_names_every_alternative() -> None:
     tokenize = make_tokenizer([TokenSpec("a", "a"), TokenSpec("b", "b"), TokenSpec("c", "c")])
     grammar = longest(tok("a"), tok("b"))
     with pytest.raises(NoParseError, match="expected: a or b"):
-        grammar.compile(tokenize).parse_text("c")
+        tokenized(grammar, tokenize).compile().parse_text("c")
 
 
 # Skip
@@ -681,7 +682,7 @@ def sum_of_two() -> P:
 def test_text_no_token_spec_matches_is_explained_by_what_the_grammar_expected(
     tokenize: Any,
 ) -> None:
-    code = sum_of_two().compile(tokenize)
+    code = tokenized(sum_of_two(), tokenize).compile()
     with pytest.raises(NoParseError) as caught:
         code.parse_text("1 + $")
     assert str(caught.value) == "1,5-1,5: got unexpected token: '$', expected: num"
@@ -691,11 +692,11 @@ def test_text_no_token_spec_matches_is_explained_by_what_the_grammar_expected(
 
 def test_the_explanation_of_text_on_a_later_line(tokenize: Any) -> None:
     with pytest.raises(NoParseError, match=r"^3,3-3,3: got unexpected token: '\$', expected: num$"):
-        sum_of_two().compile(tokenize).parse_text("1 +\n\n  $")
+        tokenized(sum_of_two(), tokenize).compile().parse_text("1 +\n\n  $")
 
 
 def test_a_mistake_among_the_tokens_before_the_bad_text_is_the_error(tokenize: Any) -> None:
-    code = sum_of_two().compile(tokenize)
+    code = tokenized(sum_of_two(), tokenize).compile()
     with pytest.raises(NoParseError) as caught:
         code.parse_text("1 1 $")
     assert str(caught.value) == "1,3-1,3: got unexpected token: '1', expected: plus"
@@ -706,18 +707,18 @@ def test_the_tokenizer_error_is_raised_when_the_grammar_accepts_the_tokens_befor
     tokenize: Any,
 ) -> None:
     with pytest.raises(LexerError, match="cannot tokenize data"):
-        many(tok("num")).compile(tokenize).parse_text("1 2 $")
+        tokenized(many(tok("num")), tokenize).compile().parse_text("1 2 $")
 
 
 def test_bad_text_at_the_start_is_explained(tokenize: Any) -> None:
     with pytest.raises(NoParseError, match=r"^1,1-1,1: got unexpected token: '\$', expected: num$"):
-        sum_of_two().compile(tokenize).parse_text("$")
+        tokenized(sum_of_two(), tokenize).compile().parse_text("$")
 
 
 def test_a_grammar_of_tokens_parses_text_as_the_interpreted_parser_parses_the_tokens(
     tokenize: Any,
 ) -> None:
-    code = sum_of_two().compile(tokenize)
+    code = tokenized(sum_of_two(), tokenize).compile()
     for text in ["1+2", " 1 + 2 ", "1 + ", "1 2", "", "+"]:
         assert outcome(code.parse_text, text) == outcome(
             lambda t: sum_of_two().parse(list(tokenize(t))), text
@@ -728,14 +729,14 @@ def test_the_text_of_a_token_grammar_is_explained_when_the_grammar_is_not_genera
     tokenize: Any,
 ) -> None:
     opaque = Parser(lambda toks, s: sum_of_two().run(toks, s))
-    code = opaque.compile(tokenize)
+    code = tokenized(opaque, tokenize).compile()
     assert code._fast_text is None
     with pytest.raises(NoParseError, match="got unexpected token: '\\$', expected: num"):
         code.parse_text("1 + $")
 
 
 def test_try_parse_of_a_token_grammar_gives_the_value_or_none(tokenize: Any) -> None:
-    code = sum_of_two().compile(tokenize)
+    code = tokenized(sum_of_two(), tokenize).compile()
     assert code.try_parse("1 + 2") == (1, 2)
     assert code.try_parse("1 +") is None
     assert code.try_parse("1 + 2 3") is None
@@ -746,21 +747,21 @@ def test_try_parse_of_a_token_grammar_gives_the_value_or_none(tokenize: Any) -> 
 def test_try_parse_of_a_grammar_that_accepts_the_tokens_before_bad_text_is_none(
     tokenize: Any,
 ) -> None:
-    assert many(tok("num")).compile(tokenize).try_parse("1 2 $") is None
-    assert many(tok("num")).compile(tokenize).try_parse("1 2") == ["1", "2"]
+    assert tokenized(many(tok("num")), tokenize).compile().try_parse("1 2 $") is None
+    assert tokenized(many(tok("num")), tokenize).compile().try_parse("1 2") == ["1", "2"]
 
 
 def test_try_parse_keeps_a_valid_parse_whose_other_branch_had_a_broken_rule(tokenize: Any) -> None:
     rejected = tok("num").validated(kept(lambda _: False, "rejected")) + tok("num")
     grammar = (rejected | tok("num") + -tok("plus")) + tok("num") + -finished
-    code = grammar.compile(tokenize)
+    code = tokenized(grammar, tokenize).compile()
     assert code.try_parse("1 + 2") == ("1", "2")
     assert code.parse_text("1 + 2") == ("1", "2")
 
 
 def test_try_parse_rejects_a_parse_whose_rule_broke(tokenize: Any) -> None:
     grammar = tok("num").validated(kept(lambda _: False, "rejected")) + -finished
-    code = grammar.compile(tokenize)
+    code = tokenized(grammar, tokenize).compile()
     assert code.try_parse("1") is None
     with pytest.raises(ParseErrors):
         code.parse_text("1")
@@ -773,7 +774,7 @@ def test_try_parse_of_a_commit_around_a_parsing_function(tokenize: Any) -> None:
     grammar = (
         tok("num") + commit(Parser(read_plus) + tok("num")) | tok("num") + tok("plus")
     ) + -finished
-    code = grammar.compile(tokenize)
+    code = tokenized(grammar, tokenize).compile()
     assert code.try_parse("1 + 2") == code.parse_text("1 + 2") == ("1", ("+", "2"))
     assert code.try_parse("1 + +") is None
     assert code.try_parse("1 +") is None
@@ -791,12 +792,12 @@ def test_try_parse_gives_none_for_nesting_too_deep_for_the_parser() -> None:
 
 
 def test_try_parse_without_a_tokenizer_raises_for_a_grammar_of_tokens() -> None:
-    with pytest.raises(ValueError, match="without a tokenizer cannot parse text"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
         tok("num").compile().try_parse("1")
 
 
 def test_parse_text_without_a_tokenizer_raises_for_a_grammar_of_tokens() -> None:
-    with pytest.raises(ValueError, match="without a tokenizer cannot parse text"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
         tok("num").compile().parse_text("1")
 
 
@@ -992,7 +993,7 @@ def test_recover_with_tokens() -> None:
     grammar = many((tok("a") + tok("b")).recover(until=tok("end")) + -tok("end")) + -finished
     assert grammar.parse(list(spec("a b;"))) == [("a", "b")]
     with pytest.raises(ParseErrors) as caught:
-        grammar.compile(spec).parse_text("a a; a b; b;")
+        tokenized(grammar, spec).compile().parse_text("a a; a b; b;")
     assert len(caught.value.exceptions) == 2
 
 
@@ -1095,7 +1096,7 @@ def test_a_skip_pattern_is_a_str(pattern: object) -> None:
 def test_a_grammar_of_tok_says_it_cannot_parse_text() -> None:
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text") as caught:
         tok("x").parse_text("abc")
-    assert "Parser.compile()" in caught.value.__notes__[0]
+    assert "tokenized()" in caught.value.__notes__[0]
 
 
 @pytest.mark.interpreted_only

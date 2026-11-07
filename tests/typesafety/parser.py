@@ -38,6 +38,7 @@ from funcparserlib.parser import (
     skipping,
     switch,
     tok,
+    tokenized,
 )
 from funcparserlib.util import expand_tuple_args
 
@@ -84,7 +85,9 @@ _ = assert_type(n.recover(n, default="broken"), Parser[Token, int | str])
 _ = assert_type(n.validated(str), Parser[Token, str])
 _ = assert_type(n.validated(str, "a number"), Parser[Token, str])
 _ = assert_type(longest(x, x + x), Parser[str, str | tuple[str, str]])
-_ = assert_type(n.compile(make_tokenizer([])).parse_text(""), int)
+_ = assert_type(tokenized(n, make_tokenizer([])).compile().parse_text(""), int)
+_ = assert_type(tokenized(n, make_tokenizer([])), Parser[str, int])
+_ = assert_type((x + tokenized(n, make_tokenizer([]))).parse_text(""), tuple[str, int])
 _ = assert_type((x + x).compile().parse("xx"), tuple[str, str])
 
 _ = assert_type(many(n), Parser[Token, list[int]])
@@ -142,7 +145,7 @@ _ = assert_type(spaced.regex("a").parse_text("a"), str)
 _ = assert_type((spaced.regex("a") + spaced.regex("b")).parse_text("ab"), tuple[str, str])
 _ = assert_type(spaced.regex("a").compile().parse_text("a"), str)
 _ = assert_type(spaced.regex("a").compile().try_parse("a"), str | None)
-_ = assert_type(n.compile(make_tokenizer([])).try_parse(""), int | None)
+_ = assert_type(tokenized(n, make_tokenizer([])).compile().try_parse(""), int | None)
 
 # Bytes: `funcparserlib.binary` parsers read `int` bytes, and `prefixed()`, `counted()` and
 # `switch()` keep the type of what they read.

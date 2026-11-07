@@ -75,6 +75,17 @@ Located(value=('width', '80'), start=0, end=2)
 
 ```
 
+Bound to its tokenizer with [`tokenized()`](../api/parser.md#funcparserlib.parser.tokenized), a token grammar reads the
+text, and its spans are character offsets, as in a grammar without a tokenizer:
+
+```pycon
+>>> from funcparserlib.parser import tokenized
+
+>>> tokenized((tok("name") + tok("number")).located(), tokenizer).parse_text("width\n  80")
+Located(value=('width', '80'), start=0, end=10)
+
+```
+
 ## Turn an Offset Into a Line and a Column
 
 [`Lines`](../api/util.md#funcparserlib.util.Lines) is built once from a text, and then finds each position quickly. Use
@@ -116,8 +127,24 @@ It reads the text as far as you take matches, so the first of them costs only wh
 
 ```
 
-It reads text, so a token grammar is left out: a tokenizer stops at the first text it cannot read, and the point of
-`matches()` is the text your grammar does not know about.
+A token grammar finds matches bound to its tokenizer. Text no token spec matches is text where the grammar fails, so
+the scan goes past it:
+
+```pycon
+>>> pair = tokenized(tok("name") + tok("number"), tokenizer)
+>>> [(m.value, m.start, m.end) for m in pair.matches("Set width 80, then height 24!")]
+[(('width', '80'), 4, 12), (('height', '24'), 19, 28)]
+
+```
+
+It starts its tokens at each position it tries, so a match can start inside what the tokens of the whole text make
+one word:
+
+```pycon
+>>> [(m.start, m.end) for m in tokenized(tok("name", "if"), tokenizer).matches("elif if")]
+[(2, 4), (5, 7)]
+
+```
 
 ## Rewrite the Matches
 

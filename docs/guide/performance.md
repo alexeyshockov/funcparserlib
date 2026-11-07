@@ -60,13 +60,14 @@ Compile a grammar once, when your program starts, and keep the result.
 
 ## Skip the Tokens
 
-Given the tokenizer, a compiled grammar parses text itself. As long as the grammar reads tokens through `tok()` and the
-specs of the tokenizer join into one regex, this makes no `Token` objects, which takes less time and much less memory.
-Specs with their own flags, or with a global flag such as `(?i)` inside, do not join, and such a grammar makes the tokens
-as usual:
+[`tokenized()`](../api/parser.md#funcparserlib.parser.tokenized) binds a grammar of tokens to its tokenizer, and gives a
+parser of text. Compiled, it parses text itself: as long as the grammar reads tokens through `tok()` and the specs of the
+tokenizer join into one regex, this makes no `Token` objects, which takes less time and much less memory. Specs with
+their own flags, or with a global flag such as `(?i)` inside, do not join, and such a grammar makes the tokens as usual:
 
 ```pycon
->>> expr = (number + many(-op("*") + number) + -finished).compile(tokenizer)
+>>> from funcparserlib.parser import tokenized
+>>> expr = tokenized(number + many(-op("*") + number) + -finished, tokenizer).compile()
 
 >>> expr.parse_text("2 * 3 * 4")
 (2, [3, 4])
@@ -122,7 +123,7 @@ The second run also calls the functions you gave to `>>` again:
 
 
 >>> digit = tok("int") >> count
->>> pair = (digit + digit + -finished).compile(tokenizer)
+>>> pair = tokenized(digit + digit + -finished, tokenizer).compile()
 
 >>> pair.try_parse("1 2 3"), calls
 (None, ['1', '2'])
@@ -226,8 +227,8 @@ at its last token:
 | --- | ---: | ---: | ---: |
 | `parse()` | 3.27 s | 268 MB | 3.28 s |
 | `compile()`, then `parse()` over tokens | 0.89 s | 287 MB | |
-| `compile(tokenizer)`, then `parse_text()` | 0.47 s | 136 MB | 3.75 s |
-| `compile(tokenizer)`, then `try_parse()` | | | 0.48 s |
+| `tokenized()`, `compile()`, then `parse_text()` | 0.47 s | 136 MB | 3.75 s |
+| `tokenized()`, `compile()`, then `try_parse()` | | | 0.48 s |
 
 The decisions behind these steps are in [ADR 0002](../adr/0002-a-compiled-pass-for-parses-that-succeed.md) and
 [ADR 0003](../adr/0003-a-token-grammar-reads-text-through-its-tokenizer.md).

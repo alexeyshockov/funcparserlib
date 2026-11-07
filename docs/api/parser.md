@@ -105,6 +105,14 @@ what may sit between tokens, such as whitespace and comments.
 
 ::: funcparserlib.parser.Skipping.end
 
+## A Token Grammar as a Parser of Text
+
+A token grammar bound to its tokenizer reads text: it has `Parser.parse_text()`, `Parser.matches()` and
+`Parser.replace()`, it gives character offsets to `Parser.located()`, and it can sit inside a grammar without a
+tokenizer.
+
+::: funcparserlib.parser.tokenized
+
 ## Parser Combinators
 
 ::: funcparserlib.parser.Parser.__add__
