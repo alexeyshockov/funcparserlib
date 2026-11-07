@@ -46,6 +46,7 @@ x = a("x")
 n = tok("number") >> int
 _ = assert_type(x, Parser[str, str])
 _ = assert_type(n, Parser[Token, int])
+n_text = regex(r"\d+") >> int
 
 
 def one(_tokens: Sequence[str], s: State) -> ParsingResult[int]:
@@ -121,6 +122,32 @@ _ = assert_type(x + x + x + x + x + -finished, Tuple5Parser[str, str, str, str, 
 _ = assert_type(-x + -finished, IgnoredParser[str])
 _ = assert_type(-finished + x, Parser[str, str])
 _ = assert_type(x + finished, Tuple2Parser[str, str, None])
+
+
+def pair(left: str, right: int) -> float:
+    return len(left) + right
+
+
+def triple(first: str, second: int, third: str) -> bytes:
+    return f"{first}{second}{third}".encode()
+
+
+def quad(first: str, second: int, third: str, fourth: int) -> complex:
+    return complex(len(first) + second, len(third) + fourth)
+
+
+def quint(first: str, second: int, third: str, fourth: int, fifth: str) -> list[str]:
+    return [first, str(second), third, str(fourth), fifth]
+
+
+# `starmap` takes a function of the elements of the tuple, one parameter per element.
+_ = assert_type((x + n_text).starmap(pair), Parser[str, float])
+_ = assert_type((x + n_text + x).starmap(triple), Parser[str, bytes])
+_ = assert_type((x + n_text + x + n_text).starmap(quad), Parser[str, complex])
+_ = assert_type((x + n_text + x + n_text + x).starmap(quint), Parser[str, list[str]])
+# A function of another arity, or of other types, is an error.
+_ = (x + n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
+_ = (n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
 
 # Parsers of text read `str` and give the text they matched; `end` gives nothing.
 spaced = skipping(r"\s+")
