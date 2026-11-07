@@ -3,6 +3,7 @@ import math
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from itertools import pairwise
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
@@ -31,7 +32,7 @@ from examples import (
 from examples import markdown as md
 from examples.calculator import calculate
 from examples.kdl import Node, Value
-from examples.partial_json import MISSING
+from examples.partial_json import MISSING, Open
 from funcparserlib.lexer import LexerError
 from funcparserlib.parser import NoParseError, ParseErrors
 
@@ -1408,7 +1409,7 @@ def test_partial_json_gives_every_prefix_a_value_that_only_grows(text: str) -> N
     values = [partial_json.parse(text[:n]) for n in range(len(text) + 1)]
     first = next(i for i, v in enumerate(values) if v is not MISSING)
     assert MISSING not in values[first:]
-    for a, b in zip(values[first:], values[first + 1 :], strict=False):
+    for a, b in pairwise(values[first:]):
         assert grows(a, b), (a, b)
 
 
@@ -1459,3 +1460,76 @@ def test_partial_json_repairs_what_has_one_meaning(text: str, value: object) -> 
 def test_partial_json_rejects_what_has_more_than_one_meaning(text: str) -> None:
     with pytest.raises((NoParseError, LexerError)):
         partial_json.parse(text)
+
+
+def marks(v: Any) -> object:
+    """`v` with each part marked as open or finished, to compare what changed between prefixes."""
+    if isinstance(v, dict):
+        children: object = {k: marks(x) for k, x in v.items()}
+    elif isinstance(v, list):
+        children = [marks(x) for x in v]
+    else:
+        children = repr(v)
+    return (isinstance(v, Open), children)
+
+
+def finished_stays(a: Any, b: Any) -> bool:
+    """Whether every part finished in `a` is the same, and finished, in `b`."""
+    if not isinstance(a, Open):
+        return marks(a) == marks(b)
+    if isinstance(a, dict):
+        return all(k in b and finished_stays(x, b[k]) for k, x in a.items())
+    if isinstance(a, list):
+        return all(finished_stays(x, y) for x, y in zip(a, b, strict=False))
+    return True
+
+
+def open_parts_are_a_chain(v: Any) -> bool:
+    """Whether only the last part of an open container is open, and nothing in a finished one."""
+    parts = list(v.values()) if isinstance(v, dict) else v if isinstance(v, list) else []
+    if not isinstance(v, Open):
+        return not any(isinstance(x, Open) for x in parts) and all(
+            open_parts_are_a_chain(x) for x in parts
+        )
+    return not any(isinstance(x, Open) for x in parts[:-1]) and all(
+        open_parts_are_a_chain(x) for x in parts
+    )
+
+
+@given(JSON_DOCUMENTS)
+def test_partial_json_never_changes_a_finished_part(text: str) -> None:
+    values = [partial_json.parse(text[:n]) for n in range(len(text) + 1)]
+    assert marks(values[-1]) == marks(json.loads(text))
+    for a, b in pairwise(values):
+        assert open_parts_are_a_chain(a), a
+        if a is not MISSING:
+            assert finished_stays(a, b), (a, b)
+
+
+@pytest.mark.parametrize(
+    ("reply", "found"),
+    [
+        ("Here's the JSON: {\"a\": 1} and it's done.", [(17, {"a": 1})]),
+        ('Don\'t worry: {"a": 1}', [(13, {"a": 1})]),
+        ('See note [1]. Result: {"a": 1}', [(22, {"a": 1})]),
+        ('Not JSON: {curly} then {"a": 1}', [(23, {"a": 1})]),
+        ('```json\n{"a": 1}\n```\nAnything else?', [(8, {"a": 1})]),
+        ('Two: {"a": 1} {"b": "x', [(5, {"a": 1}), (14, {"b": "x"})]),
+    ],
+)
+def test_partial_json_finds_the_objects_in_a_reply(reply: str, found: object) -> None:
+    assert [(m.start, m.value) for m in partial_json.find(reply)] == found
+
+
+@given(
+    st.text(alphabet=st.characters(blacklist_characters="{")),
+    st.dictionaries(st.text(max_size=4), JSON_VALUES, max_size=4),
+    st.text(alphabet=st.characters(blacklist_characters="{")),
+)
+def test_partial_json_finds_an_object_between_any_words(
+    before: str, value: dict[str, Any], after: str
+) -> None:
+    text = json.dumps(value)
+    found = list(partial_json.find(before + text + after))
+    assert [(m.start, m.end) for m in found] == [(len(before), len(before) + len(text))]
+    assert repr(found[0].value) == repr(value)

@@ -2,8 +2,10 @@
 
 A language model writes JSON a few characters at a time, and a program that shows the answer while it comes needs a
 value for every prefix of the document. A model also writes things in place of JSON: a comma before a closing bracket,
-single quotes, `True` and `None`, a Markdown code fence around the document. This recipe reads both with one grammar.
-The whole program is `examples/partial_json.py`; every block below is included from it.
+single quotes, `True` and `None`, a Markdown code fence around the document. This recipe reads both with one grammar,
+then adds two things a program does with a reply while it streams: [telling the finished parts](#which-parts-are-finished)
+from the ones still being written, and [finding the document](#the-document-inside-a-reply) in the prose around it. The
+whole program is `examples/partial_json.py`; every block below is included from it.
 
 ```pycon
 >>> from examples.partial_json import parse
@@ -84,9 +86,9 @@ literal is unfinished only at the end of the text: `+ -finished` reads nothing, 
 ## Containers
 
 Every open bracket closes at the end of the text: `close()` reads its bracket or `finished`, which matches there without
-reading a token. `separated(..., trailing=True)` reads one comma after the last item, which is a prefix that stops after
-a comma and a model's trailing comma alike. A member whose value is unfinished is left out of its object, and so is an
-unfinished item of an array.
+reading a token, and says which of the two it read. `separated(..., trailing=True)` reads one comma after the last item,
+which is a prefix that stops after a comma and a model's trailing comma alike. A member whose value is unfinished is left
+out of its object, and so is an unfinished item of an array.
 
 ```python
 --8<-- "examples/partial_json.py:containers"
@@ -126,9 +128,64 @@ alternative.
 
 The grammar is compiled, as every prefix of a well-formed document parses, which is what the [compiled](../guide/performance.md)
 pass is for. On a 10.5 KB document read every 20 characters, 529 prefixes, Python 3.12 on an arm64 laptop, CPU time,
-best of three, the compiled grammar took 0.283 s, 0.54 ms a prefix, and the grammar without `compile()` 0.932 s.
-pydantic_core, written in Rust, took 6.4 ms for the same prefixes. Reading every prefix costs time that grows with the
+best of three, the compiled grammar took 0.289 s, 0.55 ms a prefix, and the grammar without `compile()` 0.918 s.
+pydantic_core, written in Rust, took 6.8 ms for the same prefixes. Reading every prefix costs time that grows with the
 square of the length of the document, which suits the answers of a model, that come at the speed the model writes.
+
+## Which parts are finished
+
+A value of a prefix holds parts the rest of the text may still add to, and parts it cannot change. A program that acts
+while the reply streams needs to tell them apart: it runs a tool call once its object is closed, and shows a field as
+final once its string is. pydantic_core gives `'fe'` for a prefix ending in `"fe` and `'fetch'` for one ending in
+`"fetch"`, and nothing in the value says that one of them is done.
+
+The grammar knows it already: `close()` reads a bracket or the end of the text, and a string is a `string` or an
+`unfinished_string` token. A string, an array or an object the text ends inside is given as an `Open` subclass of its
+type:
+
+```python
+--8<-- "examples/partial_json.py:open"
+```
+
+`unfinished_string_of()` gives an `OpenStr`, and `make_object()` and `make_array()` give an `OpenDict` and an `OpenList`
+where `close()` read no bracket. A value is still a `str`, a `list` or a `dict`, and compares, prints and serializes as
+one. The text ends inside one part at each level, so the open parts are a chain from the document to the last part
+reached, and everything else is finished:
+
+```pycon
+>>> from examples.partial_json import Open
+>>> reply = parse('{"calls": [{"tool": "search", "query": "parsers"}, {"tool": "fe')
+>>> [call for call in reply["calls"] if not isinstance(call, Open)]
+[{'tool': 'search', 'query': 'parsers'}]
+>>> isinstance(reply["calls"][1]["tool"], Open)
+True
+
+```
+
+A finished part stays as it is in every longer prefix, so a program that ran the first call does not see it change.
+
+## The document inside a reply
+
+A model asked for JSON often writes a sentence around it. `Parser.scan_text()` finds each match of a grammar in a text,
+and `find()` gives the objects in a reply with where each one is, the last one possibly unfinished:
+
+```python
+--8<-- "examples/partial_json.py:find"
+```
+
+```pycon
+>>> from examples.partial_json import find
+>>> reply = 'Here\'s the plan: {"steps": ["parse", "test"]} Let me know if it\'s OK. {"draft": "rea'
+>>> [(m.start, m.value) for m in find(reply)]
+[(17, {'steps': ['parse', 'test']}), (70, {'draft': 'rea'})]
+
+```
+
+A grammar that starts with `tokenized()` is tried where a token of the text starts, as the tokenizer reads the text from
+its start. The tokenizer of this recipe reads single quotes, so the `'s the plan: {...} Let me know if it'` of a reply
+would be one string token, and the object inside it no match. `find()` starts with `regex(r"\{")`, a parser of text:
+the grammar is tried at each offset, and the tokenizer starts after the brace. It finds objects only, as a reply that
+cites `[1]` would give that as an array.
 
 ## Changing a rule
 

@@ -8,11 +8,16 @@ A prefix stands for what it has finished, and a value once given only grows: a s
 far as it goes, and a number, a literal or a key that the text may still change is left out until
 something ends it. `parse()` of each prefix gives what a program can show while the rest comes. The
 document is an object or an array, so every number in it is ended by what follows it.
+
+A string, an array or an object the text ends inside is an `Open` subclass of its type, so a program
+tells the finished parts from those still being written. `find()` gives the objects in a reply with
+prose around them.
 """
 
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from enum import Enum
 from typing import Final
 
@@ -20,13 +25,13 @@ from funcparserlib.lexer import Token, TokenSpec, make_tokenizer
 from funcparserlib.parser import (
     CompiledParser,
     ForwardDeclParser,
-    IgnoredParser,
+    Located,
     Parser,
     finished,
     forward_decl,
     maybe,
+    regex,
     separated,
-    skip,
     tok,
     tokenized,
 )
@@ -44,6 +49,28 @@ class Missing(Enum):
 
 MISSING: Final = Missing.MISSING
 # --8<-- [end:values]
+
+
+# --8<-- [start:open]
+class Open:
+    """A string, an array or an object the text ends inside: the rest of the text may add to it."""
+
+    __slots__ = ()
+
+
+class OpenStr(Open, str):
+    __slots__ = ()
+
+
+class OpenList(Open, list[Json]):
+    __slots__ = ()
+
+
+class OpenDict(Open, dict[str, Json]):
+    __slots__ = ()
+
+
+# --8<-- [end:open]
 
 # --8<-- [start:tokens]
 ESCAPE = r"""\\(?:["'\\/bfnrt]|u[0-9A-Fa-f]{4})"""
@@ -108,7 +135,7 @@ def unfinished_string_of(token: str) -> str:
     """
     body = re.match(BODY[token[0]], token[1:])
     assert body is not None  # the token is a quote and a body
-    return re.sub(r"[\ud800-\udbff]\Z", "", unescape(body[0]))
+    return OpenStr(re.sub(r"[\ud800-\udbff]\Z", "", unescape(body[0])))
 
 
 def number_of(token: str) -> int | float:
@@ -136,29 +163,42 @@ def op(s: str) -> Parser[Token, str]:
     return tok("op", s)
 
 
-def close(s: str) -> IgnoredParser[Token]:
-    """The closing bracket `s`, or the end of the text, where every open bracket closes."""
-    return skip(op(s) | finished)
+def closed(_: object) -> bool:
+    return True
 
 
-def make_object(members: list[tuple[str, Json | Missing]]) -> dict[str, Json]:
-    return {k: v for k, v in members if v is not MISSING}
+def ended(_: object) -> bool:
+    return False
+
+
+def close(s: str) -> Parser[Token, bool]:
+    """The closing bracket `s`, or the end of the text, where every open bracket closes: whether the
+    bracket was there.
+    """
+    return (op(s) >> closed) | (finished >> ended)
+
+
+def make_object(members: list[tuple[str, Json | Missing]], is_closed: bool) -> dict[str, Json]:
+    d = {k: v for k, v in members if v is not MISSING}
+    return d if is_closed else OpenDict(d)
 
 
 def as_value(v: Json | Missing) -> Json | Missing:
     return v
 
 
-def make_array(items: list[Json | Missing]) -> list[Json]:
-    return [v for v in items if v is not MISSING]
+def make_array(items: list[Json | Missing], is_closed: bool) -> list[Json]:
+    a = [v for v in items if v is not MISSING]
+    return a if is_closed else OpenList(a)
 
 
 value: ForwardDeclParser[Token, Json | Missing] = forward_decl().named("value")
 value_or_end = value | nothing
 after_key = -op(":") + value_or_end | nothing
 member = string + after_key
-json_object = -op("{") + separated(member, op(","), trailing=True) + close("}") >> make_object
-json_array = -op("[") + separated(value, op(","), trailing=True) + close("]") >> make_array
+object_body = (separated(member, op(","), trailing=True) + close("}")).starmap(make_object)
+json_object = -op("{") + object_body
+json_array = -op("[") + (separated(value, op(","), trailing=True) + close("]")).starmap(make_array)
 # `Parser` is invariant in its value: `define()` takes a parser of `Json | Missing` exactly.
 value.define((json_object | json_array | string | number | literal | unfinished) >> as_value)
 # --8<-- [end:containers]
@@ -180,6 +220,17 @@ def parse(text: str) -> Document | Missing:
 
 
 # --8<-- [end:parse]
+
+# --8<-- [start:find]
+in_reply = (-regex(r"\{") + tokenized(object_body, tokenizer)).compile()
+
+
+def find(reply: str) -> Iterator[Located[dict[str, Json]]]:
+    """The objects in a model's reply, with where each is, the last one possibly unfinished."""
+    return in_reply.scan_text(reply)
+
+
+# --8<-- [end:find]
 
 if __name__ == "__main__":
     import sys
