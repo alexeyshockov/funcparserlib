@@ -1798,8 +1798,10 @@ class CompiledParser[A, B]:
     ) -> Iterator[Located[B]]:
         """The parts of `tokens` the grammar reads, as `Parser.scan()` gives them.
 
-        Generated code tries the grammar at each index, and the parser decides where it cannot. It
-        reads the type of every token first, as `CompiledParser.parse()` does.
+        Generated code tries the grammar at each index, and the parser decides where it cannot:
+        there a function given to `>>` runs a second time, and what it raises the second time is
+        what the scan raises. It reads the type of every token first, as `CompiledParser.parse()`
+        does.
         """
         _require_tokens(tokens)
         generated = self._scanner(text=False)
@@ -1809,7 +1811,8 @@ class CompiledParser[A, B]:
         """The parts of `text` the grammar reads, as `Parser.scan_text()` gives them.
 
         Generated code tries the grammar where `Parser.scan_text()` does, and the parser decides
-        where it cannot.
+        where it cannot: there a function given to `>>` runs a second time, and what it raises the
+        second time is what the scan raises.
         """
         _require_text(text)
         if self._text_scan is None:
