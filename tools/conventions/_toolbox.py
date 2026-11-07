@@ -15,6 +15,8 @@ tool's, the first failing one's when it runs once per distribution, 2 when a pat
 """
 
 import configparser
+import functools
+import os
 import re
 import subprocess
 import sys
@@ -30,9 +32,12 @@ REFUSED = 2
 PYTHON = ".venv"
 INTERPRETER = ".venv/bin/python"
 
-# What ty reads as Python. It has no file filter of its own and reports diagnostics for any file
-# handed to it.
+# What mypy, basedpyright and pyrefly read as Python.
 PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
+
+# What ty reads as Python, notebooks included. It has no file filter of its own and reports
+# diagnostics for any file handed to it.
+TY_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
 
 # Where a distribution's typesafety suite lives: `assert_type` cases that exist to be judged by
 # basedpyright in `just types-api`, and that ty disagrees with on some lines by design.
@@ -205,20 +210,49 @@ def target_versions(root: Path) -> dict[str, str]:
     return versions
 
 
+@functools.cache
+def _glob(glob: str) -> re.Pattern[str]:
+    """`glob` as ruff matches it: `*` crosses `/`, `**/` is also no directory, `{a,b}` is either."""
+    out, i = [], 0
+    while i < len(glob):
+        if glob.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif glob.startswith("*", i):
+            out.append(".*")
+            i += 2 if glob.startswith("**", i) else 1
+        elif glob[i] == "?":
+            out.append(".")
+            i += 1
+        elif glob[i] == "[" and (end := glob.find("]", i + 2)) != -1:
+            body = glob[i + 1 : end]
+            out.append("[" + ("^" + body[1:] if body.startswith("!") else body) + "]")
+            i = end + 1
+        elif glob[i] == "{" and (end := glob.find("}", i)) != -1:
+            either = "|".join(_glob(a).pattern for a in glob[i + 1 : end].split(","))
+            out.append(f"(?:{either})")
+            i = end + 1
+        else:
+            out.append(re.escape(glob[i]))
+            i += 1
+    return re.compile("".join(out))
+
+
 def version_of(path: str, versions: Mapping[str, str]) -> str | None:
     """The version the globs give `path`, `None` when no glob matches it.
 
-    A glob is matched against the path from the repository root, and a glob without a `/` against
-    the file name too. Two globs that match one file with different versions are refused.
+    A glob is matched as ruff matches it, against the path from the repository root, and a glob
+    without a `/` against the file name too. Two globs that match one file with different versions
+    are refused.
 
     Raises:
         Refused: two matching globs disagree.
     """
-    file = PurePosixPath(path)
+    name = PurePosixPath(path).name
     found = {
         version
         for glob, version in versions.items()
-        if file.full_match(glob) or ("/" not in glob and PurePosixPath(file.name).full_match(glob))
+        if _glob(glob).fullmatch(path) or ("/" not in glob and _glob(glob).fullmatch(name))
     }
     if len(found) > 1:
         raise Refused(
@@ -227,8 +261,14 @@ def version_of(path: str, versions: Mapping[str, str]) -> str | None:
     return found.pop() if found else None
 
 
-def pinned(root: Path, under: Sequence[str], versions: Mapping[str, str]) -> dict[str, str]:
-    """Each Python file under `under` (the whole tree when empty) the globs give a version, with it.
+def pinned(
+    root: Path,
+    under: Sequence[str],
+    versions: Mapping[str, str],
+    suffixes: frozenset[str] = PYTHON_SUFFIXES,
+) -> dict[str, str]:
+    """Each file of `suffixes` under `under` (the whole tree when empty) the globs pin, and its
+    version.
 
     `tools/` and the noxfile run on the toolbox's interpreter and are never pinned.
     """
@@ -236,7 +276,7 @@ def pinned(root: Path, under: Sequence[str], versions: Mapping[str, str]) -> dic
         return {}
     pins = {}
     for path in _visible(root, under):
-        if Path(path).suffix not in PYTHON_SUFFIXES or Path(path).parts[:1] == (TOOLBOX,):
+        if Path(path).suffix not in suffixes or Path(path).parts[:1] == (TOOLBOX,):
             continue
         if path != NOXFILE and (version := version_of(path, versions)):
             pins[path] = version
@@ -244,10 +284,10 @@ def pinned(root: Path, under: Sequence[str], versions: Mapping[str, str]) -> dic
 
 
 def _all_pinned(root: Path, path: str, pins: Mapping[str, str]) -> bool:
-    """Whether `path` is a directory every Python file of which is pinned."""
+    """Whether `path` is a directory every file of which ty reads is pinned."""
     if not pins or not (root / path).is_dir():
         return False
-    files = [p for p in _visible(root, [path]) if Path(p).suffix in PYTHON_SUFFIXES]
+    files = [p for p in _visible(root, [path]) if Path(p).suffix in TY_SUFFIXES]
     return bool(files) and all(p in pins for p in files)
 
 
@@ -256,6 +296,16 @@ def _by_version(pins: Mapping[str, str]) -> dict[str, list[str]]:
     for path, version in pins.items():
         groups.setdefault(version, []).append(path)
     return groups
+
+
+def _relative(root: Path, path: str) -> str:
+    """`path` as git lists it: from the repository root, with no `./` and no `..`."""
+    given = Path(path)
+    full = Path(os.path.normpath(given if given.is_absolute() else root / given))
+    for base in (root, root.resolve()):
+        if full.is_relative_to(base):
+            return full.relative_to(base).as_posix()
+    return path
 
 
 def _under(path: str, scope: Iterable[str]) -> bool:
@@ -329,6 +379,7 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
     noxfile = paths == [] and (root / NOXFILE).is_file()
     skipped_toolbox = False
     _existing(root, paths)
+    paths = [_relative(root, path) for path in paths]
     for path in paths:
         if Path(path).parts[:1] == (TOOLBOX,):
             skipped_toolbox = True
@@ -337,7 +388,7 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         elif Path(path) == Path(".") and (root / NOXFILE).is_file():
             noxfile = True
             named.append(path)
-        elif (root / path).is_dir() or Path(path).suffix in PYTHON_SUFFIXES:
+        elif (root / path).is_dir() or Path(path).suffix in TY_SUFFIXES:
             named.append(path)
     if skipped_toolbox:
         print("ty: tools/ is checked by 'just types-checks', on the Python in .venv-tools")
@@ -346,7 +397,8 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         return 0
     excluded = _grouped(root, excludes, dists)
     swept = suites(root, named, dists)
-    found = pinned(root, named, target_versions(root)) if named or not paths else {}
+    versions = target_versions(root)
+    found = pinned(root, named, versions, TY_SUFFIXES) if named or not paths else {}
     pins = {path: v for path, v in found.items() if not _under(path, [*swept, *excludes])}
     floor_paths = [p for p in named if p not in pins and not _all_pinned(root, p, pins)]
     groups = _grouped(root, floor_paths, dists) if named else {".": []}
@@ -434,6 +486,7 @@ def _checker(
                 return _run(base(at))
             paths = covered
         _existing(root, paths)
+        paths = [_relative(root, path) for path in paths]
         dirs = [p for p in paths if (root / p).is_dir()]
         pins = pinned(root, dirs, versions) if dirs else {}
         for path in paths:
@@ -447,7 +500,10 @@ def _checker(
                 files += [
                     p
                     for p in _visible(root, [path])
-                    if Path(p).suffix in PYTHON_SUFFIXES and p not in pins
+                    if Path(p).suffix in PYTHON_SUFFIXES
+                    and p not in pins
+                    and Path(p).parts[:1] != (TOOLBOX,)
+                    and p != NOXFILE
                 ]
             else:
                 files.append(path)

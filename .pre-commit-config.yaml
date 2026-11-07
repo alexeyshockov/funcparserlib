@@ -142,9 +142,10 @@ repos:
 
   # Whitespace, line endings and encoding, checked against `.editorconfig` — one
   # declaration for editors, humans and the gate, instead of the rules living invisibly
-  # inside fixer scripts. It replaces `trailing-whitespace` and `mixed-line-ending` as the
-  # gate (they have no check mode at all, so they stay below as fix-only), and it covers
-  # what they never reached: `.toml`, dotfiles, and every other text file. A missing final
+  # inside fixer scripts. It is the gate in place of `trailing-whitespace`, which has no
+  # check mode, and `mixed-line-ending`, whose check mode (`--fix=no`) would only repeat it;
+  # both stay below as fix-only. It covers what they never reached: `.toml`, dotfiles, and
+  # every other text file. A missing final
   # newline has no fixer here: `end-of-file-fixer` also trims blank lines after it, which
   # `insert_final_newline` allows, so `just fix` would rewrite what `just check` passes.
   #
@@ -187,9 +188,8 @@ repos:
       - id: check-added-large-files
         stages: [pre-commit]
         exclude: *do_not_rewrite
-      # Fix-only, by nature: these two have no check mode, which is exactly why
-      # editorconfig-checker is the gate and they are its repair side. Each does what
-      # `.editorconfig` declares and nothing more.
+      # Fix-only: editorconfig-checker is the gate, and these two are its repair side, each
+      # for a rule `.editorconfig` declares (`trim_trailing_whitespace`, `end_of_line`).
       - id: trailing-whitespace
         stages: [manual]
         exclude: *do_not_rewrite
