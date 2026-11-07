@@ -833,7 +833,7 @@ def test_a_character_is_not_skipped_over_by_a_text(run: Runner) -> None:
 
 def test_a_text_and_tok_in_one_grammar_cannot_read_the_text(run: Runner) -> None:
     read_text: P = spaced.regex("a")
-    with pytest.raises(AttributeError, match="has no attribute 'type'"):
+    with pytest.raises(ValueError, match="cannot parse text"):
         run(read_text + tok("b"), "ab")
 
 
@@ -1089,3 +1089,19 @@ def test_regex_and_a_skipping_regex_take_the_flags_of_the_regex() -> None:
 def test_a_skip_pattern_is_a_str(pattern: object) -> None:
     with pytest.raises(TypeError, match="skip pattern must be a str"):
         skipping(loose(pattern))
+
+
+def test_a_grammar_of_tok_says_it_cannot_parse_text() -> None:
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text") as caught:
+        tok("x").parse_text("abc")
+    assert "Parser.compile()" in caught.value.__notes__[0]
+
+
+def test_a_grammar_of_tok_says_it_cannot_parse_bytes() -> None:
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
+        tok("x").parse_bytes(b"abc")
+
+
+def test_a_function_after_a_text_parser_keeps_its_attribute_error() -> None:
+    with pytest.raises(AttributeError, match="nothing"):
+        (regex("a") >> (lambda s: s.nothing)).parse_text("a")

@@ -791,7 +791,8 @@ class Parser[A, B]:
         `a()` and `some()` of a character. A grammar of `tok()` reads tokens: give those to
         `Parser.parse()`, or a tokenizer to `Parser.compile()`.
 
-        It raises what `Parser.parse()` raises, and `TypeError` for anything but a `str`.
+        It raises what `Parser.parse()` raises, `TypeError` for anything but a `str`, and
+        `ValueError` for a grammar of `tok()` that reaches a character.
         """
         # Imported here: the module reads the classes of this one.
         from ._compile import leading_skip  # noqa: PLC0415
@@ -800,20 +801,31 @@ class Parser[A, B]:
         skip = leading_skip(self)
         m = skip.match(text) if skip is not None else None
         start = m.end() if m is not None else 0
-        res = self.run(cast("Any", text), State(start, start))
+        res = self._run_input(text, start, "text")
         return self._result(res, _Located(text, skip), _describe)
 
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
 
         It is experimental, as `funcparserlib.binary` is, whose grammars it runs. It raises what
-        `Parser.parse()` raises, and `TypeError` for anything but `bytes` or a `bytearray`. Parsers
-        read `bytes` methods and slices, so to parse a `memoryview`, make the copy with
-        `bytes(view)`.
+        `Parser.parse()` raises, `TypeError` for anything but `bytes` or a `bytearray`, and
+        `ValueError` for a grammar of `tok()` that reaches a byte. Parsers read `bytes` methods and
+        slices, so to parse a `memoryview`, make the copy with `bytes(view)`.
         """
         _require_bytes(data)
-        res = self.run(cast("Any", data), State(0, 0))
-        return self._result(res, _Offsets(data), _describe)
+        return self._result(self._run_input(data, 0, "bytes"), _Offsets(data), _describe)
+
+    def _run_input(self, data: str | bytes | bytearray, start: int, kind: str) -> ParsingResult[B]:
+        """The result of `data` from `start`, which a grammar of `tok()` cannot read."""
+        # Imported here: the module reads the classes of this one.
+        from ._compile import reads_tokens  # noqa: PLC0415
+
+        try:
+            return self.run(cast("Any", data), State(start, start))
+        except AttributeError as e:
+            if reads_tokens(self):
+                raise _reads_tokens_error(kind) from e
+            raise
 
     def _result(
         self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
@@ -1579,6 +1591,14 @@ def _nested(
         return (replace(found, end=end, rejected=True, cause=error),)
     errors = error.exceptions if isinstance(error, ParseErrors) else (error,)
     return tuple(Problem(e.msg, start, end, context, False, True, e) for e in errors)
+
+
+def _reads_tokens_error(kind: str) -> ValueError:
+    """The error of a grammar of `tok()` given `kind` of input, text or bytes."""
+    return with_hint(
+        ValueError(f"a grammar of tokens cannot parse {kind}"),
+        "Pass tokens to `Parser.parse()`, or the tokenizer of the grammar to `Parser.compile()`.",
+    )
 
 
 def _require_text(text: object) -> None:

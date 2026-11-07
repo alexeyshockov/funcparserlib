@@ -1833,7 +1833,7 @@ def test_a_byte_and_the_end_work_on_text_and_give_its_characters() -> None:
 
 @pytest.mark.interpreted_only
 def test_tok_on_bytes_is_a_parser_of_tokens_that_bytes_are_not() -> None:
-    with pytest.raises(AttributeError, match="type"):
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse bytes"):
         tok("a").parse_bytes(b"a")
     with pytest.raises(ValueError, match="without a tokenizer"):
         tok("a").compile().parse_bytes(b"a")
