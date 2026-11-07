@@ -151,6 +151,37 @@ the one that reads the most, the first of them when two tie:
 
 It runs every alternative where `|` stops at the first that succeeds, so it costs more on alternatives that read a lot.
 
+## Repetition Keeps What It Read
+
+`many()`, `oneplus()` and `maybe()` keep every item they read, and what follows starts after the last one. A grammar
+that wants the last number apart from the others never gets it:
+
+```pycon
+>>> p = many(number) + number
+
+>>> p.parse(tokenize("1 2 3"))
+Traceback (most recent call last):
+    ...
+funcparserlib.parser.NoParseError: got unexpected end of input, expected: number
+
+```
+
+Read them all, and take the last one apart in a function:
+
+```pycon
+>>> from funcparserlib.parser import oneplus
+
+>>> p = oneplus(number) >> (lambda ns: (ns[:-1], ns[-1]))
+
+>>> p.parse(tokenize("1 2 3"))
+([1, 2], 3)
+
+```
+
+A regular expression gives back what `*` read until the rest matches, so `x*x` matches `xx`. A grammar says where a
+repetition ends: by what its items are, as above, or by what comes after each of them, as in
+`many(number + -op("+")) + number`.
+
 ## Watch Out for Left Recursion
 
 There are certain kinds of grammar rules you cannot use with `funcparserlib`. These are the rules that contain recursion

@@ -3118,6 +3118,11 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     Return a parser that infinitely applies the parser `p` to the input sequence of tokens as long
     as it successfully parses them. The parsed value is a list of the sequentially parsed values.
 
+    It keeps every `p` that succeeded: what follows `many(p)` starts after the last one, and is
+    never tried at an earlier position. So `many(a("x")) + a("x")` fails on `"xx"`, where the regex
+    `x*x` matches it. A `p` that fails partway ends the list, and the tokens it read are read again
+    by what follows.
+
     Examples:
         ```pycon
         >>> expr = many(a("x"))
@@ -3129,6 +3134,10 @@ def many[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
         ['x', 'x', 'x']
         >>> expr.parse("y")
         []
+        >>> (many(a("x")) + a("x")).parse("xx")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected end of input, expected: 'x'
 
         ```
     """
@@ -3366,6 +3375,9 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
 def maybe[A, B](p: Parser[A, B]) -> Parser[A, B | None]:
     """Return a parser that returns `None` if the parser `p` fails.
 
+    It keeps a `p` that succeeded: what follows `maybe(p)` starts after it, and is never tried where
+    `p` started. So `maybe(a("x")) + a("x")` fails on `"x"`, where the regex `x?x` matches it.
+
     Examples:
         ```pycon
         >>> expr = maybe(a("x"))
@@ -3373,6 +3385,10 @@ def maybe[A, B](p: Parser[A, B]) -> Parser[A, B | None]:
         'x'
         >>> expr.parse("y") is None
         True
+        >>> (maybe(a("x")) + a("x")).parse("x")
+        Traceback (most recent call last):
+            ...
+        funcparserlib.parser.NoParseError: got unexpected end of input, expected: 'x'
 
         ```
     """
@@ -3451,7 +3467,8 @@ def oneplus[A, B](p: Parser[A, B]) -> Parser[A, list[B]]:
     """Return a parser that applies the parser `p` one or more times.
 
     A similar parser combinator `many(p)` means apply `p` zero or more times, whereas `oneplus(p)`
-    means apply `p` one or more times.
+    means apply `p` one or more times. Like `many()`, it keeps every `p` that succeeded, and what
+    follows it starts after the last one.
 
     Examples:
         ```pycon
