@@ -1104,6 +1104,18 @@ def test_a_grammar_of_tok_says_it_cannot_parse_bytes() -> None:
         tok("x").parse_bytes(b"abc")
 
 
+def test_a_function_keeps_its_attribute_error_in_a_grammar_with_a_tok() -> None:
+    with pytest.raises(AttributeError, match="nothing"):
+        ((regex("a") >> (lambda s: s.nothing)) | loose(tok("n"))).parse_text("a")
+
+
+def test_a_grammar_says_it_cannot_parse_text_where_it_reaches_a_tok() -> None:
+    mixed = regex("a") | loose(tok("n"))
+    assert mixed.parse_text("a") == "a"
+    with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
+        mixed.parse_text("b")
+
+
 def test_a_function_after_a_text_parser_keeps_its_attribute_error() -> None:
     with pytest.raises(AttributeError, match="nothing"):
         (regex("a") >> (lambda s: s.nothing)).parse_text("a")

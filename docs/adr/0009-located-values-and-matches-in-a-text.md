@@ -57,14 +57,17 @@ Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without 
 
 | Grammar | Interpreted | Compiled |
 | --- | ---: | ---: |
-| Plain | 27 ms | 5.4 ms |
-| `located()` on each value | 58 ms | 60 ms |
+| Plain | 27 ms | 6.1 ms |
+| `located()` on each value | 29 ms | 29 ms |
 
 On 800 KB of text, best of 3, `matches()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
 one in 0.017 ms, and `replace()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
 
 Rejected:
 
+- **Finding the end of a span in the text, as the earliest offset the rest of it fully matches the skip pattern.** The
+  rest of `"a #b"` matches a comment from `#`, so the span of a string ended inside it and `replace()` left the rest
+  of the string in the output. It also read the text from the start of each span.
 - **A position parser that reads nothing, `position + p + position`.** It gives `State.pos`, past the skip: `foo`
   followed by a comment measured 0 to 11 where the value ends at 3.
 - **`tok()` giving a `str` subclass with a position.** At runtime it keeps 1.0 grammars working: `==`, `hash`,
@@ -90,9 +93,8 @@ Rejected:
 - A compiled grammar with `located()` runs at about the speed of the interpreted one, and `matches()` of a compiled
   grammar reads through its parser. Generated code for `located()` and a generated entry can come later, without
   changing what they give.
-- Finding where a span ends reads the text from its start, so a span of a whole document costs more than a small
-  one. Nested spans read their text once for each level. A value that ends with text the skip matches ends earlier,
-  as the skip is the first one of the grammar inside `located()`, and a parser does not say where its value ended.
+- `State` keeps how much the last parser of text skipped, so a span ends where that parser stopped, whatever the skip
+  pattern matches inside the value. A parser function of a user's that skips by moving `pos` has its skip in the span.
 - Inside a `prefixed()` region, positions are relative to the region, as it is parsed as its own input (ADR 0005).
 - A function after `>>` runs for an attempt that fails later at that offset, as on any alternative that fails.
 - Scanning a sequence of tokens is left out. `parse()` takes tokens and `parse_text()` text for the reason ADR 0003

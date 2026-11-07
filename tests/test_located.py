@@ -68,6 +68,70 @@ def test_a_rule_spans_all_it_read_without_the_skip_after_it(run: Run) -> None:
     assert pair == Located(("foo", "bar"), 0, 7)
 
 
+quoted = spaced.regex(r'"[^"]*"')
+
+
+def test_a_span_keeps_what_the_skip_pattern_would_match_inside_the_value(run: Run) -> None:
+    assert run(quoted.located() + -spaced.end, '"a #b"  # c\n') == Located('"a #b"', 0, 6)
+
+
+def test_a_failed_part_leaves_the_end_of_the_span_where_it_was(run: Run) -> None:
+    rule = (word + maybe(lit("!")) + many(lit("?"))).located()
+    assert run(rule + -spaced.end, "foo  # c\n") == Located(("foo", None, []), 0, 3)
+
+
+def test_the_end_of_the_text_leaves_the_end_of_the_span_where_it_was(run: Run) -> None:
+    assert run((word + -spaced.end).located(), "foo  # c\n") == Located("foo", 0, 3)
+    assert run((regex("a") + -spaced.end).located(), "a  ") == Located("a", 0, 1)
+
+
+def test_a_label_or_a_commit_around_a_part_keeps_the_end_of_the_span(run: Run) -> None:
+    assert run(word.context("a word").located() + -spaced.end, "foo  ") == Located("foo", 0, 3)
+    assert run(commit(word).located() + -spaced.end, "foo  ") == Located("foo", 0, 3)
+    assert run((word + commit(maybe(lit("!")))).located() + -spaced.end, "foo  ") == Located(
+        ("foo", None), 0, 3
+    )
+
+
+def test_a_checked_or_recovered_part_keeps_the_end_of_the_span(run: Run) -> None:
+    assert run(word.validated(str).located() + -spaced.end, "foo  ") == Located("foo", 0, 3)
+    assert run(word.recover(default="").located() + -spaced.end, "foo  ") == Located("foo", 0, 3)
+    rule = (word + maybe(lit("!")).recover()).located()
+    assert run(rule + -spaced.end, "foo  ") == Located(("foo", None), 0, 3)
+
+
+def test_a_recovered_rejection_keeps_the_end_of_the_span() -> None:
+    def refuse(value: str) -> str:
+        raise Invalid("no words")
+
+    seen: list[Located[str]] = []
+    rule = (word.validated(refuse).recover(default="x").located() >> seen.append) + -spaced.end
+    with pytest.raises(ParseErrors):
+        rule.parse_text("foo  ")
+    assert seen[0] == Located("x", 0, 3)
+
+
+def test_a_prefixed_region_keeps_the_end_of_the_span(run: Run) -> None:
+    rule = prefixed(regex(r"\d") >> int, word).located()
+    assert run(rule, "5foo  ") == Located("foo", 0, 4)
+
+
+def test_a_span_that_read_nothing_after_a_skip_stays_empty(run: Run) -> None:
+    grammar = word + maybe(lit("!")).located() + -spaced.end
+    assert run(grammar, "foo  ") == ("foo", Located(None, 5, 5))
+
+
+def test_a_rejected_value_is_shown_whole() -> None:
+    def refuse(value: str) -> str:
+        raise Invalid("no strings")
+
+    with pytest.raises(ParseErrors) as caught:
+        quoted.validated(refuse).parse_text('"a #b"  # c')
+    description = caught.value.exceptions[0].description
+    assert description is not None
+    assert description.text == repr('"a #b"')
+
+
 def test_located_values_nest(run: Run) -> None:
     pair = (word.located() + word.located()).located()
     assert run(pair, "a  b") == Located((Located("a", 0, 1), Located("b", 3, 4)), 0, 4)
@@ -172,6 +236,12 @@ def test_matches_do_not_overlap() -> None:
 
 def test_the_skip_after_a_match_stays_in_the_text() -> None:
     assert word.replace("foo  # c\nbar", lambda m: m.value.upper()) == "FOO  # c\nBAR"
+
+
+def test_a_replaced_match_leaves_none_of_its_text() -> None:
+    assert quoted.replace('x "a #b" y "c" z', lambda m: "S") == "x S y S z"
+    assert quoted.compile().replace('x "a #b" y', lambda m: "S") == "x S y"
+    assert [m.end for m in quoted.matches('x "a #b"  # c\n')] == [8]
 
 
 def test_text_without_a_match_gives_no_matches() -> None:

@@ -85,7 +85,7 @@ import logging
 import re
 import warnings
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import field, replace
 from operator import attrgetter
 from os import PathLike
 from pathlib import Path
@@ -147,6 +147,10 @@ class Invalid(Exception):
         self.keep = keep
 
 
+class _NotAToken(AttributeError):
+    """What `tok()` raises for an item without a type, as a character or a byte has none."""
+
+
 class _Undecided(Exception):
     """Raised by generated code: the interpreted parser has to decide this parse."""
 
@@ -194,11 +198,10 @@ class _Offsets(Sequence[Any]):
 class _TextPlaces(Sequence[Any]):
     """The characters of a text, for errors: each knows its line and column."""
 
-    __slots__ = ("_skip", "_text")
+    __slots__ = ("_text",)
 
-    def __init__(self, text: str, skip: re.Pattern[str] | None = None) -> None:
+    def __init__(self, text: str) -> None:
         self._text = text
-        self._skip = skip
 
     def __len__(self) -> int:
         return len(self._text)
@@ -221,12 +224,7 @@ class _TextPlaces(Sequence[Any]):
         return TokenDescription("end of input", place, place)
 
     def span(self, start: int, end: int) -> TokenDescription:
-        """The text from `start` to `end`, exclusive, without the skip and whitespace at its end."""
-        if self._skip is not None:
-            for stop in range(start + 1, end):
-                if self._skip.fullmatch(self._text, stop, end):
-                    end = stop
-                    break
+        """The text from `start` to `end`, exclusive, without the whitespace at its end."""
         text = self._text[start:end].rstrip()
         last = start + max(len(text) - 1, 0)
         return TokenDescription(repr(text), self._place(start), self._place(last))
@@ -284,6 +282,8 @@ class State:
     expected: tuple[Expectation, ...] = ()
     context: tuple[str, ...] = ()
     problems: tuple[Problem, ...] = ()
+    _skipped: int = field(default=0, compare=False)
+    """How much of the text before `pos` the parser that read last skipped after its value."""
 
     def rejected_since(self, s: State) -> bool:
         """Whether a part read since the state `s` has no value, because it was rejected.
@@ -303,21 +303,31 @@ class State:
     def expect(self, p: Parser[Any, Any]) -> State:
         """This state with `p` among the parsers that failed, unless a parser got further."""
         if self.pos == self.max:
-            return State(
-                self.pos, self.max, (*self.expected, (p, self.context)), self.context, self.problems
-            )
+            expected = (*self.expected, (p, self.context))
+            return State(self.pos, self.max, expected, self.context, self.problems, self._skipped)
         return self
 
     def _reset_pos_to(self, s: State) -> State:
         """`s`, with the furthest position and what failed there from this state."""
         # dataclasses.replace() hits performance, as it performs additional validation
-        return State(s.pos, self.max, self.expected, s.context, s.problems)
+        return State(s.pos, self.max, self.expected, s.context, s.problems, s._skipped)
 
     def reset_pos(self, pos: int) -> State:
         """This state at `pos`; reaching past `max` moves it, and forgets what failed there."""
         if pos > self.max:
             return State(pos, pos, (), self.context, self.problems)
         return State(pos, self.max, self.expected, self.context, self.problems)
+
+    def _past_skip(self, end: int, pos: int) -> State:
+        """This state at `pos`, for a value that ends at `end` and a skip from there to `pos`."""
+        skipped = pos - end
+        if pos > self.max:
+            return State(pos, pos, (), self.context, self.problems, skipped)
+        return State(pos, self.max, self.expected, self.context, self.problems, skipped)
+
+    def _value_end(self, start: int) -> int:
+        """Where the value read from `start` to `pos` ends, before the skip after it."""
+        return max(start, self.pos - self._skipped)
 
     def __str__(self) -> str:
         """The position and the furthest position, as a tuple."""
@@ -694,7 +704,7 @@ class Parser[A, B]:
                 # Nothing got past this parser's start: it, not its parts, is what was expected.
                 st = res.state
                 expected = (*s.expected, (self, s.context))
-                failed = State(st.pos, st.max, expected, st.context, st.problems)
+                failed = State(st.pos, st.max, expected, st.context, st.problems, st._skipped)
                 return ParsingFailure(failed, res.message, res.committed)
             return res
 
@@ -819,7 +829,7 @@ class Parser[A, B]:
         m = skip.match(text) if skip is not None else None
         start = m.end() if m is not None else 0
         res = self._run_input(text, start, "text")
-        return self._result(res, _TextPlaces(text, skip), _describe)
+        return self._result(res, _TextPlaces(text), _describe)
 
     def parse_bytes(self, data: bytes | bytearray) -> B:
         """Parse the bytes, with the offset of the bytes in errors, in hexadecimal.
@@ -858,20 +868,20 @@ class Parser[A, B]:
             ```
         """
         # Imported here: the module reads the classes of this one.
-        from ._compile import leading_skip, reads_tokens  # noqa: PLC0415
+        from ._compile import reads_tokens  # noqa: PLC0415
 
         _require_text(text)
         if reads_tokens(self):
             raise _reads_tokens_error("text")
-        return self._matches(text, leading_skip(self))
+        return self._matches(text)
 
-    def _matches(self, text: str, skip: re.Pattern[str] | None) -> Iterator[Located[B]]:
+    def _matches(self, text: str) -> Iterator[Located[B]]:
         offset = 0
         while offset < len(text):
             res = self.run(cast("Any", text), State(offset, offset))
             failed = isinstance(res, ParsingFailure)
             if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
-                self._result(res, _TextPlaces(text, skip), _describe)
+                self._result(res, _TextPlaces(text), _describe)
             if failed:
                 offset += 1
                 continue
@@ -882,7 +892,7 @@ class Parser[A, B]:
                     "A match has to read something: repeat the parser that maybe(), many() or"
                     " pure() wraps.",
                 )
-            yield Located(res.value, offset, _value_end(text, offset, end, skip))
+            yield Located(res.value, offset, res.state._value_end(offset))
             offset = end
 
     def replace(self, text: str, f: Callable[[Located[B]], str]) -> str:
@@ -908,16 +918,11 @@ class Parser[A, B]:
         return "".join(parts)
 
     def _run_input(self, data: str | bytes | bytearray, start: int, kind: str) -> ParsingResult[B]:
-        """The result of `data` from `start`, which a grammar of `tok()` cannot read."""
+        """The result of `data` from `start`, which a `tok()` cannot read."""
         try:
             return self.run(cast("Any", data), State(start, start))
-        except AttributeError as e:
-            # Imported here: the module reads the classes of this one.
-            from ._compile import reads_tokens  # noqa: PLC0415
-
-            if reads_tokens(self):
-                raise _reads_tokens_error(kind) from e
-            raise
+        except _NotAToken as e:
+            raise _reads_tokens_error(kind) from e
 
     def _result(
         self, res: ParsingResult[B], tokens: Sequence[Any], show: Callable[[Any], TokenDescription]
@@ -1048,7 +1053,7 @@ class Parser[A, B]:
         @_parser(self.name, shape=self._shape, first=self._first)
         def _recover(tokens: Sequence[A], s: State) -> ParsingResult[Any]:
             # A fresh furthest position tells whether this parser read a token.
-            res = self.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
+            res = self.run(tokens, State(s.pos, s.pos, (), s.context, s.problems, s._skipped))
             st = res.state
             if res.__class__ is not ParsingFailure:
                 if st.rejected_since(s):
@@ -1155,10 +1160,10 @@ class Parser[A, B]:
 
         @_parser(self.name, shape=self._shape, first=self._first)
         def _context(tokens: Sequence[A], s: State) -> ParsingResult[B]:
-            inner = State(s.pos, s.max, s.expected, (*s.context, label), s.problems)
+            inner = State(s.pos, s.max, s.expected, (*s.context, label), s.problems, s._skipped)
             res = self.run(tokens, inner)
             st = res.state
-            out = State(st.pos, st.max, st.expected, s.context, st.problems)
+            out = State(st.pos, st.max, st.expected, s.context, st.problems, st._skipped)
             if isinstance(res, ParsingFailure):
                 return ParsingFailure(out, res.message, res.committed)
             return ParsingSuccess(res.value, out)
@@ -1208,11 +1213,14 @@ class Parser[A, B]:
             try:
                 return ParsingSuccess(f(res.value), st)
             except Invalid as e:
-                problem = Problem(e.message, s.pos, st.pos, s.context, False, not e.keep, e)
+                end = st._value_end(s.pos)
+                problem = Problem(e.message, s.pos, end, s.context, False, not e.keep, e)
                 found, value = (problem,), res.value if e.keep else None
             except (NoParseError, ParseErrors) as e:
-                found, value = _nested(tokens, s.pos, st.pos, s.context, e, expected), None
-            checked = State(st.pos, st.max, st.expected, st.context, (*st.problems, *found))
+                end = st._value_end(s.pos)
+                found, value = _nested(tokens, s.pos, end, s.context, e, expected), None
+            problems = (*st.problems, *found)
+            checked = State(st.pos, st.max, st.expected, st.context, problems, st._skipped)
             return ParsingSuccess(cast("C", value), checked)
 
         # In generated code it is a conversion: what `f` raises leaves that code, as any exception.
@@ -1382,9 +1390,9 @@ class Parser[A, B]:
         """A parser of the same input that gives its value with where it was read from.
 
         `Located.start` and `Located.end` are indexes into what is parsed: character offsets in a
-        text and token indexes in tokens. In a grammar of `skipping()`, a span ends before the skip
-        read after the value, so a value that ends with text the skip pattern matches ends earlier
-        too. Inside a `prefixed()` region, they are relative to the region.
+        text and token indexes in tokens. In a grammar of `skipping()`, a span ends where the last
+        parser that read text stopped, before the skip read after it. Inside a `prefixed()` region,
+        they are relative to the region.
 
         A grammar with `located()` compiles, and runs this part of it as the parser does.
 
@@ -1397,23 +1405,13 @@ class Parser[A, B]:
 
             ```
         """
-        # Imported here: the module reads the classes of this one.
-        from ._compile import leading_skip  # noqa: PLC0415
-
-        skips: list[re.Pattern[str] | None] = []
 
         @_parser(self.name, shape=self._shape, first=self._first)
         def _located(tokens: Sequence[A], s: State) -> ParsingResult[Located[B]]:
             res = self.run(tokens, s)
             if res.state.problems is not s.problems and res.state.rejected_since(s):
                 return cast("ParsingResult[Located[B]]", res)
-            end = res.state.pos
-            if isinstance(tokens, str):
-                # Read here: a `forward_decl()` is defined by the time a parse starts.
-                if not skips:
-                    skips.append(leading_skip(self))
-                end = _value_end(tokens, s.pos, end, skips[0])
-            return res.map(lambda value: Located(value, s.pos, end))
+            return res.map(lambda value: Located(value, s.pos, res.state._value_end(s.pos)))
 
         _located._form = ("located", self)
         return _located
@@ -1739,15 +1737,6 @@ def _nested(
     return tuple(Problem(e.msg, start, end, context, False, True, e) for e in errors)
 
 
-def _value_end(text: str, start: int, end: int, skip: re.Pattern[str] | None) -> int:
-    """Where the value read from `start` to `end` ends, before the skip at the end of that text."""
-    if skip is not None:
-        for stop in range(start + 1, end):
-            if skip.fullmatch(text, stop, end):
-                return stop
-    return end
-
-
 def _reads_tokens_error(kind: str) -> ValueError:
     """The error of a grammar of `tok()` given `kind` of input, text or bytes."""
     return with_hint(
@@ -1791,7 +1780,9 @@ def _closed(st: State, s: State) -> State:
     """`st` with the rejections since `s` closed, so what comes after has values again."""
     done = len(s.problems)
     problems = tuple(replace(p, rejected=False) for p in st.problems[done:])
-    return State(st.pos, st.max, st.expected, st.context, (*st.problems[:done], *problems))
+    return State(
+        st.pos, st.max, st.expected, st.context, (*st.problems[:done], *problems), st._skipped
+    )
 
 
 def _merged(st: State, s: State) -> State:
@@ -1802,13 +1793,13 @@ def _merged(st: State, s: State) -> State:
         max_, expected = s.max, (*s.expected, *st.expected)
     else:
         max_, expected = s.max, s.expected
-    return State(st.pos, max_, expected, st.context, st.problems)
+    return State(st.pos, max_, expected, st.context, st.problems, st._skipped)
 
 
 def _moved(s: State, offset: int) -> State:
     """`s` of a region that starts at `offset`, in the input around it."""
     problems = tuple(replace(p, start=p.start + offset, end=p.end + offset) for p in s.problems)
-    return State(s.pos + offset, s.max + offset, s.expected, s.context, problems)
+    return State(s.pos + offset, s.max + offset, s.expected, s.context, problems, s._skipped)
 
 
 def _read_region(
@@ -1822,9 +1813,10 @@ def _read_region(
     inner = body.run(region, State(0, 0, (), at.context, ()))
     st = _moved(inner.state, start)
     if inner.__class__ is not ParsingFailure and inner.state.max >= len(region):
-        st = State(st.pos, st.max, (), st.context, st.problems)
+        st = State(st.pos, st.max, (), st.context, st.problems, st._skipped)
     merged = _merged(st, at)
-    moved = State(merged.pos, merged.max, merged.expected, at.context, (*at.problems, *st.problems))
+    problems = (*at.problems, *st.problems)
+    moved = State(merged.pos, merged.max, merged.expected, at.context, problems, merged._skipped)
     if inner.__class__ is ParsingFailure:
         return inner._replace_state(moved)
     if inner.state.pos != len(region):
@@ -2704,7 +2696,10 @@ def tok(type: str, value: str | None = None) -> Parser[Token, str]:  # noqa: A00
     """
 
     def eq_type(t: Token) -> bool:
-        return t.type == type
+        try:
+            return t.type == type
+        except AttributeError as e:
+            raise _NotAToken(*e.args) from e
 
     def eq_token(t: object) -> bool:
         # What `t == Token(type, value)` compares, without building a token.
@@ -2757,7 +2752,7 @@ def commit[A, B](p: Parser[A, B]) -> Parser[A, B]:
     @_parser(p.name, shape=p._shape, first=p._first)
     def _commit(tokens: Sequence[A], s: State) -> ParsingResult[B]:
         # A fresh furthest position tells whether `p` read a token.
-        res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems))
+        res = p.run(tokens, State(s.pos, s.pos, (), s.context, s.problems, s._skipped))
         st = res.state
         merged = _merged(st, s)
         if isinstance(res, ParsingFailure):
@@ -3098,7 +3093,7 @@ class Skipping:
             end = read(text, s.pos)
             if end is None:
                 return ParsingFailure(s.expect(p))
-            return ParsingSuccess(text[s.pos : end], s.reset_pos(self._after_skip(text, end)))
+            return ParsingSuccess(text[s.pos : end], s._past_skip(end, self._after_skip(text, end)))
 
         form = ("text", regex.match if regex else None, value, self._skip)
         p: Parser[Any, str] = Parser._made_leaf(name, run, form)
@@ -3151,7 +3146,7 @@ class Skipping:
         def run(text: Any, s: State) -> ParsingResult[None]:
             start = self._after_skip(text, s.pos)
             if start >= len(text):
-                return ParsingSuccess(None, s.reset_pos(start))
+                return ParsingSuccess(None, s._past_skip(s._value_end(0), start))
             return ParsingFailure(s.expect(p))
 
         p: Parser[Any, None] = Parser._made_leaf("end of input", run, ("text_end", self._skip))
