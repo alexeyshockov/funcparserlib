@@ -111,8 +111,6 @@ Rejected:
 - **A function, `scan(p)`, as a parser of `many(p.located() | -anything)`.** It reads to the end of the input, so
   nothing can follow it: an entry point written as a combinator. It also read tokens, which these runners do not,
   and took 1.16 s on 842 KB, as it is not lazy and pays for an item at each character.
-- **A generated entry with a start position.** It would need new generated code and its own gates under ADR 0002,
-  for a speed nothing has asked for yet.
 - **`match()`.** In `re` it is one match at the start of the text. `matches()` reads as a test (ADR 0008).
 
 ## Consequences
@@ -120,13 +118,16 @@ Rejected:
 - `Located`, `Lines`, `Parser.located()`, `scan()`, `scan_text()` and `replace_text()` are public, and the glossary
   gets their terms.
 - A compiled grammar with `located()` on each value takes about a third more than one without, against four times as
-  much when it ran through the parser. A scan of a compiled grammar reads through its parser; a generated entry can
-  come later, without changing what it gives.
+  much when it ran through the parser.
+- A compiled scan runs the generated code of `located()` of its grammar at each offset or index, as a generated
+  function already takes the position it starts at, and the parser decides a position where that code cannot, as it
+  decides a failed parse (ADR 0002). It took 0.12 s against 0.58 s for a regex over 792 KB, 0.19 s against 0.84 s for
+  a grammar of `skipping()` over 800 KB, and 17 ms against 57 ms over 100,000 tokens. A scan of tokens reads the type
+  of every token first, as a compiled parse does, and a bound part of `tokenized()` runs as the parser, as inside any
+  compiled grammar. The shadow session compares each match of a scan with the compiled one.
 - `State` keeps how much the last parser of text skipped, so a span ends where that parser stopped, whatever the skip
   pattern matches inside the value. A parser function of a user's that skips by moving `pos` has its skip in the span.
 - Inside a `prefixed()` region, positions are relative to the region, as it is parsed as its own input (ADR 0005).
 - A function after `>>` runs for an attempt that fails later at that offset, as on any alternative that fails.
-- A scan of the tokens of another library is interpreted, as tokens with no types give generated code nothing to
-  test.
 - The Markdown recipe shows a migration over markdown-it: a construct found by `scan()`, its lines from the `map` of
   its tokens, and the canonical text with the prefix of each line put back.

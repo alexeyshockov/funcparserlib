@@ -183,6 +183,7 @@ def test_a_bound_grammar_takes_only_text() -> None:
         tokenized(total, tokenize).parse_bytes(b"1")
 
 
+@pytest.mark.interpreted_only
 def test_tokenizing_reads_each_offset_once_over_all_the_matches(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -287,6 +288,7 @@ def test_a_scan_that_reaches_a_tok_it_cannot_see_says_it_cannot_parse_text() -> 
         hidden.parse_text("a")
 
 
+@pytest.mark.interpreted_only
 def test_a_parse_of_another_text_inside_a_scan_keeps_the_tokens_the_scan_read(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

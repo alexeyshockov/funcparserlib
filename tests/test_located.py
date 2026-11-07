@@ -227,6 +227,7 @@ def test_replace_gives_what_re_gives(text: str) -> None:
     assert date.compile().replace_text(text, render) == expected
 
 
+@pytest.mark.interpreted_only
 def test_matches_stop_where_the_program_stops() -> None:
     seen: list[str] = []
     grammar = regex("a") >> (lambda value: seen.append(value) or value)
@@ -412,6 +413,7 @@ class Counted(list[Any]):
         return super().__iter__()
 
 
+@pytest.mark.interpreted_only
 def test_a_scan_of_tokens_reads_them_only_as_far_as_its_matches() -> None:
     tokens = Counted(tokenize("a = b ; " * 1000))
     tokens.read = []
@@ -453,3 +455,11 @@ def test_a_scan_of_tokens_refuses_text(text: Any) -> None:
 def test_a_span_that_ends_before_it_starts_is_refused() -> None:
     with pytest.raises(ValueError, match="span gave an end of 0, before its start of 4"):
         list(pair.scan(list(tokenize("a = b")), span=lambda tokens, start, end: (4, 0)))
+
+
+def test_a_part_that_reads_nothing_keeps_the_end_of_the_span_when_compiled(run: Run) -> None:
+    words = make_tokenizer(
+        [TokenSpec("space", r"\s+"), TokenSpec("name", r"[a-z]+")], skip={"space"}
+    )
+    bound = tokenized(many(tok("name")) >> " ".join, words)
+    assert run((bound + bound + -spaced.end).located(), "a  ") == Located(("a", ""), 0, 1)

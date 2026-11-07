@@ -1123,3 +1123,18 @@ def test_a_grammar_says_it_cannot_parse_text_where_it_reaches_a_tok() -> None:
 def test_a_function_after_a_text_parser_keeps_its_attribute_error() -> None:
     with pytest.raises(AttributeError, match="nothing"):
         (regex("a") >> (lambda s: s.nothing)).parse_text("a")
+
+
+def scanned(scan: Callable[[str], Any], text: str) -> object:
+    """The matches a scan gives, or what it raises."""
+    try:
+        return list(scan(text))
+    except Exception as e:  # noqa: BLE001 — what the scan raises is compared
+        return ("raised", type(e), str(e))
+
+
+@settings(max_examples=300, deadline=None)
+@given(grammars, texts)
+def test_a_compiled_scan_of_text_finds_what_the_parser_finds(grammar: P, text: str) -> None:
+    compiled = grammar.compile()
+    assert scanned(compiled.scan_text, text) == scanned(grammar.scan_text, text)

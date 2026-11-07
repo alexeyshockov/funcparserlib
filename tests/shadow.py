@@ -1,8 +1,10 @@
 """A pytest plugin that checks every parse of a run against the compiled parser.
 
-With `-p tests.shadow`, each `Parser.parse()`, `parse_text()` and `parse_bytes()` also runs on
-`Parser.compile()`, and a different value or error fails the test that made the call. So every test
-and every doc example is a test of generated code, with the inputs someone chose by hand.
+With `-p tests.shadow`, each `Parser.parse()`, `parse_text()`, `parse_bytes()` and `replace_text()`
+also runs on `Parser.compile()`, and a different value or error fails the test that made the call. A
+scan, `scan()` or `scan_text()`, runs on both in step: each match the test takes is compared with
+the compiled scan's, so a test that stops at the first match reads no further. So every test and
+every doc example is a test of generated code, with the inputs someone chose by hand.
 
 A function after `>>` runs once more in such a run, so a test that counts its calls is marked with
 `pytest.mark.interpreted_only`, as is one where the two differ on purpose.
@@ -56,11 +58,13 @@ def _code(p: Parser[Any, Any]) -> Any:
     return _compiled[id(p)][1]
 
 
-def _compare(code: Any, name: str, source: Any, options: Any, value: object, error: Any) -> None:
+def _compare(
+    code: Any, name: str, source: Any, args: Any, options: Any, value: object, error: Any
+) -> None:
     """Fail unless the compiled parser gives `value` or `error` for `source`."""
     found, failure = None, None
     try:
-        found = getattr(code, name)(source, **options)
+        found = getattr(code, name)(source, *args, **options)
     except Exception as e:  # noqa: BLE001 — what a function after `>>` raises is compared too
         failure = e
     if isinstance(failure, RecursionError) or isinstance(error, RecursionError):
@@ -74,21 +78,21 @@ def _compare(code: Any, name: str, source: Any, options: Any, value: object, err
 
 
 def _shadowed(method: Callable[..., Any], name: str) -> Callable[..., Any]:
-    def shadowed(self: Parser[Any, Any], source: Any, **options: Any) -> Any:
+    def shadowed(self: Parser[Any, Any], source: Any, *args: Any, **options: Any) -> Any:
         """What the parser gives, after the compiled parser gave the same."""
         global _inside  # noqa: PLW0603 — the compiled parser calls this method to make its errors
         if _inside:
-            return method(self, source, **options)
+            return method(self, source, *args, **options)
         _inside = True
         value, error = None, None
         try:
             try:
-                value = method(self, source, **options)
+                value = method(self, source, *args, **options)
             except Exception as e:  # noqa: BLE001 — raised again below
                 error = e
             code = _code(self)
             if code is not None and not (name == "parse_text" and code._reads_tokens):
-                _compare(code, name, source, options, value, error)
+                _compare(code, name, source, args, options, value, error)
         finally:
             _inside = False
         if error is not None:
@@ -98,12 +102,75 @@ def _shadowed(method: Callable[..., Any], name: str) -> Callable[..., Any]:
     return shadowed
 
 
+def _step(items: Iterator[Any]) -> tuple[str, Any]:
+    """The next of `items`, as what kind of outcome and what it is."""
+    global _inside  # noqa: PLW0603 — a parse inside a scan is part of the scan
+    outer, _inside = _inside, True
+    try:
+        return "value", next(items)
+    except StopIteration:
+        return "end", None
+    except Exception as e:  # noqa: BLE001 — compared, then raised again
+        return "raised", e
+    finally:
+        _inside = outer
+
+
+def _agree(mine: tuple[str, Any], theirs: tuple[str, Any], source: Any) -> None:
+    """Fail unless the compiled scan gave what the scan did at the same step."""
+    kind, item = mine
+    their_kind, their_item = theirs
+    if kind == "raised" and isinstance(item, RecursionError):
+        return
+    assert their_kind == kind, (
+        f"compiled gave {their_kind} {their_item!r} on {source!r}, not {item!r}"
+    )
+    if kind == "value":
+        assert _same(their_item, item), f"on {source!r}"
+    elif kind == "raised":
+        assert _outcome(their_item) == _outcome(item), f"on {source!r}"
+
+
+def _in_step(mine: Iterator[Any], theirs: Iterator[Any], source: Any) -> Iterator[Any]:
+    """The items of `mine`, each after `theirs` gave the same."""
+    while True:
+        step = _step(mine)
+        _agree(step, _step(theirs), source)
+        kind, item = step
+        if kind == "end":
+            return
+        if kind == "raised":
+            raise item
+        yield item
+
+
+def _shadowed_scan(method: Callable[..., Any], name: str) -> Callable[..., Any]:
+    def shadowed(self: Parser[Any, Any], source: Any, **options: Any) -> Any:
+        """The matches of the parser, each after the compiled parser gave the same."""
+        if _inside:
+            return method(self, source, **options)
+        code = _code(self)
+        if code is None or (name == "scan_text" and code._reads_tokens):
+            return method(self, source, **options)
+        try:
+            mine = method(self, source, **options)
+        except Exception as e:
+            with pytest.raises(type(e)):
+                getattr(code, name)(source, **options)
+            raise
+        return _in_step(mine, getattr(code, name)(source, **options), source)
+
+    return shadowed
+
+
 @pytest.fixture(autouse=True)
 def shadow(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Shadow each parse of a test, unless it is marked `interpreted_only`."""
     marked = request.node.get_closest_marker("interpreted_only") is not None
     if not marked and request.node.path.name not in COUNTING_PAGES:
-        for name in ("parse", "parse_text", "parse_bytes"):
+        for name in ("parse", "parse_text", "parse_bytes", "replace_text"):
             monkeypatch.setattr(Parser, name, _shadowed(getattr(Parser, name), name))
+        for name in ("scan", "scan_text"):
+            monkeypatch.setattr(Parser, name, _shadowed_scan(getattr(Parser, name), name))
     yield
     _compiled.clear()

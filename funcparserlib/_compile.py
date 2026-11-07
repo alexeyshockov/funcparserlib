@@ -1144,8 +1144,9 @@ class _Compiler:
             if not self.tracks_ends:
                 then(at, _Value("unknown", value))
                 return
-            end = self.fresh("e")
-            self.assign(end, _call(_attr(_attr(res, "state"), "_value_end"), pos))
+            # One that read nothing ran from a fresh state: the value before it ends where it did.
+            end, ended = self.fresh("e"), _call(_attr(_attr(res, "state"), "_value_end"), pos)
+            self.assign(end, ast.IfExp(_compare(at, ast.Gt(), pos), ended, _node(self.end)))
             self.ending(end, lambda: then(at, _Value("unknown", value)))
 
         self.block(_class_is(res, "ParsingFailure"), failed, succeeded)
@@ -1472,6 +1473,47 @@ def compile_grammar[A, B](
         return result
 
     return fast, source
+
+
+def compile_scanner(
+    root: Parser[Any, Any], internals: Internals, *, text: bool
+) -> Callable[[Any], Callable[[int], tuple[Any, int] | None] | None] | None:
+    """Generated code of `root` from any position of a text, or of tokens, for a scan.
+
+    It gives, for an input, a function from a position to the value and the end there, or `None`;
+    the function raises `internals.undecided` where the interpreted parser has to decide. For an
+    input the generated code cannot read, it gives `None`. It is `None` for a grammar that stays
+    interpreted.
+    """
+    functions = _functions(root, internals, values=False, filename=None, line=1, text=text)
+    if functions is None:
+        return None
+    run, tests_token_types, tests_chars, _ = functions
+
+    def reading(data: Any) -> Callable[[int], tuple[Any, int] | None] | None:
+        types: list[Any]
+        if text:
+            if tests_chars and type(data) is not str:
+                return None
+            # `Y[0]` is where the value read last ends, for `located()`.
+            types = [-1]
+        elif tests_token_types:
+            if not set(map(type, data)) <= _TOKEN_CLASS:
+                return None
+            types = [*map(_token_type, data), None]
+        else:
+            types = [None] * (len(data) + 1)
+
+        def at(pos: int) -> tuple[Any, int] | None:
+            try:
+                result: tuple[Any, int] | None = run(data, types, pos)
+            except Exception as e:
+                raise internals.undecided from e
+            return result
+
+        return at
+
+    return reading
 
 
 def line_after(source: str | None) -> int:

@@ -225,5 +225,6 @@ markdown-it's tokens, list items and block quotes included, and rewrites them.
 A grammar that doesn't use these pays nothing for them. One that does pays for each located value:
 
 * A compiled grammar with a `located()` at every value takes about a third more time than one without
-* `scan_text()` and `replace_text()` of a compiled grammar run the parser it was compiled from
+* A compiled grammar scans about four times as fast as its parser; a part of it bound with `tokenized()` runs as the
+  parser
 * Inside a `prefixed()` region, positions are relative to the region

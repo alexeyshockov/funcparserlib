@@ -1175,3 +1175,20 @@ def test_a_grammar_of_tok_without_a_tokenizer_generates_nothing_for_text() -> No
     assert code._fast_text is None
     with pytest.raises(ValueError, match="a grammar of tokens cannot parse text"):
         code.parse_text("a")
+
+
+def scanned_tokens(scan: Callable[[list[Token]], Any], tokens: list[Token]) -> object:
+    """The matches a scan of tokens gives, or what it raises."""
+    try:
+        return list(scan(tokens))
+    except Exception as e:  # noqa: BLE001 — what the scan raises is compared
+        return ("raised", type(e), str(e))
+
+
+@settings(max_examples=300, deadline=None)
+@given(grammars, inputs)
+def test_a_compiled_scan_of_tokens_finds_what_the_parser_finds(
+    grammar: P, tokens: list[Token]
+) -> None:
+    compiled = grammar.compile()
+    assert scanned_tokens(compiled.scan, tokens) == scanned_tokens(grammar.scan, tokens)

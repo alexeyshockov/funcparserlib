@@ -879,28 +879,33 @@ class Parser[A, B]:
 
             ```
         """
-        if isinstance(tokens, str | bytes | bytearray):
-            raise with_hint(
-                TypeError(f"{type(tokens).__name__} is no sequence of tokens to scan"),
-                "Scan text with `Parser.scan_text()`, which reads it with its line and column.",
-            )
-        return self._scan_tokens(tokens, describe or _describe, span)
+        _require_tokens(tokens)
+        return self._scan_tokens(tokens, describe or _describe, span, None)
 
     def _scan_tokens(
         self,
         tokens: Sequence[A],
         describe: Callable[[A], TokenDescription],
         span: Callable[[Sequence[A], int, int], tuple[int, int]] | None,
+        generated: _Generated | None,
     ) -> Iterator[Located[B]]:
         index = 0
+        at = None if generated is None else generated(tokens)
         while _has_token(tokens, index):
-            res = self.run(tokens, State(index, index))
-            if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
-                self._result(res, tokens, describe)
-            if isinstance(res, ParsingFailure):
+            found = _generated_at(at, index)
+            if found is None:
                 index += 1
                 continue
-            end = res.state.pos
+            if found is _UNDECIDED:
+                res = self.run(tokens, State(index, index))
+                if res.state.problems or (isinstance(res, ParsingFailure) and res.committed):
+                    self._result(res, tokens, describe)
+                if isinstance(res, ParsingFailure):
+                    index += 1
+                    continue
+                value, end = res.value, res.state.pos
+            else:
+                value, end = cast("tuple[Located[B], int]", found)[0].value, found[1]
             if end == index:
                 raise with_hint(
                     ValueError(f"{self.name} matched no tokens at index {index}"),
@@ -916,7 +921,7 @@ class Parser[A, B]:
                     ),
                     "`span` gives the start and then the end of the text the tokens came from.",
                 )
-            yield Located(res.value, start, stop)
+            yield Located(value, start, stop)
             index = end
 
     def scan_text(self, text: str) -> Iterator[Located[B]]:
@@ -950,15 +955,16 @@ class Parser[A, B]:
         _require_text(text)
         if reads_tokens(self):
             raise _reads_tokens_error("text")
-        return self._scan_text(text)
+        return self._scan_text(text, None)
 
-    def _scan_text(self, text: str) -> Iterator[Located[B]]:
+    def _scan_text(self, text: str, generated: _Generated | None) -> Iterator[Located[B]]:
         offset = 0
         shared: dict[tuple[int, int], _Chain] = {}
+        at = None if generated is None else generated(text)
         while offset < len(text):
             token = _chains.set(shared) if _chains.get() is None else None
             try:
-                found = self._next_match(text, offset)
+                found = self._next_match(text, offset, at)
             finally:
                 if token is not None:
                     _chains.reset(token)
@@ -968,11 +974,21 @@ class Parser[A, B]:
             yield Located(value, start, stop)
             offset = end
 
-    def _next_match(self, text: str, offset: int) -> tuple[B, int, int, int] | None:
+    def _next_match(
+        self, text: str, offset: int, at: Callable[[int], Any] | None
+    ) -> tuple[B, int, int, int] | None:
         """The value, the start, the end and the end of the value of the first match from `offset`,
         `None` where there is none.
         """
         while offset < len(text):
+            found = _generated_at(at, offset)
+            if found is None:
+                offset += 1
+                continue
+            if found is not _UNDECIDED:
+                located, end = cast("tuple[Located[B], int]", found)
+                if end > offset:
+                    return located.value, offset, end, located.end
             try:
                 res = self.run(cast("Any", text), State(offset, offset))
             except _NotAToken as e:
@@ -1007,13 +1023,7 @@ class Parser[A, B]:
 
             ```
         """
-        parts: list[str] = []
-        last = 0
-        for m in self.scan_text(text):
-            parts += (text[last : m.start], f(m))
-            last = m.end
-        parts.append(text[last:])
-        return "".join(parts)
+        return _replaced(text, self.scan_text(text), f)
 
     def _run_input(self, data: str | bytes | bytearray, start: int, kind: str) -> ParsingResult[B]:
         """The result of `data` from `start`, which a `tok()` cannot read."""
@@ -1664,7 +1674,7 @@ class CompiledParser[A, B]:
     Users get it from `Parser.compile()`; its constructor is internal.
     """
 
-    __slots__ = ("_bound", "_fast", "_fast_text", "_parser", "_reads_tokens")
+    __slots__ = ("_bound", "_fast", "_fast_text", "_parser", "_reads_tokens", "_scanners")
 
     def __init__(
         self,
@@ -1686,6 +1696,17 @@ class CompiledParser[A, B]:
         self._fast_text = fast_text
         self._bound = bound
         self._reads_tokens = reads_tokens
+        self._scanners: dict[bool, _Generated | None] = {}
+
+    def _scanner(self, text: bool) -> _Generated | None:
+        """Generated code of `located()` of the grammar, for a scan of text or of tokens."""
+        if text not in self._scanners:
+            # Imported here: the module reads the classes of this one.
+            from ._compile import Internals, compile_scanner  # noqa: PLC0415
+
+            internals = Internals(_Tuple, _IGNORED, _ignore, _token_value, _Undecided, _located_at)
+            self._scanners[text] = compile_scanner(self._parser.located(), internals, text=text)
+        return self._scanners[text]
 
     def parse(
         self, tokens: Sequence[A], *, describe: Callable[[A], TokenDescription] | None = None
@@ -1755,23 +1776,29 @@ class CompiledParser[A, B]:
     ) -> Iterator[Located[B]]:
         """The parts of `tokens` the grammar reads, as `Parser.scan()` gives them.
 
-        It runs the parser this was compiled from.
+        Generated code tries the grammar at each index, and the parser decides where it cannot. It
+        reads the type of every token first, as `CompiledParser.parse()` does.
         """
-        return self._parser.scan(tokens, describe=describe, span=span)
+        _require_tokens(tokens)
+        generated = self._scanner(text=False)
+        return self._parser._scan_tokens(tokens, describe or _describe, span, generated)
 
     def scan_text(self, text: str) -> Iterator[Located[B]]:
         """The parts of `text` the grammar reads, as `Parser.scan_text()` gives them.
 
-        It runs the parser this was compiled from.
+        Generated code tries the grammar at each offset, and the parser decides where it cannot.
         """
-        return self._parser.scan_text(text)
+        # Imported here: the module reads the classes of this one.
+        from ._compile import reads_tokens  # noqa: PLC0415
+
+        _require_text(text)
+        if reads_tokens(self._parser):
+            raise _reads_tokens_error("text")
+        return self._parser._scan_text(text, self._scanner(text=True))
 
     def replace_text(self, text: str, f: Callable[[Located[B]], str]) -> str:
-        """The `text` with its matches replaced, as `Parser.replace_text()` gives it.
-
-        It runs the parser this was compiled from.
-        """
-        return self._parser.replace_text(text, f)
+        """The `text` with its matches replaced, as `Parser.replace_text()` gives it."""
+        return _replaced(text, self.scan_text(text), f)
 
     def try_parse(self, text: str | bytes | bytearray) -> B | None:
         """The value of `text`, or `None` where it does not parse.
@@ -2170,6 +2197,34 @@ def _lexer_error(text: str, offset: int) -> LexerError:
     return LexerError(place, line_of(text, place[0]))
 
 
+type _Generated = Callable[[Any], Callable[[int], tuple[Any, int] | None] | None]
+"""Generated code of `located()` of a grammar, for an input: what a compiled scan runs first."""
+
+_UNDECIDED = object()
+"""What generated code gives at a position where the parser decides."""
+
+
+def _generated_at(at: Callable[[int], Any] | None, pos: int) -> Any:
+    """What generated code gives at `pos`: a value and an end, `None`, or `_UNDECIDED`."""
+    if at is None or debug:
+        return _UNDECIDED
+    try:
+        return at(pos)
+    except _Undecided:
+        return _UNDECIDED
+
+
+def _replaced[B](text: str, matches: Iterable[Located[B]], f: Callable[[Located[B]], str]) -> str:
+    """`text` with each of `matches` replaced by what `f` returns for it."""
+    parts: list[str] = []
+    last = 0
+    for m in matches:
+        parts += (text[last : m.start], f(m))
+        last = m.end
+    parts.append(text[last:])
+    return "".join(parts)
+
+
 def _located_at[B](tokens: Sequence[Any], value: B, start: int, end: int) -> Located[B]:
     """`value` read from `start` to `end` of `tokens`; for the tokens of a text, in the text."""
     if isinstance(tokens, _TextTokens):
@@ -2224,6 +2279,15 @@ def _reads_tokens_error(kind: str) -> ValueError:
         ValueError(f"a grammar of tokens cannot parse {kind}"),
         "Pass tokens to `Parser.parse()`, or the grammar and its tokenizer to `tokenized()`.",
     )
+
+
+def _require_tokens(tokens: object) -> None:
+    """Raise `TypeError` for a `str` or `bytes`, which is text to scan, not tokens."""
+    if isinstance(tokens, str | bytes | bytearray):
+        raise with_hint(
+            TypeError(f"{type(tokens).__name__} is no sequence of tokens to scan"),
+            "Scan text with `Parser.scan_text()`, which reads it with its line and column.",
+        )
 
 
 def _require_text(text: object) -> None:
