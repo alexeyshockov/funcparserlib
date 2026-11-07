@@ -68,5 +68,5 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   `[tool.conventions.subclassable]`, CON200.
 - **A compiled parser gives what its parser gives.** The nox sessions `shadow` and `exhaustive`, and
   the property tests, which fail if a form of generated code is out of their reach (ADR 0002).
-- **The docs pages are tests.** A `>>>` session in `docs/` runs under pytest. `examples/` is
+- **The docs pages are tests.** A `>>>` session in `docs/` or `README.md` runs under pytest. `examples/` is
   type-checked and run (`just types-examples`, `tests/examples/test_examples.py`).
