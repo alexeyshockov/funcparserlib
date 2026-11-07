@@ -142,9 +142,11 @@ repos:
 
   # Whitespace, line endings and encoding, checked against `.editorconfig` — one
   # declaration for editors, humans and the gate, instead of the rules living invisibly
-  # inside two fixer scripts. It replaces `trailing-whitespace` and `end-of-file-fixer`
-  # as the gate (they have no check mode at all, so they stay below as fix-only), and
-  # it covers what they never reached: `.toml`, dotfiles, and every other text file.
+  # inside fixer scripts. It replaces `trailing-whitespace` and `mixed-line-ending` as the
+  # gate (they have no check mode at all, so they stay below as fix-only), and it covers
+  # what they never reached: `.toml`, dotfiles, and every other text file. A missing final
+  # newline has no fixer here: `end-of-file-fixer` also trims blank lines after it, which
+  # `insert_final_newline` allows, so `just fix` would rewrite what `just check` passes.
   #
   # Line length and indent size, per file type: ruff checks Python, markdownlint checks
   # Markdown, and the second run below checks TOML, JSON, shell and YAML (prettier
@@ -170,20 +172,6 @@ repos:
         files: \.(toml|json|sh|ya?ml)$
         exclude: *do_not_rewrite
 
-  # What editorconfig-checker does not see: `insert_final_newline` asks for a final newline and
-  # passes a blank line after it, which `end-of-file-fixer` below trims. This is that fixer's check
-  # side, so `just check` fails what `just fix` would rewrite.
-  - repo: local
-    hooks:
-      - id: no-blank-line-at-end
-        name: no blank line at the end of a file
-        language: pygrep
-        entry: '(\A|\n)\r?\n\Z'
-        args: [--multiline]
-        types: [text]
-        stages: [pre-commit]
-        exclude: *do_not_rewrite
-
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -199,12 +187,10 @@ repos:
       - id: check-added-large-files
         stages: [pre-commit]
         exclude: *do_not_rewrite
-      # Fix-only, by nature: these three have no check mode, which is exactly why
-      # editorconfig-checker is the gate and they are its repair side.
+      # Fix-only, by nature: these two have no check mode, which is exactly why
+      # editorconfig-checker is the gate and they are its repair side. Each does what
+      # `.editorconfig` declares and nothing more.
       - id: trailing-whitespace
-        stages: [manual]
-        exclude: *do_not_rewrite
-      - id: end-of-file-fixer
         stages: [manual]
         exclude: *do_not_rewrite
       - id: mixed-line-ending
