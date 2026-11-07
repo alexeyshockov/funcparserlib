@@ -42,7 +42,7 @@ The name of a call says which of three things it does:
   was done to its argument: `finished`, `separated()`, `prefixed()`, `counted()`, `skipping()`, `tokenized()`,
   `named()`, `validated()`, `located()`. A preposition gives a condition: `when()`, `but_not()`, `anything_but()`.
 - **A call that runs a parser, or changes one, is an imperative verb for what it does**: `parse()`, `parse_text()`,
-  `parse_bytes()`, `try_parse()`, `scan()`, `replace()`, `compile()`, `run()`, `define()`.
+  `parse_bytes()`, `try_parse()`, `scan()`, `scan_text()`, `replace_text()`, `compile()`, `run()`, `define()`.
 - **A call that answers yes or no is a question**, `is_…()` or `has_…()`. A third-person verb such as `matches()` is
   left for one.
 

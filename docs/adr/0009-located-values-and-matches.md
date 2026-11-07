@@ -1,4 +1,4 @@
-# 0009 — Located values and matches in a text
+# 0009 — Located values and matches
 
 - **Status:** Accepted
 - **Date:** 2026-11-07
@@ -13,6 +13,13 @@ A grammar also reads its input from the start, so it cannot be used on the parts
 text format that evolves needs this: each new version needs a migration of the files in the old one, which
 rewrites some constructs and has to leave the rest of a file exactly as it is, and must not pass over a
 construct it cannot read.
+
+The structure of such a file is often read by another library. A format on top of Markdown is read from markdown-it's
+tokens, and a construct of it is a sequence of them: a heading and the blocks under it, in a list item or a block quote
+as anywhere else. A grammar accepts the ways a construct is written and builds its value, and a migration replaces the
+construct with the canonical text it renders from that value. Only the text outside the constructs has to stay to the
+character. markdown-it reads a whole document, so the tokens it gives from an offset inside one are not those of the
+document, and its tokens keep the lines of a block and none of its layout.
 
 `State.pos` is already an index into what is being parsed, a character offset in a text and a token index in
 tokens. `Token` has a line and a column and no offset. A `skipping()` parser reads the skip after itself, so
@@ -41,21 +48,27 @@ a `prefixed()` with a body in such a grammar stays with the parser, as a span in
 **Line and column.** `Lines(text)`, in `funcparserlib.util`, is built once from a text. `lines.place(offset)`
 gives a `Place` and `lines.offset(place)` an offset, so both kinds of grammar reach both kinds of position.
 
-**Matches in a text.** Two runners sit on top of a grammar, as ADR 0004 has it, on `Parser` and
-`CompiledParser`:
+**Matches.** Three runners sit on top of a grammar, as ADR 0004 has it, on `Parser` and `CompiledParser`, named as
+`parse()` and `parse_text()` are (ADR 0003, ADR 0008):
 
-- `p.scan(text)` gives an iterator of `Located[B]`, from left to right, with no overlaps. It tries the grammar
-  at each offset, goes past a match, and is lazy, so a program can stop at the first one.
-- `p.replace(text, f)` gives the text with each match replaced by what `f` returns for its `Located[B]`, and every
-  character outside a span as it was. The skip after a match is outside its span.
+- `p.scan(tokens)` gives an iterator of `Located[B]` of a sequence of tokens, from left to right, with no overlaps.
+  It tries the grammar at each token index, goes past a match, and is lazy, so a program can stop at the first one.
+  A construct inside a list item or a block quote is found as one anywhere else, as its tokens are in the sequence.
+  Its spans are token indexes. Given a function from a range of tokens to the span of the text they came from, as
+  `describe=` is for the errors of `parse()`, it gives spans of that text.
+- `p.scan_text(text)` does the same at each offset of a text.
+- `p.replace_text(text, f)` gives the text with each match replaced by what `f` returns for its `Located[B]`, and
+  every character outside a span as it was. The skip after a match is outside its span.
 
-They read text, and a token grammar scans a text bound to its tokenizer (ADR 0003). A grammar of `tok()` itself
-raises `ValueError`, as it reads tokens, and bytes are left out, as `funcparserlib.binary` is experimental.
+A token grammar scans a text bound to its tokenizer (ADR 0003), and the tokens of another library as they are. A
+grammar of `tok()` given text raises `ValueError`, and bytes are left out, as `funcparserlib.binary` is experimental.
+A replacement over the tokens of another library is the program's: it writes the text from the spans, and a prefix
+each line of a container has, as `>` in a block quote, is a matter of the format the library does not know.
 
 A plain failure at an offset means no match there. A failed `commit()` and a value `Parser.validated()` rejected
-raise what `Parser.parse_text()` raises, with the line and column, so `commit(link)` says that what starts as a
-link has to be one. `replace()` then returns nothing, so a program that writes its result never leaves a file half
-migrated. A match that reads nothing raises `ValueError`, as it does in `many()`.
+raise what `Parser.parse_text()` or `Parser.parse()` raises, with its place, so `commit(link)` says that what starts
+as a link has to be one. `replace_text()` then returns nothing, so a program that writes its result never leaves a file
+half migrated. A match that reads nothing raises `ValueError`, as it does in `many()`.
 
 Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without a tokenizer:
 
@@ -64,11 +77,22 @@ Measured on Python 3.12 on an arm64 laptop, best of 5, on 50 KB of JSON without 
 | Plain | 26 ms | 5.6 ms |
 | `located()` on each value | 30 ms | 7.4 ms |
 
-On 800 KB of text, best of 3, `scan()` of a grammar of three parsers found all 40,000 matches in 502 ms and the first
-one in 0.017 ms, and `replace()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
+On 800 KB of text, best of 3, `scan_text()` of a grammar of three parsers found all 40,000 matches in 502 ms and the
+first one in 0.017 ms, and `replace_text()` took 506 ms. `tests/test_located.py` compares both with `re` over random texts.
 
 Rejected:
 
+- **A concrete syntax tree, a runner giving every character of the input in a tree.** The tokens of markdown-it keep
+  no layout, so no tree of them gives a file back, and a migration needs only the text outside its constructs kept,
+  which spans give. In a grammar without a tokenizer it would serve a formatter of a whole file's layout, which no
+  use here asks for, against a second way of running every combinator.
+- **`scan_tokens()` beside `scan(text)`.** The scan methods would be named the other way round from `parse()` and
+  `parse_text()`.
+- **A scan of tokens written by each program,** as a loop of `parse()` over `tokens[i:]`. Each program then decides
+  what a failed `commit()`, a rejected value and a match that reads nothing mean, which `scan_text()` already
+  decides, and copies the rest of the tokens at each index.
+- **markdown-it bound with `tokenized()` and scanned as text.** It reads a whole document, so the tokens it gives from
+  an offset inside one are not the document's.
 - **Finding the end of a span in the text, as the earliest offset the rest of it fully matches the skip pattern.** The
   rest of `"a #b"` matches a comment from `#`, so the span of a string ended inside it and `replace()` left the rest
   of the string in the output. It also read the text from the start of each span.
@@ -93,13 +117,16 @@ Rejected:
 
 ## Consequences
 
-- `Located`, `Lines`, `Parser.located()`, `scan()` and `replace()` are public, and the glossary gets their terms.
+- `Located`, `Lines`, `Parser.located()`, `scan()`, `scan_text()` and `replace_text()` are public, and the glossary
+  gets their terms.
 - A compiled grammar with `located()` on each value takes about a third more than one without, against four times as
-  much when it ran through the parser. `scan()` of a compiled grammar reads through its parser; a generated entry can
+  much when it ran through the parser. A scan of a compiled grammar reads through its parser; a generated entry can
   come later, without changing what it gives.
 - `State` keeps how much the last parser of text skipped, so a span ends where that parser stopped, whatever the skip
   pattern matches inside the value. A parser function of a user's that skips by moving `pos` has its skip in the span.
 - Inside a `prefixed()` region, positions are relative to the region, as it is parsed as its own input (ADR 0005).
 - A function after `>>` runs for an attempt that fails later at that offset, as on any alternative that fails.
-- Scanning a sequence of tokens is left out. `parse()` takes tokens and `parse_text()` text for the reason ADR 0003
-  gives, so it needs a name of its own when a program needs it.
+- A scan of the tokens of another library is interpreted, as tokens with no types give generated code nothing to
+  test.
+- The Markdown recipe shows a migration over markdown-it: a construct found by `scan()`, its lines from the `map` of
+  its tokens, and the canonical text with the prefix of each line put back.
