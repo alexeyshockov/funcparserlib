@@ -106,6 +106,15 @@ python3 -m doctest -v docs/getting-started/*.md
 
 ///
 
+/// note
+
+The examples in these docs use the syntax of Python 3.12: `type` aliases and generic functions written as
+`def f[T](...)`. funcparserlib runs on Python 3.11 too. There, write `type Expr = BinaryExpr | int | float` as
+`Expr: TypeAlias = "BinaryExpr | int | float"`, with `TypeAlias` from `typing`, and give a generic function a
+module-level `T = TypeVar("T")` instead of `[T]`.
+
+///
+
 Test the expression parser:
 
 ```pycon

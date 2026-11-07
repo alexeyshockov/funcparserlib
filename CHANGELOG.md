@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-Version 2.0 requires Python 3.12 or newer. For older Pythons, use `funcparserlib~=1.0`. Grammars written for 1.0 keep
+Version 2.0 requires Python 3.11 or newer. For older Pythons, use `funcparserlib~=1.0`. Grammars written for 1.0 keep
 working and parse to the same values; error messages are more precise.
 
 ### Added

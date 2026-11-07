@@ -1,6 +1,6 @@
 # 0001 — Python 3.12 is the floor
 
-- **Status:** Accepted
+- **Status:** Superseded by ADR 0010
 - **Date:** 2026-10-15
 
 ## Context

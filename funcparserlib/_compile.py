@@ -22,22 +22,26 @@ from importlib import import_module
 from operator import attrgetter, index
 from pathlib import Path
 from re import IGNORECASE, Pattern
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, TypeAlias, TypeVar
 
 from ._commons import valueclass
 from .lexer import Token
 from .parser import IgnoredValue, Parser, ParsingFailure, State
 
-type _Kind = Literal["ignored", "plain", "tuple", "unknown"]
+_A = TypeVar("_A")
+_B = TypeVar("_B")
+_T = TypeVar("_T")
+
+_Kind: TypeAlias = Literal["ignored", "plain", "tuple", "unknown"]
 """What `+` needs to know of a value: an `IgnoredValue`, a `_Tuple`, neither, or any of them."""
 
-type _Next = Callable[[str, _Value | None], None]
+_Next: TypeAlias = Callable[[str, "_Value | None"], None]
 """Emits what follows a parser, given the position after it and its value, if asked for."""
 
-type _Expr = ast.expr | str | int | None
+_Expr: TypeAlias = ast.expr | str | int | None
 """An expression of generated code: a `str` is a name, an `int` or `None` a constant."""
 
-type _First = tuple[frozenset[str] | None, bool]
+_First: TypeAlias = tuple[frozenset[str] | None, bool]
 """The token types a parser can start with, `None` when unknown, and whether it can read none."""
 
 _INLINE_SIZE = 10
@@ -256,7 +260,6 @@ def _function(name: str, body: list[ast.stmt]) -> ast.FunctionDef:
         args=ast.arguments(posonlyargs=[], args=args, kwonlyargs=[], kw_defaults=[], defaults=[]),
         body=body,
         decorator_list=[],
-        type_params=[],
     )
 
 
@@ -1437,9 +1440,9 @@ def _functions(
     return names[entry], compiler.tests_token_types, compiler.tests_chars, source
 
 
-def compile_grammar[A, B](
-    root: Parser[A, B], internals: Internals, filename: str | None, line: int
-) -> tuple[Callable[[Sequence[A]], tuple[B, int] | None] | None, str | None]:
+def compile_grammar(
+    root: Parser[_A, _B], internals: Internals, filename: str | None, line: int
+) -> tuple[Callable[[Sequence[_A]], tuple[_B, int] | None] | None, str | None]:
     """A function giving the value and the end position of a parse, and its source for a `filename`.
 
     The function returns `None` when the interpreted parser has to decide. Both are `None` for a
@@ -1450,7 +1453,7 @@ def compile_grammar[A, B](
         return None, None
     run, tests_token_types, _, source = functions
 
-    def fast(tokens: Sequence[A]) -> tuple[B, int] | None:
+    def fast(tokens: Sequence[_A]) -> tuple[_B, int] | None:
         if tests_token_types:
             if not set(map(type, tokens)) <= _TOKEN_CLASS:
                 return None
@@ -1459,7 +1462,7 @@ def compile_grammar[A, B](
         else:
             types = [None] * (len(tokens) + 1)
         try:
-            result: tuple[B, int] | None = run(tokens, types, 0)
+            result: tuple[_B, int] | None = run(tokens, types, 0)
         except Exception:  # noqa: BLE001 — whatever it was, the interpreted parser raises it again
             return None
         return result
@@ -1574,7 +1577,7 @@ def leading_skip(root: Parser[Any, Any]) -> Skip | None:
     return None
 
 
-type _Starts = tuple[frozenset[Any], bool]
+_Starts: TypeAlias = tuple[frozenset[Any], bool]
 """The tokenizers of the bound parts a parser can start with, `None` for a start that reads text,
 and whether the parser can read nothing.
 """
@@ -1671,11 +1674,13 @@ def _starts_after_head(
     return first[0].union(raw, *rest), True
 
 
-def _least_fixed_point[T](
-    nodes: dict[int, Parser[Any, Any]], bottom: T, of: Callable[[Parser[Any, Any], dict[int, T]], T]
-) -> dict[int, T]:
+def _least_fixed_point(
+    nodes: dict[int, Parser[Any, Any]],
+    bottom: _T,
+    of: Callable[[Parser[Any, Any], dict[int, _T]], _T],
+) -> dict[int, _T]:
     """What `of` gives each of the `nodes`, from `bottom`, once nothing changes."""
-    known: dict[int, T] = dict.fromkeys(nodes, bottom)
+    known: dict[int, _T] = dict.fromkeys(nodes, bottom)
     changed = True
     while changed:
         changed = False
@@ -1704,12 +1709,12 @@ def reads_tokens(root: Parser[Any, Any]) -> bool:
     return False
 
 
-def compile_text[B](
-    root: Parser[Any, B],
+def compile_text(
+    root: Parser[Any, _B],
     internals: Internals,
     scan: Callable[[str], tuple[list[str], list[str | None]] | None] | None,
     filename: str | None,
-) -> tuple[Callable[[str], tuple[B, int] | None] | None, str | None]:
+) -> tuple[Callable[[str], tuple[_B, int] | None] | None, str | None]:
     """A function giving the value and the end position of a text, and its source for a `filename`.
 
     The function returns `None` when the text does not parse, and raises `internals.undecided` when
@@ -1728,7 +1733,7 @@ def compile_text[B](
     run, _, tests_chars, source = functions
     skip = leading_skip(root)
 
-    def fast(text: str) -> tuple[B, int] | None:
+    def fast(text: str) -> tuple[_B, int] | None:
         # A character test is false for `bytes`, where the parser raises `TypeError`.
         if tests_chars and type(text) is not str:
             raise internals.undecided
@@ -1736,7 +1741,7 @@ def compile_text[B](
             if scan is None:
                 m = skip.match(text) if skip is not None else None
                 # `Y[0]` is where the value read last ends, for `located()`.
-                result: tuple[B, int] | None = run(text, [-1], m.end() if m else 0)
+                result: tuple[_B, int] | None = run(text, [-1], m.end() if m else 0)
             else:
                 scanned = scan(text)
                 result = None if scanned is None else run(scanned[0], scanned[1], 0)

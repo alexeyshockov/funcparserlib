@@ -1,20 +1,22 @@
 """Rules on values for the tests, and what the property tests add to a grammar with them."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypeVar
 
 from hypothesis import strategies as st
 
 from funcparserlib.parser import Invalid, Parser, pure
 
+_T = TypeVar("_T")
+
 P = Parser[Any, Any]
 Grammars = st.SearchStrategy[P]
 
 
-def kept[T](pred: Callable[[T], bool], message: str) -> Callable[[T], T]:
+def kept(pred: Callable[[_T], bool], message: str) -> Callable[[_T], _T]:
     """A function for `Parser.validated()` that reports `message` and keeps the value."""
 
-    def rule(value: T) -> T:
+    def rule(value: _T) -> _T:
         """The value, with an error when `pred` is false for it."""
         if not pred(value):
             raise Invalid(message, keep=True)
@@ -23,10 +25,10 @@ def kept[T](pred: Callable[[T], bool], message: str) -> Callable[[T], T]:
     return rule
 
 
-def rejected[T](pred: Callable[[T], bool], message: str) -> Callable[[T], T]:
+def rejected(pred: Callable[[_T], bool], message: str) -> Callable[[_T], _T]:
     """A function for `Parser.validated()` that rejects a value `pred` is false for."""
 
-    def rule(value: T) -> T:
+    def rule(value: _T) -> _T:
         """The value, rejected when `pred` is false for it."""
         if not pred(value):
             raise Invalid(message)

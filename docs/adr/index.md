@@ -12,3 +12,4 @@ The architectural decisions behind funcparserlib, one record each. A new one sta
 - [ADR 0007 — A rejected value goes on without a value](0007-a-rejected-value-goes-on-without-a-value.md)
 - [ADR 0008 — A combinator's form and name say what it does](0008-a-combinators-form-and-name-say-what-it-does.md)
 - [ADR 0009 — Located values and matches](0009-located-values-and-matches.md)
+- [ADR 0010 — The floor is the oldest supported Python](0010-the-floor-is-the-oldest-supported-python.md)

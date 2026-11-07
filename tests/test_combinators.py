@@ -1,7 +1,7 @@
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from typing import Any
+from typing import Any, TypeAlias
 
 import pytest
 from hypothesis import assume, given
@@ -32,7 +32,7 @@ from funcparserlib.parser import (
 from funcparserlib.util import expand_tuple_args, pretty_tree
 from tests.rules import kept
 
-type P = Parser[Any, Any]
+P: TypeAlias = Parser[Any, Any]
 
 
 def test_map_is_rshift() -> None:

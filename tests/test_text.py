@@ -5,7 +5,7 @@ as the parser.
 import re
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeAlias
 
 import pytest
 from hypothesis import assume, event, given, settings
@@ -37,8 +37,8 @@ from funcparserlib.parser import (
 from funcparserlib.parser import longest as typed_longest
 from tests.rules import breakages, conversions, kept
 
-type P = Parser[Any, Any]
-type Runner = Callable[[P, str], Any]
+P: TypeAlias = Parser[Any, Any]
+Runner: TypeAlias = Callable[[P, str], Any]
 
 
 def longest(*parsers: P) -> P:

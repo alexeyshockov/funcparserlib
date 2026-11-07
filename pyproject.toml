@@ -12,7 +12,7 @@ Changelog = "https://github.com/vlasovskikh/funcparserlib/blob/master/CHANGELOG.
 name = "funcparserlib"
 version = "2.0.0b1.dev0"
 description = "Recursive descent parsing library based on functional combinators"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
@@ -25,6 +25,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -78,6 +79,7 @@ addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark", "-m
 markers = [
     "interpreted_only: left alone by `tests.shadow`: it counts calls, or differs on purpose",
     "exhaustive: every small grammar, a session of its own in the noxfile",
+    "examples: imports the examples, so it is skipped below their Python (conftest.py)",
 ]
 filterwarnings = ["error"]
 
@@ -118,6 +120,10 @@ fail-under = 30
 
 [tool.ruff]
 extend = "shared.ruff.toml"
+# The examples, and the docs that include them, teach the newest syntax: PEP 695 generics and
+# `type` aliases, from 3.12. Every type checker reads this table too, and `conftest.py` leaves the
+# examples, the docs and the README out of a run on an older interpreter (ADR 0010).
+per-file-target-version = { "examples/**" = "py312" }
 
 [tool.deptry]
 known_first_party = ["funcparserlib"]

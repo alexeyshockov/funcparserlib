@@ -6,18 +6,18 @@ import dataclasses as dc
 import re
 from collections.abc import Collection, Iterable, Sequence
 from re import Pattern
-from typing import Any, final
+from typing import Any, TypeAlias, final
 
 from ._commons import valueclass, with_hint
 from ._utils import line_of, place_of
 
-type Place = tuple[int, int]
+Place: TypeAlias = tuple[int, int]
 """A position in the text: (_line_, _column_), both counted from 1.
 
 The end of a token that ends with a newline is column 0 of the next line.
 """
 
-type Spec = tuple[str, tuple[Any, ...]]
+Spec: TypeAlias = tuple[str, tuple[Any, ...]]
 """A token spec as a tuple: (_type_, _args_), where _args_ are the arguments of `re.compile()`."""
 
 _CompiledSpec = tuple[str, Pattern[str]]

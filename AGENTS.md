@@ -1,6 +1,6 @@
 # funcparserlib
 
-A recursive descent parsing library for Python 3.12+ based on functional combinators: a grammar is
+A recursive descent parsing library for Python 3.11+ based on functional combinators: a grammar is
 written as Python expressions over parsers (`p1 + p2`, `p1 | p2`, `p >> f`, `many(p)`), and a
 regex-based lexer turns text into the tokens they read. The flat-layout package is
 `funcparserlib/`; tests are `tests/`.
@@ -26,6 +26,7 @@ funcparserlib/_utils.py   the package's own helpers: the line and column of an o
 tests/test_*.py           unit tests; tests/dot.py and tests/json.py are example grammars they drive
 tests/shadow.py           pytest plugin: every parse of the suite also runs compiled, and must agree
 tests/typesafety/         what a user's checker infers; pytest does not collect it
+conftest.py               leaves the examples' tests, docs/ and README.md out below the examples' Python
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
 docs/architecture.md      how the library is put together, and the principles a change keeps
@@ -43,7 +44,7 @@ just check [FILES]       # read-only: every applicable hook, + ty for Python pat
 just fix [FILES]         # apply the fixers
 just types               # mypy over the package, the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
-just tests               # the noxfile's local sessions: free-threaded 3.15t, shadow on 3.12, exhaustive
+just tests               # the noxfile's local sessions: free-threaded 3.15t, shadow on 3.11, exhaustive
 just docs-build          # the site into site/
 just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
 just bench::compare      # the last two saved runs side by side
@@ -61,7 +62,7 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   `--doctest-modules`), which compare error messages too, `tests/test_parsing.py`.
 - **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
   `maybe()`, `forward_decl()` infer for a user is asserted in `tests/typesafety/` (`just types-api`,
-  ADR 0001).
+  ADR 0010).
 - **An error names everything expected where parsing stopped**, a label instead of a parser's parts, and an error
   from a nested `parse()` unchanged. `tests/test_errors.py`.
 - **Values are `@valueclass`**: `Token`, `TokenSpec`, `State` and the parsing results are frozen to
@@ -72,3 +73,7 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   the property tests, which fail if a form of generated code is out of their reach (ADR 0002).
 - **The docs pages are tests.** A `>>>` session in `docs/` or `README.md` runs under pytest. `examples/` is
   type-checked and run (`just types-examples`, `tests/examples/test_examples.py`).
+- **The package runs on the floor; what it teaches uses the newest syntax.** The package and `tests/` are
+  written for `requires-python`, the oldest supported CPython. `examples/`, `docs/` and `README.md` are written
+  for the version ruff's `per-file-target-version` gives `examples/**`, which the type checkers read and below
+  which `conftest.py` leaves them out of the tests. The floor's nox sessions, ADR 0010.

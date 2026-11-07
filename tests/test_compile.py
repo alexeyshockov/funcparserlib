@@ -1,6 +1,7 @@
 """`Parser.compile()`: a compiled parser parses as the parser it was compiled from."""
 
 import ast
+import importlib
 import logging
 import re
 import sys
@@ -8,13 +9,12 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeAlias, cast
 
 import pytest
 from hypothesis import assume, find, given, settings
 from hypothesis import strategies as st
 
-from examples import kdl
 from funcparserlib import _compile as compile_module
 from funcparserlib import parser as parser_module
 from funcparserlib.lexer import LexerError, Token, TokenSpec, make_tokenizer
@@ -48,7 +48,7 @@ from tests.test_text import grammars as text_grammars
 from . import dot, json
 from .conftest import GeneratedCodeError
 
-type P = Parser[Any, Any]
+P: TypeAlias = Parser[Any, Any]
 
 
 def tokens(types: str) -> list[Token]:
@@ -224,10 +224,17 @@ def test_values_keep_their_shape(grammar: P, types: str, value: object) -> None:
     assert compiled.parse(tokens(types)) == value
 
 
+@pytest.fixture
+def kdl() -> Any:
+    """`examples.kdl`, a grammar of a real format, imported by the tests that run on its Python."""
+    return importlib.import_module("examples.kdl")
+
+
 @pytest.mark.parametrize(
     "text", ["a", 'a 1 "b" k=#true {\n  (t)c\n}', "/- a\nb /-1", "a k = (t)1; b\n"]
 )
-def test_the_kdl_grammar_compiles(text: str) -> None:
+@pytest.mark.examples
+def test_the_kdl_grammar_compiles(kdl: Any, text: str) -> None:
     compiled = kdl.document.compile()
     assert compiled._fast is not None
     toks = list(kdl.tokenize(text))
@@ -442,7 +449,8 @@ def test_generated_statements_have_the_lines_of_the_source(grammar: P) -> None:
     assert statement_lines(module) == statement_lines(ast.parse(ast.unparse(module)))
 
 
-def test_the_lines_of_a_whole_grammar_are_those_of_its_source() -> None:
+@pytest.mark.examples
+def test_the_lines_of_a_whole_grammar_are_those_of_its_source(kdl: Any) -> None:
     module = compile_module._with_lines(generated_module(kdl.document))
     assert statement_lines(module) == statement_lines(ast.parse(ast.unparse(module)))
 
@@ -960,7 +968,8 @@ def test_a_pattern_matching_nothing_before_a_token_raises_as_the_tokenizer_does(
         compiled.parse_text("az")
 
 
-def test_the_kdl_grammar_parses_text_without_tokens() -> None:
+@pytest.mark.examples
+def test_the_kdl_grammar_parses_text_without_tokens(kdl: Any) -> None:
     compiled = tokenized(kdl.document, kdl.tokenize).compile()
     assert compiled._fast_text is not None
     text = 'server "web" port=8080 {\n  (t)route "/api" #true\n}\n'
