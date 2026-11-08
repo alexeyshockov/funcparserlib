@@ -10,6 +10,10 @@
 # No `python-version`: the recipes pass `--python-version` from `requires-python`, and run a file
 # ruff's `per-file-target-version` pins apart, at its version.
 preset = "default"
+# pyrefly reads its own ignores only. By default it also honours mypy's `# type: ignore` whatever
+# its code, and never reports one unused: a finding of its own on a line mypy ignores would vanish
+# from `types-info`, and an expected error in a typing test would go unchecked in `types-api`.
+enabled-ignores = ["pyrefly"]
 project-includes = [
     "funcparserlib",
     "examples",

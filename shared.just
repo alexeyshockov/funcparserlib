@@ -139,9 +139,8 @@ type-coverage:
 # user's checker infers from the public API, and marks each call the API must reject with one
 # ignore per checker. All four checkers gate, at the package's strictness, and fail on a warning
 # as on an error; each reports an ignore that suppresses nothing, so an expected error that stops
-# happening fails the recipe. Each reads only its own ignores: pyrefly would honour mypy's
-# `# type: ignore` and never report it unused. basedpyright reads its defaults here, not
-# `tools/basedpyright.json`.
+# happening fails the recipe. Each reads only its own ignores (pyrefly by `enabled-ignores`).
+# basedpyright reads its defaults here, not `tools/basedpyright.json`.
 # `toolbox` hands each checker the synced env through its own interpreter option and holds it to
 # the floor, once per distribution: every suite is a `typing_tests` package, and one run over two
 # of them is a duplicate module. Every checker runs whatever the others report, and the recipe fails
@@ -153,7 +152,7 @@ types-api:
     status=0
     {{ tools }} toolbox mypy -- {{ suites }} || status=1
     {{ tools }} toolbox ty --error-on-warning -- {{ suites }} || status=1
-    {{ tools }} toolbox pyrefly check --error unused-ignore --enabled-ignores pyrefly -- {{ suites }} || status=1
+    {{ tools }} toolbox pyrefly check --error unused-ignore -- {{ suites }} || status=1
     {{ tools }} toolbox basedpyright --warnings -- {{ suites }} || status=1
     exit "$status"
 
