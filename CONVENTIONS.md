@@ -67,7 +67,8 @@ the matrix, and GitHub reports a job skipped because a dependency failed as pass
 job downstream of a failure would read green.
 
 CI runs the recipes, never a second spelling of them. `just gate` is the list of gates a pull
-request must pass, cheapest first, and the workflow's `gate` job runs each as its own named step
+request must pass, cheapest first, with a project's own steps where its `gate_before` and
+`gate_after` answers put them, and the workflow's `gate` job runs each as its own named step
 (CON700); the tests run as nox sessions, never as `pytest` spelled out in YAML. Tool versions reach
 CI through `tools/uv.lock`, so a local run and a CI run use identical versions.
 
@@ -116,7 +117,7 @@ deviates writes the deviation down next to its config.
 
 | recipe | target | checkers | blocks |
 | --- | --- | --- | --- |
-| `types` | the package; `examples/`, `tests/`, the `benchmarks/` directories at the depth `mypy.ini` gives each | mypy | yes |
+| `types` | the package; the `examples/` directories (the root's and each distribution's), `tests/`, the `benchmarks/` directories at the depth `mypy.ini` gives each | mypy | yes |
 | `types-api` | each distribution's `typing_tests/` | mypy, ty, pyrefly, basedpyright | yes |
 | `type-coverage` | the public API's annotations | pyrefly `coverage`, at 100% | yes |
 | `tools::types` | the repository's own `tools/checks/` | mypy, on the toolbox's interpreter | yes |
