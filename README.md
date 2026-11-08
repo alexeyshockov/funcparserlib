@@ -193,3 +193,12 @@ Some open-source projects that use `funcparserlib` as an explicit dependency:
 ## Next
 
 Read the [Getting Started](https://funcparserlib.pirx.ru/getting-started/) guide to start learning `funcparserlib`.
+
+Then pick a [recipe](https://funcparserlib.pirx.ru/recipes/), a complete parser of a real format with its program in
+[`examples/`](https://github.com/vlasovskikh/funcparserlib/tree/master/examples):
+
+* [Parsing Structured Fields](https://funcparserlib.pirx.ru/recipes/structured-fields/): RFC 9651, passing the
+  hand-written cases of the HTTP working group's test suite
+* [Parsing KDL](https://funcparserlib.pirx.ru/recipes/kdl/): all of a document language, following its spec rule by rule
+* [Parsing JSON from a Language Model](https://funcparserlib.pirx.ru/recipes/partial-json/): a value for every prefix
+  of a document while it streams, and the mistakes models make
