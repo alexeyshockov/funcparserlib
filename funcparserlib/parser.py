@@ -1114,7 +1114,7 @@ class Parser(Generic[A, B_co]):
             if res.message is not _STOPPED:
                 names = dict.fromkeys(p.name for p, _ in st.expected if p.name is not None)
                 expected = f", expected: {' or '.join(names)}" if names else ""
-                problems = (*problems, _unexpected(tokens, st.max, expected, st.context))
+                problems = (*problems, _unexpected(tokens, st.max, expected, _shared_context(st)))
             pos = st.max
             while (
                 pos < len(tokens) and until.run(tokens, State(pos, pos)).__class__ is ParsingFailure
@@ -2844,17 +2844,22 @@ def _warn_legacy(f: Callable[..., object]) -> None:
         )
 
 
+def _shared_context(st: State) -> tuple[str, ...]:
+    """The `Parser.context()` labels, outermost first, around every parser that failed at `max`."""
+    contexts = [c for _, c in st.expected] or [st.context]
+    common = contexts[0][: min(map(len, contexts))]
+    while any(c[: len(common)] != common for c in contexts):
+        common = common[:-1]
+    return common
+
+
 def _parse_error(
     res: ParsingFailure, tokens: Sequence[A], describe: Callable[[A], TokenDescription]
 ) -> NoParseError:
     """The `NoParseError` of a failed parse: what was found at the furthest position, and why."""
     st = res.state
     names = tuple(dict.fromkeys(p.name for p, _ in st.expected if p.name is not None))
-    contexts = [c for _, c in st.expected] or [st.context]
-    common = contexts[0][: min(map(len, contexts))]
-    while any(c[: len(common)] != common for c in contexts):
-        common = common[:-1]
-    context = tuple(reversed(common))
+    context = tuple(reversed(_shared_context(st)))
     token: A | None = None
     description: TokenDescription | None
     if st.max >= len(tokens) and isinstance(tokens, _Offsets):

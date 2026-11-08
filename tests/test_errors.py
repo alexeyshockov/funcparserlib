@@ -763,6 +763,19 @@ def test_the_error_recover_goes_on_after_has_the_token_and_its_place() -> None:
     assert at_end.token is None
 
 
+@both
+def test_the_error_recover_goes_on_after_reads_as_the_error_of_the_parse(build: Compiled) -> None:
+    line = ((x + a("=") + a("1")).context("assignment") | (y + a("?")).context("query")).context(
+        "line"
+    )
+    with pytest.raises(NoParseError) as fatal:
+        build(line + -a(";") + -finished).parse(list("x=?;"))
+    with pytest.raises(ParseErrors) as recovered:
+        build(line.recover(until=a(";")) + -a(";") + -finished).parse(list("x=?;"))
+    assert [str(e) for e in recovered.value.exceptions] == [str(fatal.value)]
+    assert str(fatal.value) == "got unexpected token: '?', expected: '1' in assignment in line"
+
+
 def test_recover_without_until_leaves_a_failure_alone() -> None:
     p = (a("x") + a("y")).recover(default=0)
     assert isinstance(p.run(list("xz"), State(0, 0)), ParsingFailure)
