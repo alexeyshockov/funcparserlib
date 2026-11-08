@@ -46,13 +46,13 @@ set lazy
 packages := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages`
 dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --dirs`
 
-# Each distribution's tests, and the typesafety suites beside its package that exist. `toolbox`
-# runs each type checker at the floor (the version the first distribution's `requires-python`
-# starts from) against `.venv`, a file ruff's `per-file-target-version` pins at its own version,
-# and ty with each distribution's own view of the workspace.
+# Each distribution's tests, and the `typing_tests/` suites and `benchmarks/` directories that
+# exist. `toolbox` runs each type checker at the floor (the version the first distribution's
+# `requires-python` starts from) against `.venv`, a file ruff's `per-file-target-version` pins at
+# its own version, and ty with each distribution's own view of the workspace.
 test_dirs := shell('for d in $1; do [ "$d" = . ] && printf "tests " || printf "%s/tests " "$d"; done', dists)
-typesafety_dirs := shell('for d in $1; do [ "$d" = . ] && printf "typesafety " || printf "%s/typesafety " "$d"; done', dists)
-api_suites := shell('for d in $1; do [ -d "$d" ] && printf "%s " "$d"; done; true', typesafety_dirs)
+suites := shell('for d in $1; do s=$([ "$d" = . ] && echo typing_tests || echo "$d/typing_tests"); [ -d "$s" ] && printf "%s " "$s"; done; true', dists)
+bench_dirs := shell('for d in $1; do b=$([ "$d" = . ] && echo benchmarks || echo "$d/benchmarks"); [ -d "$b" ] && printf "%s " "$b"; done; true', dists)
 
 # The recipes of the pinned tool environment (`tools/`) live in `tools/justfile`, as a just module.
 # The recipes below delegate to it, passing what differs per distribution as arguments.
@@ -103,37 +103,29 @@ frozen-revs:
 
 # --- Types ---
 
-# mypy gates the code the project owns: the packages and their typesafety suites strict, the examples
-# and the tests at the depth `mypy.ini` gives them. It analyses `.venv` through `--python-executable`
-# while running from the toolbox, once per distribution.
+# Each recipe below names its target once, and every checker in it reads that target.
+
+# mypy gates the code the project owns: the packages strict; the examples, the tests and the
+# benchmarks at the depth `mypy.ini` gives them. It analyses `.venv` through `--python-executable`
+# while running from the toolbox, once per distribution. `venv` syncs `.venv` with every group, so
+# the benchmark stacks' dependencies are there to resolve.
 # Presence of annotations on the public API is pyrefly's question (`type-coverage`); this one is
 # correctness.
-[doc("Check types of the packages, the typesafety suites, the examples and the tests (mypy, blocking)")]
+[doc("Check types of the packages, the examples, the tests and the benchmarks (mypy, blocking)")]
 types:
-    {{ tools }} toolbox mypy -- {{ packages }} {{ api_suites }} examples {{ test_dirs }}
+    {{ tools }} toolbox mypy -- {{ packages }} examples {{ test_dirs }} {{ bench_dirs }}
 
-# `-` is just's ignore-failure prefix, and it is the point: ty, pyrefly and basedpyright run so a
-# disagreement is seen, not so it can block. basedpyright reads `tools/basedpyright.json` here only.
-# ty reads the examples and the tests too, as it did when it gated them; `toolbox ty` leaves out a
-# typesafety suite it is not named.
-[doc("Second opinions from ty, pyrefly and basedpyright (informational, never blocks)")]
+# Second opinions on the packages. `-` is just's ignore-failure prefix: ty, pyrefly and
+# basedpyright run so a finding is seen, not so it can block. basedpyright reads
+# `tools/basedpyright.json` here only.
+[doc("Second opinions on the packages from ty, pyrefly and basedpyright (informational, never blocks)")]
 types-info:
-    -{{ tools }} toolbox ty -- {{ packages }} examples {{ test_dirs }}
+    -{{ tools }} toolbox ty -- {{ packages }}
     -{{ tools }} toolbox pyrefly check {{ packages }}
     -{{ tools }} toolbox basedpyright --project=tools/basedpyright.json -- {{ packages }}
 
-# The repository's own checks import pytest and the standard library only. They walk `ast`, where
-# reading an attribute off the wrong node is the likely mistake and a checker catches it. They run
-# from inside `tools/`; see the module.
-[doc("Check the repository's own checks with mypy (blocking)")]
-types-checks:
-    @just tools::types-checks
-
-[doc("Check the benchmarks with mypy (blocking)")]
-types-benchmarks: bench::types
-
-[doc("Check types (the gates, the second opinions, the benchmarks and the checks)")]
-types-all: types types-info types-benchmarks types-checks
+[doc("Check types (the gates and the second opinions)")]
+types-all: types types-api types-info tools::types
 
 # `--public-only` counts the symbols a caller reaches through the public modules and their
 # re-exports, each reported where it is defined. The threshold is pyrefly's default, 100%. A public
@@ -143,20 +135,27 @@ types-all: types types-info types-benchmarks types-checks
 type-coverage:
     {{ tools }} toolbox pyrefly coverage check --public-only {{ packages }}
 
-# End-user experience: each distribution's `typesafety/`, beside its package, asserts (via `assert_type`) the
-# types a downstream checker infers from the public API. basedpyright gates here (it's the Pylance experience);
-# mypy gates the suites in `types`, as package code; ty and pyrefly run informational — they disagree on some
-# spots, so they must not fail the recipe. `toolbox` hands each checker the synced env through its own
-# interpreter option, never by installing it there, and holds it to the floor. It runs each once per
-# distribution: every suite is a `typesafety` package, and one run over two of them is a duplicate module.
-# The informational two first: just stops at the first failing line, and they must be seen
-# whatever basedpyright says.
-[doc("Type-check the public API surface as end users' checkers see it (basedpyright gates)")]
+# Each distribution's `typing_tests/`, beside its package, asserts (via `assert_type`) the types a
+# user's checker infers from the public API, and marks each call the API must reject with one
+# ignore per checker. All four checkers gate, at the package's strictness, and fail on a warning
+# as on an error; each reports an ignore that suppresses nothing, so an expected error that stops
+# happening fails the recipe. Each reads only its own ignores: pyrefly would honour mypy's
+# `# type: ignore` and never report it unused. basedpyright reads its defaults here, not
+# `tools/basedpyright.json`.
+# `toolbox` hands each checker the synced env through its own interpreter option and holds it to
+# the floor, once per distribution: every suite is a `typing_tests` package, and one run over two
+# of them is a duplicate module. Every checker runs whatever the others report, and the recipe fails
+# if any did.
+[doc("Type-check the public API as users' checkers see it (mypy, ty, pyrefly, basedpyright; blocking)")]
 types-api:
-    @{{ if api_suites == "" { error("types-api: no distribution has a typesafety/") } else { "true" } }}
-    -{{ tools }} toolbox ty -- {{ api_suites }}
-    -{{ tools }} toolbox pyrefly check -- {{ api_suites }}
-    {{ tools }} toolbox basedpyright -- {{ api_suites }}
+    #!/usr/bin/env bash
+    [ -n "{{ suites }}" ] || { echo "types-api: no distribution has a typing_tests/"; exit 1; }
+    status=0
+    {{ tools }} toolbox mypy -- {{ suites }} || status=1
+    {{ tools }} toolbox ty --error-on-warning -- {{ suites }} || status=1
+    {{ tools }} toolbox pyrefly check --error unused-ignore --enabled-ignores pyrefly -- {{ suites }} || status=1
+    {{ tools }} toolbox basedpyright --warnings -- {{ suites }} || status=1
+    exit "$status"
 
 # --- Tests ---
 
@@ -201,7 +200,7 @@ test *args:
 # Not here, on purpose: `lint` (pre-commit.ci runs the hooks from the same config). The type-checking
 # rows are the target-level table in CONVENTIONS.md, one recipe per row that gates.
 [doc("Everything a pull request must pass, the local test matrix last")]
-gate: conventions imports deps slots types type-coverage types-api types-benchmarks types-checks tests
+gate: conventions imports deps slots types type-coverage types-api tools::types tests
 
 
 # --- Structure ---

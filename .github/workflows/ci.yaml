@@ -44,16 +44,14 @@ jobs:
         run: just deps
       - name: slotscheck
         run: just slots
-      - name: type check the package, the examples and the tests (mypy)
+      - name: type check the package, the examples, the tests and the benchmarks (mypy)
         run: just types
       - name: type completeness (pyrefly coverage)
         run: just type-coverage
-      - name: type-safety suite (basedpyright)
+      - name: typing tests (mypy, ty, pyrefly, basedpyright)
         run: just types-api
-      - name: type check benchmarks (mypy)
-        run: just types-benchmarks
       - name: type check the checks (mypy)
-        run: just types-checks
+        run: just tools::types
       # Second opinions from ty, pyrefly and basedpyright; the recipe never fails.
       - name: ty, pyrefly and basedpyright (informational)
         run: just types-info

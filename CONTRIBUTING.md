@@ -31,7 +31,7 @@ Run one test with `uv run pytest tests/test_parsing.py -k many -v`.
 ## Code style and conventions
 
 - **The types are the product.** Preserve what a user's checker infers for the combinators, not only what
-  they do at runtime; `typesafety/` is where a change in inference shows.
+  they do at runtime; `typing_tests/` is where a change in inference shows.
 - **Docs are tests.** A `>>>` session in a docs page or a docstring runs under pytest; when output
   changes, the page changes with it.
 - **A 1.0 grammar keeps working.** The combinators, their results and their error messages are the

@@ -150,15 +150,17 @@ conventions:
 fix-visibility:
     {{ tools }} conventions fix CON402 CON403
 
+# The repository's own checks import pytest and the standard library only. They walk `ast`, where
+# reading an attribute off the wrong node is the likely mistake and a checker catches it.
 # mypy from the toolbox's environment analyses the toolbox's interpreter, which these files run on,
 # and reads the repository's `mypy.ini`; named paths override its file list.
 # The repository's own checks only; `tools/conventions/` is excluded: it is generated.
-[doc("Type-check the repository's own checks")]
-types-checks:
+[doc("Type-check the repository's own checks (mypy, blocking)")]
+types:
     #!/usr/bin/env bash
     set -euo pipefail
     if ! compgen -G 'tools/checks/*.py' >/dev/null; then
-        echo "types-checks: no tools/checks/ of this repository's own"
+        echo "tools::types: no tools/checks/ of this repository's own"
         exit 0
     fi
     env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools mypy tools/checks
@@ -216,7 +218,7 @@ deadcode dir *args:
 # a verification command does not make it.
 #
 # mypy, the checker that gates owned code, runs only for named paths: the whole tree is the type
-# recipes' to judge. It skips what is not Python, and checks a typesafety suite as package code.
+# recipes' to judge. It skips what is not Python, and checks a `typing_tests/` suite as package code.
 # mypy runs whatever the hooks said, and the recipe fails if either did.
 [doc("Read-only check: every applicable commit hook, plus mypy for Python paths. No paths = whole tree.")]
 check *paths:

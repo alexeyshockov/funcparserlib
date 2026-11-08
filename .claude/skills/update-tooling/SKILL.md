@@ -66,14 +66,14 @@ Three invariants that must survive any update:
 5. Re-run the gates and triage, plus whatever `PROJECT.md` adds:
    - `just check` — new ruff rules, new typo/markdownlint/editorconfig findings, actionlint and
      zizmor over the bumped workflows
-   - `just types-all` and `just types-api` — new diagnostics per checker
+   - `just types-all` — new diagnostics per checker
    - `just imports deps slots` — the structural gates; a ruff or deptry bump changes what they see
    - `just tests` — dependency regressions
 
    Remember the tiers: `just gate` is what blocks — mypy over the package, the examples, the tests
-   and the checks (`types`, `types-checks`), pyrefly coverage on API completeness (`type-coverage`),
-   basedpyright on each `typesafety/` (`types-api`). The `-`-prefixed lines (`types-info`, the
-   non-basedpyright checkers in `types-api`) are informational on purpose — don't promote them to gating to "fix" a diagnostic.
+   and the benchmarks (`types`) and over the checks (`tools::types`), pyrefly coverage on API
+   completeness (`type-coverage`), and all four checkers on each `typing_tests/` (`types-api`).
+   `types-info` is informational on purpose — don't promote it to gating to "fix" a diagnostic.
 6. For each new finding, decide: fix the code, `noqa`/ignore with a reason, or configure the rule
    in `pyproject.toml`. Prefer fixing. A blanket ignore needs a comment saying why.
    Read every hunk a hook *rewrote* — `git diff` after `just fix`, don't just trust a green run.

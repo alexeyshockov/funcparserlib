@@ -39,12 +39,7 @@ PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 # diagnostics for any file handed to it.
 TY_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
 
-# Where a distribution's typesafety suite lives: beside its package, at the package's level (ADR
-# 0001). `assert_type` cases that basedpyright judges in `just types-api` and mypy in `just types`;
-# ty disagrees with some of their lines by design, so its runs leave them out unless named.
-TYPESAFETY = "typesafety"
-
-# The toolbox's own files run on the toolbox's interpreter, which `just types-checks` checks them
+# The toolbox's own files run on the toolbox's interpreter, which `just tools::types` checks them
 # at. From the repository root ty reads the project's `requires-python` and `.venv` instead, and
 # reports `ast.TypeAlias` missing in a file that only ever runs on the toolbox's interpreter.
 TOOLBOX = "tools"
@@ -151,22 +146,6 @@ def member_of(path: str, dists: Sequence[str]) -> str:
         dist for dist in dists if dist != "." and parts[: len(Path(dist).parts)] == Path(dist).parts
     ]
     return max(holding, key=lambda dist: len(Path(dist).parts), default=".")
-
-
-def suites(root: Path, named: Sequence[str], dists: Sequence[str]) -> list[str]:
-    """The typesafety suites a ty run over `named` would sweep up, to leave out of it.
-
-    A suite under a directory named is swept up, and every suite by a run over the whole project.
-    They exist for basedpyright, and ty disagrees with some of their lines by design. ty checks a
-    path named on its command line even when it is excluded, so a suite named is still checked.
-    """
-    found = []
-    for dist in dists:
-        suite = TYPESAFETY if dist == "." else f"{dist}/{TYPESAFETY}"
-        holding = [p for p in named if Path(suite).parts[: len(Path(p).parts)] == Path(p).parts]
-        if (root / suite).is_dir() and (holding or not named):
-            found.append(suite)
-    return found
 
 
 def search_paths(member: str, dists: Sequence[str]) -> list[str]:
@@ -358,8 +337,7 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
 
     A workspace member is checked as its own project: every member's suite is a top-level `tests`
     package, and from the root they would all resolve to the first. `--exclude PATH`, a path from
-    the repository root as ty reads it, goes to the run of the distribution holding it; so does each
-    typesafety suite a directory would sweep up without naming it (`suites`).
+    the repository root as ty reads it, goes to the run of the distribution holding it.
     """
     dists = distributions(root)
     excludes: list[str] = []
@@ -392,15 +370,14 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         elif (root / path).is_dir() or Path(path).suffix in TY_SUFFIXES:
             named.append(path)
     if skipped_toolbox:
-        print("ty: tools/ is checked by 'just types-checks', on the Python in .venv-tools")
+        print("ty: tools/ is checked by 'just tools::types', on the Python in .venv-tools")
     if paths and not named and not noxfile:
         print("ty: skipped, no Python files among the given paths")
         return 0
     excluded = _grouped(root, excludes, dists)
-    swept = suites(root, named, dists)
     versions = target_versions(root)
     found = pinned(root, named, versions, TY_SUFFIXES) if named or not paths else {}
-    pins = {path: v for path, v in found.items() if not _under(path, [*swept, *excludes])}
+    pins = {path: v for path, v in found.items() if not _under(path, excludes)}
     floor_paths = [p for p in named if p not in pins and not _all_pinned(root, p, pins)]
     groups = _grouped(root, floor_paths, dists) if named else {".": []}
 
@@ -408,7 +385,7 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
         view = [] if member == "." else ["--project", member]
         for path in search_paths(member, dists) if member != "." else []:
             view += ["--extra-search-path", path]
-        dropped = [*excluded.get(member, []), *suites(root, members_paths, dists)]
+        dropped = list(excluded.get(member, []))
         if member == ".":
             dropped.append(NOXFILE)
         dropped += [path for path in pins if member_of(path, dists) == member]
@@ -449,7 +426,7 @@ def _member_config(root: Path, member: str) -> list[str]:
 def _python_paths(root: Path, name: str, paths: Sequence[str]) -> list[str]:
     """The paths a checker of owned code reads: directories and Python files, outside `tools/`.
 
-    `tools/` runs on the toolbox's interpreter (`just types-checks`), and the noxfile imports nox,
+    `tools/` runs on the toolbox's interpreter (`just tools::types`), and the noxfile imports nox,
     which `.venv` does not install.
     """
     kept = []
@@ -507,8 +484,8 @@ def _checker(
     the floor.
 
     The checker that gates owned code (`gate`) is handed any paths, as `just check` names them: it
-    skips what is not Python, `tools/` and the noxfile. It checks a typesafety suite as it does the
-    package, whose level the suite is at.
+    skips what is not Python, `tools/` and the noxfile. It checks a `typing_tests/` suite as it does
+    the package, whose level the suite is at.
     """
 
     def run(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:

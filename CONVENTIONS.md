@@ -99,29 +99,32 @@ section (CON800). The code width is the one setting the project answers for itse
 - **The public API is fully typed, and `py.typed` ships.** Presence is gated by `just type-coverage`
   (`pyrefly coverage check --public-only`, at 100%): every public function, parameter, attribute and
   variable is annotated, except a constant assigned a literal. Correctness is gated by `just types` (mypy over the
-  package, the examples and the tests, configured in
-`mypy.ini`). ty, pyrefly and basedpyright run as second opinions and never block.
-- **Each distribution's `typesafety/`, beside its package, pins what an end user's checker infers**
-  from the public API, through `assert_type`. basedpyright gates it (`just types-api`), and mypy as
-  package code (`just types`); a change in public inference is a behaviour change, even when runtime
-  behaviour is identical.
+  package, the examples, the tests and the benchmarks, configured in
+`mypy.ini`). ty, pyrefly and basedpyright give second opinions on the package
+  (`just types-info`) and never block.
+- **Each distribution's `typing_tests/`, beside its package, pins what a user's checker infers**
+  from the public API: `assert_type` for what a call returns, and one ignore per checker, with its
+  code, on each call the API must reject. mypy, ty, pyrefly and basedpyright all gate it
+  (`just types-api`) at the package's strictness, and each reports an ignore that suppresses
+  nothing. A change in public inference is a behaviour change, even when runtime behaviour is
+  identical.
 - **Internal code** uses types where they aid readability; the gate is over the package, not a
   demand for annotations on every internal `def`.
 
-**Which tree gets which depth.** A project that deviates writes the deviation down next to its
-config.
+**Each recipe names its target once, and every checker in it reads that target.** A project that
+deviates writes the deviation down next to its config.
 
-| tree | mypy | ty | basedpyright | pyrefly | recipe |
-| --- | --- | --- | --- | --- | --- |
-| the package | **gate** | informational | informational | informational; **`coverage` at 100%** | `types`, `types-info`, `type-coverage` |
-| `examples/` | **gate** | informational | — | — | `types`, `types-info` |
-| `tests/` | **gate**, at the tests' depth | informational | — | — | `types`, `types-info` |
-| each distribution's `typesafety/` | **gate** | informational | **gate** | informational | `types`, `types-api` |
-| the `benchmarks/` directories | **gate**, at the tests' depth | — | — | — | `types-benchmarks` |
+| recipe | target | checkers | blocks |
+| --- | --- | --- | --- |
+| `types` | the package; `examples/`, `tests/`, the `benchmarks/` directories at the depth `mypy.ini` gives each | mypy | yes |
+| `types-api` | each distribution's `typing_tests/` | mypy, ty, pyrefly, basedpyright | yes |
+| `type-coverage` | the public API's annotations | pyrefly `coverage`, at 100% | yes |
+| `tools::types` | the repository's own `tools/checks/` | mypy, on the toolbox's interpreter | yes |
+| `types-info` | the package | ty, pyrefly, basedpyright | no |
 
 One checker gates the code a project owns, so a finding has one semantics to meet: mypy, and
-`just check` runs it on the paths it is given. basedpyright gates what a user's checker infers,
-as Pylance and the agents' editors run it. ty runs as a second opinion everywhere.
+`just check` runs it on the paths it is given. What a user's checker infers is gated by all four,
+because a user may run any of them.
 
 **Every checker runs at the floor**, the version `requires-python` starts from, except for a file
 that ruff's `per-file-target-version` (`[tool.ruff]` in `pyproject.toml`) gives a version of its
@@ -134,8 +137,8 @@ section of `mypy.ini` turns off what would make one harder to read (annotations 
 does not need, a helper returning `Any`, an assertion against what a type says a value cannot be,
 `seen.append(v) or v`, a fake server's `match` without a default arm). A test that hands the
 package a value of the wrong type on purpose says so with a `# type: ignore[code]` and the reason.
-The typesafety suites are code at the package's level, not tests: they live beside the package and are
-checked at its depth.
+The `typing_tests/` suites show what a user writes against the public API, and are checked at the
+package's depth: the tests' section of `mypy.ini` does not reach them.
 
 ## Source
 
@@ -264,7 +267,7 @@ CON5xx); `conventions explain CODE` gives each one's reason and scope.
 ## Benchmarks
 
 - Benchmark code may reach into the package's internals; the package never imports it.
-- It is type-checked at the tests level: `just types-benchmarks` runs mypy over it, blocking, in
+- It is type-checked at the tests level: `just types` runs mypy over it, blocking, in
   `just gate`, at the depth `mypy.ini` gives tests. An environment missing a benchmark's dependency
   shows up as an unresolved import — fix the environment (`just venv`), never the rule.
 - Micro-benchmarks are pytest-benchmark cases, `bench_*.py` files in a `benchmarks/` directory
@@ -429,7 +432,9 @@ Before opening:
 Verification scales with risk. Start narrow and widen only as the change requires: `just check` on
 the changed files, then the narrowest focused test (`just test PATH`), then the checks it touches (`just
 conventions`, `just imports`, `just deps`, `just types-api` for a public inference change), then
-broader unit checks, and only then integration or container checks.
+broader unit checks, and only then integration or container checks. Before handing a change off,
+run `just types-info`: fix the second opinions' findings that are cheap to fix, and name the rest in
+the report.
 
 The `master` branch is the only stable branch and will never be force-pushed. Any other branch,
 including release branches, may be rebased or force-pushed at any time.

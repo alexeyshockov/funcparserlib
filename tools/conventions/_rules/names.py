@@ -22,12 +22,12 @@ def title_case_initialism(project: Project) -> re.Pattern[str]:
 
 
 def source_roots(project: Project) -> list[Path]:
-    """Each package, the `typesafety/`, `tests/` and `examples/` beside it, and the root's own."""
-    candidates = [project.root / "typesafety", project.root / "tests", project.root / "examples"]
+    """Each package, the `typing_tests/`, `tests/` and `examples/` beside it, and the root's own."""
+    candidates = [project.root / "typing_tests", project.root / "tests", project.root / "examples"]
     for root in project.package_roots.values():
         candidates += [
             root,
-            root.parent / "typesafety",
+            root.parent / "typing_tests",
             root.parent / "tests",
             root.parent / "examples",
         ]

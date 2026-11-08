@@ -26,7 +26,8 @@ INFORMATIONAL = frozenset({"types-info"})
 FLOOR = 5
 
 JOB = re.compile(r"^  [a-z][a-z0-9-]*:$", re.MULTILINE)
-STEP = re.compile(r"^\s+(?:- )?run: just ([a-z][a-z0-9-]*)$", re.MULTILINE)
+# A recipe, or a module's recipe as `module::recipe`.
+STEP = re.compile(r"^\s+(?:- )?run: just ([a-z][a-z0-9-]*(?:::[a-z][a-z0-9-]*)*)$", re.MULTILINE)
 CALLS_MATRIX = re.compile(rf"^\s+uses: \./{re.escape(MATRIX_WORKFLOW)}(?:\s+#.*)?$", re.MULTILINE)
 
 

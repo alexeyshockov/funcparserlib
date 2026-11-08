@@ -146,8 +146,8 @@ _ = assert_type((x + n_text + x).starmap(triple), Parser[str, bytes])
 _ = assert_type((x + n_text + x + n_text).starmap(quad), Parser[str, complex])
 _ = assert_type((x + n_text + x + n_text + x).starmap(quint), Parser[str, list[str]])
 # A function of another arity, or of other types, is an error.
-_ = (x + n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
-_ = (n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
+_ = (x + n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyrefly: ignore[bad-argument-type]  # pyright: ignore[reportArgumentType]
+_ = (n_text + x).starmap(pair)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyrefly: ignore[bad-argument-type]  # pyright: ignore[reportArgumentType]
 
 # Parsers of text read `str` and give the text they matched; `end` gives nothing.
 spaced = skipping(r"\s+")
@@ -254,4 +254,4 @@ wide_pair: Tuple2Parser[Token, int, str] = narrow_pair
 narrow_compiled: CompiledParser[Token, bool] = narrow.compile()
 wide_compiled: CompiledParser[Token, int] = narrow_compiled
 # A forward declaration is one of its value exactly, as `define()` takes one.
-widened: ForwardDeclParser[str, str | int] = decl  # type: ignore[assignment]  # ty: ignore[invalid-assignment]  # pyright: ignore[reportAssignmentType]
+widened: ForwardDeclParser[str, str | int] = decl  # type: ignore[assignment]  # ty: ignore[invalid-assignment]  # pyrefly: ignore[bad-assignment]  # pyright: ignore[reportAssignmentType]

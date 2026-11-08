@@ -25,7 +25,7 @@ funcparserlib/_commons.py the generated helpers: valueclass, refclass, with_hint
 funcparserlib/_utils.py   the package's own helpers: the line and column of an offset
 tests/test_*.py           unit tests; tests/dot.py and tests/json.py are example grammars they drive
 tests/shadow.py           pytest plugin: every parse of the suite also runs compiled, and must agree
-typesafety/               what a user's checker infers, at the package's level: mypy and basedpyright gate it
+typing_tests/             what a user's checker infers, at the package's level: all four checkers gate it
 conftest.py               leaves the examples' tests, docs/ and README.md out below the examples' Python
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
@@ -40,9 +40,9 @@ benchmarks/               pytest-benchmark micro-benchmarks, bench_*.py; results
 ```shell
 just doctor              # host tools and the commit hooks
 just venv                # every dependency group
-just check [FILES]       # read-only: every applicable hook, + ty for Python paths
+just check [FILES]       # read-only: every applicable hook, + mypy for Python paths
 just fix [FILES]         # apply the fixers
-just types               # mypy over the package, the correctness gate
+just types               # mypy over the package, examples, tests, benchmarks: the correctness gate
 just gate                # everything a pull request must pass, the local test sessions last
 just tests               # the noxfile's local sessions: free-threaded 3.15t, shadow on 3.11, exhaustive
 just docs-build          # the site into site/
@@ -61,7 +61,7 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   says.** The doctests in `docs/` and in the docstrings (pytest's `--doctest-glob` and
   `--doctest-modules`), which compare error messages too, `tests/test_parsing.py`.
 - **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
-  `maybe()`, `forward_decl()` infer for a user is asserted in `typesafety/` (`just types-api`,
+  `maybe()`, `forward_decl()` infer for a user is asserted in `typing_tests/` (`just types-api`,
   ADR 0001).
 - **An error names everything expected where parsing stopped**, a label instead of a parser's parts, and an error
   from a nested `parse()` unchanged. `tests/test_errors.py`.
