@@ -131,9 +131,9 @@ the one place that version is stated. A test that runs the file skips it on an o
 Tests and benchmarks are read first, and mypy checks them for what they call on the package: a
 section of `mypy.ini` turns off what would make one harder to read (annotations a fixture or helper
 does not need, a helper returning `Any`, an assertion against what a type says a value cannot be,
-`seen.append(v) or v`). A test that hands the package a value of the wrong type on purpose says so
-with a `# type: ignore[code]` and the reason. The typesafety suites are correctness, at the
-package's depth: their section undoes the tests'.
+`seen.append(v) or v`, a fake server's `match` without a default arm). A test that hands the
+package a value of the wrong type on purpose says so with a `# type: ignore[code]` and the reason.
+The typesafety suites are correctness, at the package's depth: their section undoes the tests'.
 
 ## Source
 
