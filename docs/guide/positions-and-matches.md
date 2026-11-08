@@ -147,6 +147,8 @@ starts, and never inside a word, a string or a comment the tokenizer reads as on
 
 ```
 
+[How a scan walks a text](../explanation/scans.md) follows a scan offset by offset.
+
 ## Rewrite the Matches
 
 [`Parser.replace_text()`](../api/parser.md#funcparserlib.parser.Parser.replace_text) gives the text with each match

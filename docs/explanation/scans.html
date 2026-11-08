@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a scan walks a text · funcparserlib</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1d1d1f; --muted: #6b6b70; --line: #d9d9de; --card: #ffffff;
+    --tried: #e6e6ea; --at: #f2c94c; --match: #2f855a; --err: #c53030;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --fg: #ececf0; --muted: #a0a0a8; --line: #34343a; --card: #202024;
+      --tried: #34343a; --at: #b88a1a; --match: #3f9e6c; --err: #f07070;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p.lead { color: var(--muted); margin: 0 0 20px; }
+  code, .text, input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  label { color: var(--muted); font-size: 13px; }
+  select, input { font-size: 14px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  input { flex: 1; min-width: 240px; }
+  button { font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  button:hover:not(:disabled) { border-color: var(--fg); }
+  button:disabled { opacity: .45; cursor: default; }
+  .text { display: flex; flex-wrap: wrap; gap: 2px; font-size: 16px; }
+  .ch { width: 1.6em; text-align: center; border-radius: 4px; padding: 4px 0 2px; border-bottom: 3px solid transparent; }
+  .ch small { display: block; font-size: 9px; color: var(--muted); }
+  .ch.tried { background: var(--tried); }
+  .ch.match { background: var(--match); color: #fff; }
+  .ch.match small { color: #e8fff0; }
+  .ch.at { border-bottom-color: var(--at); }
+  .ch.err { background: var(--err); color: #fff; }
+  ol.log { margin: 0; padding-left: 22px; max-height: 280px; overflow: auto; font-size: 13px; }
+  ol.log .match { color: var(--match); }
+  ol.log .err { color: var(--err); }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>How a scan walks a text</h1>
+  <p class="lead">
+    <code>Parser.scan_text()</code> tries a grammar at one offset at a time. Pick a grammar, edit the text, and step.
+    The prose, and the source of truth, is <a href="scans/">How a Scan Walks a Text</a>.
+  </p>
+
+  <section aria-labelledby="h-in">
+    <h2 id="h-in">Grammar and text</h2>
+    <div class="row">
+      <label for="grammar">grammar</label>
+      <select id="grammar">
+        <option value="version">regex(r"\d+") + -lit(".") + regex(r"\d+")</option>
+        <option value="number">regex(r"\d+") &gt;&gt; int</option>
+        <option value="word">regex(r"[A-Z][a-z]+")</option>
+        <option value="empty">maybe(regex(r"\d+"))</option>
+      </select>
+    </div>
+    <div class="row">
+      <label for="text">text</label>
+      <input id="text" value="From 1.2 to 3.14, see above." spellcheck="false">
+    </div>
+    <div class="row">
+      <button id="step">try the next offset</button>
+      <button id="next">take the next match</button>
+      <button id="all">take every match</button>
+      <button id="reset">start over</button>
+    </div>
+    <p class="note">The grammars read text without a tokenizer, so every offset is tried. A grammar of
+      <code>tokenized()</code> is tried only where a token starts.</p>
+  </section>
+
+  <section aria-labelledby="h-t">
+    <h2 id="h-t">The text</h2>
+    <div class="text" id="chars" aria-live="polite"></div>
+    <p class="note">Grey: offsets tried without a match. Green: matches. Underlined: the next offset to try.</p>
+  </section>
+
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">What the scan did</h2>
+    <ol class="log" id="log"></ol>
+  </section>
+</main>
+
+<script>
+"use strict";
+// Each grammar as what it reads from an offset: the value and the end, or null where it fails. A sticky regex
+// matches only at `lastIndex`, as a parser of text reads only from where it is tried.
+const GRAMMARS = {
+  version: (text, at) => {
+    const m = /(\d+)\.(\d+)/y; m.lastIndex = at;
+    const r = m.exec(text);
+    return r ? { value: `('${r[1]}', '${r[2]}')`, end: at + r[0].length } : null;
+  },
+  number: (text, at) => {
+    const m = /\d+/y; m.lastIndex = at;
+    const r = m.exec(text);
+    return r ? { value: String(parseInt(r[0], 10)), end: at + r[0].length } : null;
+  },
+  word: (text, at) => {
+    const m = /[A-Z][a-z]+/y; m.lastIndex = at;
+    const r = m.exec(text);
+    return r ? { value: `'${r[0]}'`, end: at + r[0].length } : null;
+  },
+  empty: (text, at) => {
+    const m = /\d+/y; m.lastIndex = at;
+    const r = m.exec(text);
+    return r ? { value: String(r[0]), end: at + r[0].length } : { value: "None", end: at };
+  },
+};
+
+let s;
+const $ = (id) => document.getElementById(id);
+
+function reset() {
+  s = { text: $("text").value, grammar: $("grammar").value, offset: 0, tried: new Set(), matches: [], done: false, error: null };
+  $("log").replaceChildren();
+  render();
+}
+
+function log(text, kind) {
+  const li = document.createElement("li");
+  li.textContent = text;
+  if (kind) li.className = kind;
+  $("log").appendChild(li);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+// One try at the current offset; returns true when it gave a match or ended the scan.
+function step() {
+  if (s.done) return true;
+  if (s.offset >= s.text.length) {
+    s.done = true;
+    log(`Offset ${s.offset} is the end of the text: the scan ends.`);
+    return true;
+  }
+  const at = s.offset;
+  const found = GRAMMARS[s.grammar](s.text, at);
+  if (found === null) {
+    s.tried.add(at);
+    s.offset = at + 1;
+    log(`Offset ${at}: the grammar fails, so no match here; on to offset ${at + 1}.`);
+    return false;
+  }
+  if (found.end === at) {
+    s.done = true;
+    s.error = at;
+    log(`Offset ${at}: the grammar succeeds without reading anything. The scan raises ValueError: it could not move past this match.`, "err");
+    return true;
+  }
+  s.matches.push({ start: at, end: found.end });
+  s.offset = found.end;
+  log(`Offset ${at}: a match, Located(value=${found.value}, start=${at}, end=${found.end}). The scan goes on from ${found.end}, so the match is never read again.`, "match");
+  return true;
+}
+
+function nextMatch() {
+  while (!step()) { /* tries offsets until a match or the end */ }
+  render();
+}
+
+function render() {
+  const box = $("chars");
+  box.replaceChildren();
+  [...s.text].forEach((c, i) => {
+    const el = document.createElement("span");
+    el.className = "ch";
+    if (s.tried.has(i)) el.classList.add("tried");
+    if (s.matches.some((m) => i >= m.start && i < m.end)) el.classList.add("match");
+    if (s.error === i) el.classList.add("err");
+    if (!s.done && i === s.offset) el.classList.add("at");
+    el.textContent = c === " " ? " " : c;
+    const n = document.createElement("small");
+    n.textContent = i;
+    el.appendChild(n);
+    box.appendChild(el);
+  });
+  for (const id of ["step", "next", "all"]) $(id).disabled = s.done;
+}
+
+$("step").addEventListener("click", () => { step(); render(); });
+$("next").addEventListener("click", nextMatch);
+$("all").addEventListener("click", () => { while (!s.done) { step(); } render(); });
+$("reset").addEventListener("click", reset);
+$("grammar").addEventListener("change", reset);
+$("text").addEventListener("input", reset);
+reset();
+</script>
+</body>
+</html>
