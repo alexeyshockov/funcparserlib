@@ -1,4 +1,4 @@
-# Funcparserlib
+# funcparserlib
 
 <!-- Python-Markdown, which renders the site, nests a list only under a 4-space indent. -->
 <!-- markdownlint-configure-file {"MD007": {"indent": 4}} -->
@@ -69,27 +69,6 @@ stopped and what could have been there:
 
 [Parsing Without a Tokenizer](https://funcparserlib.pirx.ru/guide/without-a-tokenizer/) has more on this kind of grammar,
 and [the example below](#example) splits the text into tokens first.
-
-## Documentation
-
-* [Getting Started](https://funcparserlib.pirx.ru/getting-started/)
-    * Your **starting point** with `funcparserlib`
-* [Guides](https://funcparserlib.pirx.ru/guide/errors/)
-    * Error handling, debugging, performance, parsing without a tokenizer, positions and matches
-* [Recipes](https://funcparserlib.pirx.ru/recipes/)
-    * Complete parsers of real formats
-* [API Reference](https://funcparserlib.pirx.ru/api/)
-    * Learn the details of the API
-* [Other Libraries](https://funcparserlib.pirx.ru/guide/other-libraries/)
-    * How `funcparserlib` differs from Lark, parsy and pyparsing, and when to use them instead
-
-The programs of the recipes are in the [`examples/`](https://github.com/vlasovskikh/funcparserlib/tree/master/examples)
-directory, and there are two more grammars in `tests/`:
-
-* [GraphViz DOT parser](https://github.com/vlasovskikh/funcparserlib/blob/master/tests/dot.py)
-* [JSON parser](https://github.com/vlasovskikh/funcparserlib/blob/master/tests/json.py)
-
-See also [the changelog](https://funcparserlib.pirx.ru/changes/).
 
 ## Example
 
@@ -203,15 +182,13 @@ Started](https://funcparserlib.pirx.ru/getting-started/) guide!
 Some open-source projects that use `funcparserlib` as an explicit dependency:
 
 * [Hy](https://github.com/hylang/hy), a Lisp dialect that's embedded in Python
-    * 4.7K stars, version `~=1.0`, Python 3.8+
+    * 5.4K stars, version `~=1.0`, Python 3.9+
 * [Splash](https://github.com/scrapinghub/splash), a JavaScript rendering service with HTTP API, by Scrapinghub
-    * 3.9K stars, version `*`. Python 3 in Docker
-* [graphite-beacon](https://github.com/klen/graphite-beacon), a simple alerting system for Graphite metrics
-    * 453 stars, version `==0.3.6`, Python 2 and 3
+    * 4.2K stars, version `>=0.3.6`, Python 3 in Docker
 * [blockdiag](https://github.com/blockdiag/blockdiag), generates block-diagram image file from spec-text file
-    * 194 stars, version `>= 1.0.0a0`, Python 3.7+
+    * 243 stars, version `>=1.0.0a0`, Python 3.7+
 * [kll](https://github.com/kiibohd/kll), Keyboard Layout Language (KLL) compiler
-    * 113 stars, copied source code, Python 3.5+
+    * 114 stars, copied source code, Python 3.5+
 
 ## Next
 
