@@ -316,6 +316,31 @@ def test_a_parsing_function_of_parser_raises_as_it_is() -> None:
         (digit | a("x")).parse("x")
 
 
+class LegacyDigit:
+    def __call__(self, tokens: Any, s: State) -> Any:
+        return legacy_digit(tokens, s)
+
+    def __repr__(self) -> str:
+        return "LegacyDigit()"
+
+
+def test_a_legacy_callable_object_warns_by_its_repr() -> None:
+    with pytest.warns(
+        DeprecationWarning, match=r"^parsing function LegacyDigit\(\) follows the 1\.0"
+    ):
+        assert Parser(LegacyDigit()).parse("1") == "1"
+
+
+def test_the_warning_of_a_legacy_parsing_function_is_from_the_module_of_the_function() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        warnings.filterwarnings(
+            "error", category=DeprecationWarning, module=r"tests\.test_combinators$"
+        )
+        with pytest.raises(DeprecationWarning):
+            Parser(legacy_digit).parse("1")
+
+
 def test_a_legacy_parsing_function_warns_once_per_function_by_default() -> None:
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("default")

@@ -291,6 +291,15 @@ def test_the_default_description_reads_a_value_without_a_position() -> None:
     assert str(error(x, [Valued()])) == "got unexpected token: 'v', expected: 'x'"
 
 
+def test_a_token_with_a_start_and_no_end_has_no_position() -> None:
+    class Started:
+        value = "v"
+        start = (1, 1)
+        end = None
+
+    assert error(x, [Started()]).description == TokenDescription("'v'")
+
+
 def test_a_token_from_the_lexer_keeps_its_message() -> None:
     e = error(tok("op"), [Token("n", "1", (1, 1), (1, 1))])
     assert str(e) == "1,1-1,1: got unexpected token: '1', expected: op"

@@ -564,6 +564,13 @@ def test_an_error_shows_the_word_it_stopped_at(run: Runner) -> None:
     )
 
 
+def test_an_error_recovered_from_shows_the_word_it_stopped_at(run: Runner) -> None:
+    line = (spaced.lit("x") + spaced.lit("=") + spaced.lit("1")).recover(until=spaced.lit(";"))
+    assert message(run, line + -spaced.lit(";") + -spaced.end, "x = abc ;") == (
+        "1,5-1,5: got unexpected token: 'abc', expected: '1'"
+    )
+
+
 def test_an_error_renders_the_line_it_is_on(run: Runner) -> None:
     with pytest.raises(NoParseError) as caught:
         run(pair(), "1 +\n  x + 3")
