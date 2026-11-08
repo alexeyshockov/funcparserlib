@@ -9,15 +9,22 @@ from .._project import Project
 from ._ast import line_at
 
 GUIDE = "ARCHITECTURE.md"
-FENCE = re.compile(r"^(`{3,}|~{3,})[ \t]*([\w-]*)[^\n]*\n(.*?)^\1[ \t]*$", re.M | re.S)
-CODE_SPAN = re.compile(r"(?<!`)`([^`\n]+)`(?!`)")
+# A fenced block, indented as a list item's may be, closed by a fence at least as long.
+FENCE = re.compile(
+    r"^[ \t]*(`{3,}|~{3,})[ \t]*([\w-]*)[^\n]*\n(.*?)^[ \t]*\1[`~]*[ \t]*$", re.M | re.S
+)
+# A code span may wrap onto the next line, never across a blank one.
+CODE_SPAN = re.compile(r"(?<!`)`((?:[^`\n]|\n(?![ \t]*\n))+)`(?!`)")
+MERMAID_COMMENT = re.compile(r"^[ \t]*%%[^\n]*", re.M)
 SUFFIXES = r"py|pyi|rs|md|toml|ya?ml|json|ini|cfg|just|html|txt|lock"
 # A path a guide names: a directory ending in `/`, or a file with one of `SUFFIXES`, either below
 # directories.
 PATH = re.compile(rf"(?:[\w.-]+/)*[\w.-]+\.(?:{SUFFIXES})|(?:[\w.-]+/)+")
 # A path in a diagram label, as above. A plain word is not read, nor `HTTP/1.1`, which ends in
 # neither `/` nor a suffix, nor a `<br/>`.
-DIAGRAM_PATH = re.compile(rf"(?<![\w./<-])((?:[\w-]+/)*[\w-]+\.(?:{SUFFIXES})|(?:[\w-]+/)+(?!\w))")
+DIAGRAM_PATH = re.compile(
+    rf"(?<![\w/<-])((?:[\w.-]+/)*[\w.-]+\.(?:{SUFFIXES})|(?:[\w.-]+/)+(?![\w.]))"
+)
 GUIDANCE = re.compile(r"<!--\s*architecture:")
 GUIDANCE_BLOCK = re.compile(r"<!--\s*architecture:.*?-->", re.S)
 
@@ -40,11 +47,16 @@ def known_paths(project: Project) -> set[tuple[str, ...]]:
 
 
 def path_resolves(project: Project, written: str) -> bool:
-    """A path resolves where some listed path ends with its components."""
+    """A path resolves where some listed path ends with its components; one whose first component is
+    at the repository root resolves from the root only.
+    """
     parts = PurePosixPath(written.removeprefix("./")).parts
     if not parts:
         return True
-    return any(path[-len(parts) :] == parts for path in known_paths(project))
+    known = known_paths(project)
+    if len(parts) > 1 and (parts[0],) in known:
+        return parts in known
+    return any(path[-len(parts) :] == parts for path in known)
 
 
 @rule("CON310", "CON311", "CON312", "CON313")
@@ -63,9 +75,10 @@ def architecture(project: Project) -> Iterator[Finding]:
 
     Reason: the guide is read instead of the code, so a codemap entry left behind by a move misleads
     exactly the reader who relies on it. A span is a path when it ends in `/` or in a file suffix
-    (`net/`, `_executor.py`), and it resolves where a listed file or directory ends with it. A name
-    in prose is not read: backticks there also mark environment variables, wire messages and other
-    projects' symbols, which no index of this repository can tell from a stale name.
+    (`net/`, `_executor.py`), and it resolves where a listed file or directory ends with it, or,
+    when its first directory is at the repository root, where it is that path. A name in prose is
+    not read: backticks there also mark environment variables, wire messages and other projects'
+    symbols, which no index of this repository can tell from a stale name.
 
     Fix: correct or drop the path. A path outside the repository, such as another project's file,
     takes `conventions: ignore[CON311]` on its line.
@@ -73,8 +86,8 @@ def architecture(project: Project) -> Iterator[Finding]:
     CON312: Every path a diagram in `ARCHITECTURE.md` names exists.
 
     Reason: a diagram goes stale the way a codemap does, and is the part a reader trusts at a
-    glance. A label names code by path (`net/`, `_executor.py`), read as CON311 reads a span; a
-    plain word in a label is not read.
+    glance. A label names code by path (`net/`, `_executor.py`, `.github/`), read as CON311 reads a
+    span; a plain word in a label and a `%%` comment are not read.
 
     Fix: update the diagram with the code it draws.
 
@@ -100,7 +113,7 @@ def architecture(project: Project) -> Iterator[Finding]:
         if match.group(2) != "mermaid":
             continue
         body_start = match.start(3)
-        for token in DIAGRAM_PATH.finditer(match.group(3)):
+        for token in DIAGRAM_PATH.finditer(MERMAID_COMMENT.sub(_blank, match.group(3))):
             if not path_resolves(project, token.group(1)):
                 yield Finding(
                     GUIDE,
@@ -109,7 +122,7 @@ def architecture(project: Project) -> Iterator[Finding]:
                     f"the diagram names `{token.group(1)}`, which is nowhere in the repository",
                 )
     for match in CODE_SPAN.finditer(FENCE.sub(_blank, written)):
-        span = match.group(1).strip()
+        span = " ".join(match.group(1).split())
         if PATH.fullmatch(span) and not path_resolves(project, span):
             yield Finding(
                 GUIDE,
