@@ -101,7 +101,7 @@ section (CON800). The code width is the one setting the project answers for itse
   (`pyrefly coverage check --public-only`, at 100%): every public function, parameter, attribute and
   variable is annotated, except a constant assigned a literal. Correctness is gated by `just types` (mypy over the
   package, the examples, the tests and the benchmarks, configured in
-`mypy.ini`). ty, pyrefly and basedpyright give second opinions on the package
+  `mypy.ini`). ty, pyrefly and basedpyright give second opinions on the package
   (`just types-info`) and never block.
 - **Each distribution's `typing_tests/`, beside its package, pins what a user's checker infers**
   from the public API: `assert_type` for what a call returns, and one ignore per checker, with its
