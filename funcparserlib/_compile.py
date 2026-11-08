@@ -233,12 +233,12 @@ def _not(test: _Expr) -> ast.UnaryOp:
     return ast.UnaryOp(ast.Not(), _node(test))
 
 
-def _all(*tests: ast.expr) -> ast.expr:
-    return ast.BoolOp(ast.And(), list(tests)) if len(tests) > 1 else tests[0]
+def _all(test: ast.expr, *tests: ast.expr) -> ast.expr:
+    return ast.BoolOp(ast.And(), [test, *tests]) if tests else test
 
 
-def _any(*tests: ast.expr) -> ast.expr:
-    return ast.BoolOp(ast.Or(), list(tests)) if len(tests) > 1 else tests[0]
+def _any(test: ast.expr, *tests: ast.expr) -> ast.expr:
+    return ast.BoolOp(ast.Or(), [test, *tests]) if tests else test
 
 
 def _tuple(*items: _Expr) -> ast.Tuple:
@@ -514,7 +514,7 @@ class _Compiler:
             case ("fixed", _, _) | ("counted", _, _) | ("prefixed", _, None):
                 kind = "plain"
             case ("longest", parsers):
-                kinds = {self.kind(q) for q in parsers}
+                kinds: set[_Kind] = {self.kind(q) for q in parsers}
                 kind = kinds.pop() if len(kinds) == 1 else "unknown"
             case ("pure", x) if not isinstance(x, (IgnoredValue, self.internals.tuple_class)):
                 kind = "plain"
@@ -1203,7 +1203,9 @@ class _Compiler:
                 then(at, (value or _Value("ignored")) if want else None)
                 return
             group = groups[i]
-            kinds = [self.kind(item) for item in group if want and self.kind(item) != "ignored"]
+            kinds: list[_Kind] = [
+                self.kind(item) for item in group if want and self.kind(item) != "ignored"
+            ]
             function = self.fresh("f")
             self.pending.append((self.group_body(group, want), bool(kinds), function))
 

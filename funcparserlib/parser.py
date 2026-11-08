@@ -2958,7 +2958,9 @@ class Tuple2Parser(Parser[A, tuple[T1, T2]], Generic[A, T1, T2]):
     @overload
     def __add__(self, other: Parser[A, C]) -> Tuple3Parser[A, T1, T2, C]: ...
 
-    def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+    def __add__(  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        self, other: Parser[A, Any]
+    ) -> Parser[A, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
@@ -2988,7 +2990,9 @@ class Tuple3Parser(Parser[A, tuple[T1, T2, T3]], Generic[A, T1, T2, T3]):
     @overload
     def __add__(self, other: Parser[A, C]) -> Tuple4Parser[A, T1, T2, T3, C]: ...
 
-    def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+    def __add__(  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        self, other: Parser[A, Any]
+    ) -> Parser[A, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
@@ -3018,7 +3022,9 @@ class Tuple4Parser(Parser[A, tuple[T1, T2, T3, T4]], Generic[A, T1, T2, T3, T4])
     @overload
     def __add__(self, other: Parser[A, C]) -> Tuple5Parser[A, T1, T2, T3, T4, C]: ...
 
-    def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+    def __add__(  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        self, other: Parser[A, Any]
+    ) -> Parser[A, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
@@ -3046,7 +3052,9 @@ class Tuple5Parser(Parser[A, tuple[T1, T2, T3, T4, T5]], Generic[A, T1, T2, T3, 
     @overload
     def __add__(self, other: Parser[A, C]) -> Parser[A, Any]: ...
 
-    def __add__(self, other):  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+    def __add__(  # ty: ignore[invalid-method-override] -- `+` narrowed per arity
+        self, other: Parser[A, Any]
+    ) -> Parser[A, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
@@ -3546,7 +3554,7 @@ class IgnoredParser(Parser[A, IgnoredValue], Generic[A]):
     @overload
     def __add__(self, other: P) -> P: ...
 
-    def __add__(self, other):
+    def __add__(self, other: Parser[A, Any]) -> Parser[A, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 
@@ -3635,7 +3643,7 @@ class IgnoredEndOfInput(Parser[Any, IgnoredValue]):
     @overload
     def __add__(self, other: P) -> P: ...
 
-    def __add__(self, other):
+    def __add__(self, other: Parser[Any, Any]) -> Parser[Any, Any]:
         """The sequence of this parser and `other`, as `Parser.__add__()` builds it."""
         raise NotImplementedError
 

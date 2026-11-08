@@ -9,7 +9,7 @@ import 'release.just'
 conventions:
     @just tools::conventions
 
-# What `just mutants` runs: of `parser.py`, the parsers that read text. tests/test_mutants.py checks the names.
+# What `just mutants` runs: of `parser.py`, the parsers that read text. tools/checks/mutants_check.py checks the names.
 mutants_default := "'funcparserlib.lexer*' 'funcparserlib.binary*' 'funcparserlib._compile*' 'funcparserlib.parser.xǁSkippingǁ*' 'funcparserlib.parser.x_regex*' 'funcparserlib.parser.x_lit*' 'funcparserlib.parser.x_skipping*'"
 
 [doc("Mutation testing of the lexer, the parsers of text and bytes and generated code: over an hour on one core, in no gate; `just mutants 'funcparserlib.binary*'` narrows it")]

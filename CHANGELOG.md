@@ -35,6 +35,7 @@ working and parse to the same values; error messages are more precise.
 - `State()` takes `expected` third, not `parser`
 - `-x + -y` and `maybe(-x)` parse to `IgnoredValue()`, not `_Ignored('y')`
 - `TokenSpec` compares by value, and a `Token` compared with a non-token is unequal instead of raising `AttributeError`
+- The sdist ships the tests, the typing tests, the docs and the changelog, so the tests run from it
 
 ### Deprecated
 

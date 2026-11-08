@@ -69,6 +69,17 @@ tests = [
 [tool.uv]
 build-backend.module-root = ""
 build-backend.module-name = "funcparserlib"
+# The sdist carries the tests, the typing tests, the docs (whose `>>>` sessions are doctests) and
+# the changelog, with what the tests run (the examples and the root `conftest.py`), so a packager
+# can run them from it.
+build-backend.source-include = [
+    "CHANGELOG.md",
+    "conftest.py",
+    "docs/**",
+    "examples/**",
+    "tests/**",
+    "typing_tests/**",
+]
 
 [tool.pytest.ini_options]
 timeout = 30
