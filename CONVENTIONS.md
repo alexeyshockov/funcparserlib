@@ -101,9 +101,10 @@ section (CON800). The code width is the one setting the project answers for itse
   variable is annotated, except a constant assigned a literal. Correctness is gated by `just types` (mypy over the
   package, the examples and the tests, configured in
 `mypy.ini`). ty, pyrefly and basedpyright run as second opinions and never block.
-- **Each distribution's `tests/typesafety/` pins what an end user's checker infers** from the public API, through
-  `assert_type`. basedpyright gates it (`just types-api`); a change in public inference is a
-  behaviour change, even when runtime behaviour is identical.
+- **Each distribution's `typesafety/`, beside its package, pins what an end user's checker infers**
+  from the public API, through `assert_type`. basedpyright gates it (`just types-api`), and mypy as
+  package code (`just types`); a change in public inference is a behaviour change, even when runtime
+  behaviour is identical.
 - **Internal code** uses types where they aid readability; the gate is over the package, not a
   demand for annotations on every internal `def`.
 
@@ -115,7 +116,7 @@ config.
 | the package | **gate** | informational | informational | informational; **`coverage` at 100%** | `types`, `types-info`, `type-coverage` |
 | `examples/` | **gate** | informational | — | — | `types`, `types-info` |
 | `tests/` | **gate**, at the tests' depth | informational | — | — | `types`, `types-info` |
-| each distribution's `tests/typesafety/` | informational | informational | **gate** | informational | `types-api` |
+| each distribution's `typesafety/` | **gate** | informational | **gate** | informational | `types`, `types-api` |
 | the `benchmarks/` directories | **gate**, at the tests' depth | — | — | — | `types-benchmarks` |
 
 One checker gates the code a project owns, so a finding has one semantics to meet: mypy, and
@@ -133,7 +134,8 @@ section of `mypy.ini` turns off what would make one harder to read (annotations 
 does not need, a helper returning `Any`, an assertion against what a type says a value cannot be,
 `seen.append(v) or v`, a fake server's `match` without a default arm). A test that hands the
 package a value of the wrong type on purpose says so with a `# type: ignore[code]` and the reason.
-The typesafety suites are correctness, at the package's depth: their section undoes the tests'.
+The typesafety suites are code at the package's level, not tests: they live beside the package and are
+checked at its depth.
 
 ## Source
 

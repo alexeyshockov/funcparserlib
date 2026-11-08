@@ -25,7 +25,7 @@ funcparserlib/_commons.py the generated helpers: valueclass, refclass, with_hint
 funcparserlib/_utils.py   the package's own helpers: the line and column of an offset
 tests/test_*.py           unit tests; tests/dot.py and tests/json.py are example grammars they drive
 tests/shadow.py           pytest plugin: every parse of the suite also runs compiled, and must agree
-tests/typesafety/         what a user's checker infers; pytest does not collect it
+typesafety/               what a user's checker infers, at the package's level: mypy and basedpyright gate it
 conftest.py               leaves the examples' tests, docs/ and README.md out below the examples' Python
 tools/conventions/        the shared conventions runner, rendered; never edited here (just conventions)
 docs/                     the site (zensical.toml); every `>>>` session in it runs as a doctest
@@ -61,7 +61,7 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   says.** The doctests in `docs/` and in the docstrings (pytest's `--doctest-glob` and
   `--doctest-modules`), which compare error messages too, `tests/test_parsing.py`.
 - **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
-  `maybe()`, `forward_decl()` infer for a user is asserted in `tests/typesafety/` (`just types-api`,
+  `maybe()`, `forward_decl()` infer for a user is asserted in `typesafety/` (`just types-api`,
   ADR 0001).
 - **An error names everything expected where parsing stopped**, a label instead of a parser's parts, and an error
   from a nested `parse()` unchanged. `tests/test_errors.py`.

@@ -216,8 +216,7 @@ deadcode dir *args:
 # a verification command does not make it.
 #
 # mypy, the checker that gates owned code, runs only for named paths: the whole tree is the type
-# recipes' to judge. It skips what is not Python, and a directory leaves out the
-# `tests/typesafety/` suites under it, which basedpyright judges; a suite named itself is checked.
+# recipes' to judge. It skips what is not Python, and checks a typesafety suite as package code.
 # mypy runs whatever the hooks said, and the recipe fails if either did.
 [doc("Read-only check: every applicable commit hook, plus mypy for Python paths. No paths = whole tree.")]
 check *paths:

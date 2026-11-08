@@ -60,7 +60,7 @@ Rejected:
   standard library from 3.11.
 - A method that uses a module-level `TypeVar` other than its class's is generic on its own and
   checks nothing. mypy over the package fails it where the method's body uses the class's type, and
-  `tests/typesafety/`, which asserts what a user's checker infers for the combinators under mypy,
+  `typesafety/`, which asserts what a user's checker infers for the combinators under mypy,
   ty, pyrefly and basedpyright, fails it in an overload's signature, which has no body.
 - The docs' doctests, the README and the examples run on every version from the examples' version
   up, not on the floor.

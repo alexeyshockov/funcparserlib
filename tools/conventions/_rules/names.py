@@ -22,10 +22,15 @@ def title_case_initialism(project: Project) -> re.Pattern[str]:
 
 
 def source_roots(project: Project) -> list[Path]:
-    """Each package, the `tests/` and `examples/` beside it, and the repository's own."""
-    candidates = [project.root / "tests", project.root / "examples"]
+    """Each package, the `typesafety/`, `tests/` and `examples/` beside it, and the root's own."""
+    candidates = [project.root / "typesafety", project.root / "tests", project.root / "examples"]
     for root in project.package_roots.values():
-        candidates += [root, root.parent / "tests", root.parent / "examples"]
+        candidates += [
+            root,
+            root.parent / "typesafety",
+            root.parent / "tests",
+            root.parent / "examples",
+        ]
     return list(dict.fromkeys(path for path in candidates if path.is_dir()))
 
 

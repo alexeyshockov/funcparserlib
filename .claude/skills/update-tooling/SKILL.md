@@ -72,7 +72,7 @@ Three invariants that must survive any update:
 
    Remember the tiers: `just gate` is what blocks — mypy over the package, the examples, the tests
    and the checks (`types`, `types-checks`), pyrefly coverage on API completeness (`type-coverage`),
-   basedpyright on `tests/typesafety` (`types-api`). The `-`-prefixed lines (`types-info`, the
+   basedpyright on each `typesafety/` (`types-api`). The `-`-prefixed lines (`types-info`, the
    non-basedpyright checkers in `types-api`) are informational on purpose — don't promote them to gating to "fix" a diagnostic.
 6. For each new finding, decide: fix the code, `noqa`/ignore with a reason, or configure the rule
    in `pyproject.toml`. Prefer fixing. A blanket ignore needs a comment saying why.

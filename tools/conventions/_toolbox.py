@@ -39,9 +39,10 @@ PYTHON_SUFFIXES = frozenset({".py", ".pyi"})
 # diagnostics for any file handed to it.
 TY_SUFFIXES = frozenset({".py", ".pyi", ".ipynb"})
 
-# Where a distribution's typesafety suite lives: `assert_type` cases that exist to be judged by
-# basedpyright in `just types-api`, and that ty disagrees with on some lines by design.
-TYPESAFETY = "tests/typesafety"
+# Where a distribution's typesafety suite lives: beside its package, at the package's level (ADR
+# 0001). `assert_type` cases that basedpyright judges in `just types-api` and mypy in `just types`;
+# ty disagrees with some of their lines by design, so its runs leave them out unless named.
+TYPESAFETY = "typesafety"
 
 # The toolbox's own files run on the toolbox's interpreter, which `just types-checks` checks them
 # at. From the repository root ty reads the project's `requires-python` and `.venv` instead, and
@@ -506,8 +507,8 @@ def _checker(
     the floor.
 
     The checker that gates owned code (`gate`) is handed any paths, as `just check` names them: it
-    skips what is not Python, `tools/` and the noxfile, and leaves out each typesafety suite a
-    directory would sweep up without naming it, as `ty()` does.
+    skips what is not Python, `tools/` and the noxfile. It checks a typesafety suite as it does the
+    package, whose level the suite is at.
     """
 
     def run(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
@@ -541,8 +542,6 @@ def _checker(
             paths = _python_paths(root, name, paths)
             if not paths:
                 return 0
-            swept = [s for s in suites(root, paths, dists) if s not in paths]
-            args = [*args, *(arg for s in swept for arg in ("--exclude", f"^{re.escape(s)}/"))]
         dirs = [p for p in paths if (root / p).is_dir()]
         pins = pinned(root, dirs, versions) if dirs else {}
         for path in paths:
