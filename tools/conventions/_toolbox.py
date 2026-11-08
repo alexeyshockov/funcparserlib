@@ -428,6 +428,23 @@ def ty(root: Path, options: Sequence[str], paths: Sequence[str] | None) -> int:
 type Tool = Callable[[Path, Sequence[str], Sequence[str] | None], int]
 
 
+def _member_config(root: Path, member: str) -> list[str]:
+    """`--config-file` for a member whose mypy configuration is its own `pyproject.toml`.
+
+    mypy reads one configuration, found from where it runs, and the toolbox runs it from the root:
+    without a `mypy.ini` there, a member's `[tool.mypy]` would go unread.
+    """
+    if member == "." or (root / "mypy.ini").is_file():
+        return []
+    pyproject = root / member / "pyproject.toml"
+    try:
+        with pyproject.open("rb") as f:
+            configured = "mypy" in tomllib.load(f).get("tool", {})
+    except FileNotFoundError:
+        return []
+    return ["--config-file", f"{member}/pyproject.toml"] if configured else []
+
+
 def _python_paths(root: Path, name: str, paths: Sequence[str]) -> list[str]:
     """The paths a checker of owned code reads: directories and Python files, outside `tools/`.
 
@@ -546,10 +563,18 @@ def _checker(
                 ]
             else:
                 files.append(path)
-        status = _each(_grouped(root, files, dists), lambda _, p: [*base(at), *p]) if files else 0
+
+        def config(member: str) -> list[str]:
+            return _member_config(root, member) if gate else []
+
+        status = (
+            _each(_grouped(root, files, dists), lambda m, p: [*base(at), *config(m), *p])
+            if files
+            else 0
+        )
         for version, pinned_files in _by_version(pins).items():
-            for members_files in _grouped(root, pinned_files, dists).values():
-                code = _run([*base(version), *members_files])
+            for member, members_files in _grouped(root, pinned_files, dists).items():
+                code = _run([*base(version), *config(member), *members_files])
                 status = status or code
         return status
 
