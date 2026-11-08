@@ -526,6 +526,7 @@ def pair() -> P:
         ("1 +\t x", "1,6-1,6"),
         ("1 +\n\n\n\tx", "4,2-4,2"),
         ("\n\n1 + x", "3,5-3,5"),
+        ("\n1 + x", "2,5-2,5"),
     ],
 )
 def test_an_error_has_the_line_and_the_column_of_the_text(
@@ -549,6 +550,9 @@ def test_the_end_of_the_input_has_a_position(run: Runner) -> None:
         "1,4-1,4: got unexpected end of input, expected: number"
     )
     assert message(run, pair(), "") == "1,1-1,1: got unexpected end of input, expected: number"
+    assert message(run, pair(), "\n1 +") == (
+        "2,4-2,4: got unexpected end of input, expected: number"
+    )
 
 
 def test_an_error_shows_the_word_it_stopped_at(run: Runner) -> None:
@@ -905,6 +909,23 @@ def test_a_broken_rule_spans_no_comment_after_the_token(run: Runner) -> None:
 def test_a_broken_rule_at_the_end_of_the_text_has_a_position(run: Runner) -> None:
     grammar = many(spaced.lit("a")).validated(kept(bool, "at least one")) + -spaced.end
     assert message(run, grammar, "") == "1,1-1,1: at least one"
+
+
+def test_a_broken_rule_spans_no_whitespace_its_token_ends_with(run: Runner) -> None:
+    grammar = regex(r"a\s*").validated(kept(lambda _: False, "bad")) + -finished
+    with pytest.raises(ParseErrors) as caught:
+        run(grammar, "a  ")
+    (error,) = caught.value.exceptions
+    assert error.description is not None
+    assert (error.description.text, error.description.end) == ("'a'", (1, 1))
+
+
+def test_an_error_recovered_from_at_the_end_of_the_text_is_at_its_end(run: Runner) -> None:
+    line = (spaced.lit("x") + spaced.lit("=") + spaced.lit("1")).recover(until=spaced.lit(";"))
+    assert (
+        message(run, line + -spaced.end, "x =  ")
+        == "1,4-1,4: got unexpected end of input, expected: '1'"
+    )
 
 
 def test_a_failed_parse_gives_the_character_as_its_token() -> None:

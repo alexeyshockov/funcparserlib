@@ -13,6 +13,7 @@ from funcparserlib.parser import (
     many,
     maybe,
     oneplus,
+    skip,
     some,
     tok,
 )
@@ -77,6 +78,12 @@ end"""
         x = a("x")
         y = a("y")
         expr: Parser[str, str] = -x + y
+        assert expr.parse("xy") == "y"
+
+    def test_skip_is_ignored(self) -> None:
+        x = a("x")
+        y = a("y")
+        expr: Parser[str, str] = skip(x) + y
         assert expr.parse("xy") == "y"
 
     def test_ignored_ok(self) -> None:

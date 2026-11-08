@@ -159,6 +159,13 @@ def test_the_error_names_its_contexts_innermost_first() -> None:
     assert str(e) == "got unexpected token: 'y', expected: 'x' or ')' in args in call"
 
 
+def test_the_error_names_the_contexts_every_expected_parser_is_in() -> None:
+    p = (x.context("first") | y.context("second")).context("inner").context("outer")
+    e = error(p, "z")
+    assert e.context == ("inner", "outer")
+    assert str(e) == "got unexpected token: 'z', expected: 'x' or 'y' in inner in outer"
+
+
 def test_a_context_ends_where_its_parser_ends() -> None:
     p = (x + y).context("pair") + z
     e = error(p, "xyw")
@@ -594,6 +601,45 @@ def test_a_label_names_what_a_nested_grammar_expected() -> None:
     assert isinstance(error.__cause__, NoParseError)
 
 
+def test_a_nested_error_covers_every_token_of_the_value() -> None:
+    inner = many(a("i")) + -finished
+    pair: Parser[str, str] = some(str.isalpha) + some(str.isalpha) >> "".join
+    (labelled,) = (
+        pair.validated(inner.parse, "a word of i").run(list("iw"), State(0, 0)).state.problems
+    )
+    (unlabelled,) = pair.validated(inner.parse).run(list("iw"), State(0, 0)).state.problems
+    assert (labelled.start, labelled.end, labelled.rejected) == (0, 2, True)
+    assert (unlabelled.start, unlabelled.end, unlabelled.rejected) == (0, 2, True)
+    assert not unlabelled.unexpected
+
+
+def test_no_function_runs_over_a_value_a_nested_grammar_rejected() -> None:
+    seen: list[Any] = []
+    inner = many(a("i")) + -finished
+    anything: Parser[str, str] = some(lambda _: True)
+    p = anything.validated(inner.parse) >> seen.append
+    assert messages(p, ["iw"]) == ["got unexpected token: 'w', expected: 'i' or end of input"]
+    assert seen == []
+
+
+def test_the_error_of_a_nested_grammar_is_the_cause() -> None:
+    inner = many(a("i")) + -finished
+    anything: Parser[str, str] = some(lambda _: True)
+    with pytest.raises(ParseErrors) as e:
+        anything.validated(inner.parse).parse(["iw"])
+    assert isinstance(e.value.exceptions[0].__cause__, NoParseError)
+
+
+def test_an_error_inside_prefixed_covers_its_tokens_in_the_whole_input() -> None:
+    length = some(str.isdigit) >> int
+    p = a("x") + prefixed(length, many(digit.validated(odd)))
+    problems = p.run(list("x3124"), State(0, 0)).state.problems
+    assert [(e.message, e.start, e.end) for e in problems] == [
+        ("2 is even", 3, 4),
+        ("4 is even", 4, 5),
+    ]
+
+
 def test_the_exception_of_the_function_is_the_cause() -> None:
     with pytest.raises(ParseErrors) as e:
         digit.validated(odd).parse(["2"])
@@ -681,6 +727,40 @@ def test_recover_inside_recover_closes_the_inner_part_only() -> None:
     outer = ((inner + a("x")) >> (lambda p: ("built", p))).recover(default="outer")
     res = outer.run(["2", "x"], State(0, 0))
     assert res.value == ("built", ("inner", "x"))
+
+
+def test_the_error_recover_goes_on_after_covers_the_token_it_stopped_at() -> None:
+    line = (x + a("=") + a("1")).recover(until=a(";"))
+    (stopped,) = line.context("line").run(list("x=?;"), State(0, 0)).state.problems
+    assert (stopped.start, stopped.end, stopped.context) == (2, 3, ("line",))
+    (at_end,) = line.run(list("x="), State(0, 0)).state.problems
+    assert (at_end.message, at_end.start, at_end.end) == (
+        "got unexpected end of input, expected: '1'",
+        2,
+        3,
+    )
+    (in_text,) = line.run("x=?;", State(0, 0)).state.problems
+    assert (in_text.start, in_text.end) == (2, 3)
+
+
+def test_the_error_recover_goes_on_after_has_the_token_and_its_place() -> None:
+    tokenize = make_tokenizer([TokenSpec("space", r"\s+"), TokenSpec("op", r"\S")], skip=["space"])
+    line = a(Token("op", "x")) + a(Token("op", "=")) + a(Token("op", "1"))
+    semicolon = a(Token("op", ";"))
+    recovered = line.recover(until=semicolon).context("line")
+    with pytest.raises(ParseErrors) as e:
+        (recovered + -semicolon + -finished).parse(list(tokenize("x = ? ;")))
+    (stopped,) = e.value.exceptions
+    assert str(stopped) == "1,5-1,5: got unexpected token: '?', expected: '1' in line"
+    assert stopped.token == Token("op", "?")
+    assert stopped.description == TokenDescription("'?'", (1, 5), (1, 5))
+    assert stopped.context == ("line",)
+    assert stopped.state == State(2, 2)
+    with pytest.raises(ParseErrors) as e:
+        (recovered + -finished).parse(list(tokenize("x =")))
+    (at_end,) = e.value.exceptions
+    assert str(at_end) == "1,4-1,4: got unexpected end of input, expected: '1' in line"
+    assert at_end.token is None
 
 
 def test_recover_without_until_leaves_a_failure_alone() -> None:
