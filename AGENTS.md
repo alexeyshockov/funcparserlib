@@ -15,8 +15,8 @@ local file.
 
 ## Layout
 
-The module-level codemap, the diagrams and the invariants are [`ARCHITECTURE.md`](ARCHITECTURE.md); read it before
-changing the package.
+The module-level codemap, the diagrams and the architectural invariants are [`ARCHITECTURE.md`](ARCHITECTURE.md);
+read it before changing the package.
 
 ```text
 funcparserlib/            the package, flat layout
@@ -50,7 +50,7 @@ uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 ## Invariants
 
 The architectural invariants (boundaries, dependency direction, what a part never knows) are in
-[`ARCHITECTURE.md`](ARCHITECTURE.md#invariants); these are the rules for working in it.
+[`ARCHITECTURE.md`](ARCHITECTURE.md#invariants); these are the rules for working in this repository.
 
 Rule, then what enforces it. Challenge one in discussion rather than routing around it.
 
