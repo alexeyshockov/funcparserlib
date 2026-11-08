@@ -2,6 +2,7 @@
 
 from . import (
     adr,
+    architecture,
     bounds,
     config,
     docs,
@@ -17,6 +18,7 @@ from . import (
 
 __all__ = [
     "adr",
+    "architecture",
     "bounds",
     "config",
     "docs",

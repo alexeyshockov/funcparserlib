@@ -379,6 +379,45 @@ Verification: `just tools::conventions`, then `just docs-build`, which clears Ze
 cache before building so generated API reference pages reflect current source. `just docs-hl-fix`
 repairs highlight-line drift; inspect its changes.
 
+## Architecture
+
+`ARCHITECTURE.md` at the repository root is the map a contributor reads before changing the code.
+It is written for whoever changes the repository, is not published, and holds, in order:
+
+1. **What the system is**: one paragraph on what goes in, what comes out and what it never does,
+   with a diagram of the parts and what each depends on.
+2. **Codemap**: each package and module and what it owns, by the name a search finds. The
+   repository's `AGENTS.md` keeps a directory-level tree and points here.
+3. **The main path**: one representative operation followed through the parts, start to end.
+4. **Invariants**: each as the rule, the gate that enforces it (a test, an import-linter contract, a
+   conventions code) and the ADR that says why. The ADR is cited, never restated. This is the one
+   list of the project's invariants; `AGENTS.md` points here.
+5. **Cross-cutting concerns**: what every part handles the same way, such as sync and async,
+   cancellation, errors and observability.
+
+A section the project has no material for is left out. The rendered file carries an
+`<!-- architecture: … -->` comment where each section is to be written; it goes once the section
+is written.
+
+- **Name code as it is written, in backticks**: `Executor`, `run_sync()`, `net/`, `_executor.py`.
+  A name is what a search finds, and the conventions runner holds each one to the repository
+  (CON311). A link is for an ADR or a page, not for code.
+- **A diagram where structure or flow is easier seen than read**, in a ```` ```mermaid ```` fence,
+  which GitHub, editors and the site all render. Draw the parts and their dependencies, a sequence
+  across components, or a state machine; leave the prose to say the rest. A diagram names code by
+  path (`net/`, `_executor.py`) or by call (`run_sync()`), and those are held to the repository
+  (CON312); a plain word in a label is not read. The prose beside it names the same parts: an
+  agent reads the text.
+- **A concept a static diagram cannot carry**, such as a state machine stepping through its input or
+  two tasks interleaving, may get an interactive explainer: one self-contained HTML file, with no
+  network access and no build step, opened from a file as well as from a server.
+  It lives beside the explanation page it illustrates (`docs/explanation/`, or a distribution's own
+  in a site of several), which links it and stays the source of truth; the site publishes both.
+  `zensical.toml` turns on the `mermaid` fence through `pymdownx.superfences` `custom_fences`.
+  No gate reads an explainer; review it with the change that alters what it shows.
+
+Verification: `just tools::conventions` (CON31x).
+
 ## Specs and decisions
 
 `openspec/specs/<capability>/spec.md` holds the current requirements and `docs/adr/` the decisions:
