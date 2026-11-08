@@ -231,7 +231,7 @@ deadcode *args:
 
 # --- Check and fix ---
 
-[doc("Read-only check: every applicable commit hook, plus ty for Python paths. No paths = whole tree.")]
+[doc("Read-only check: every applicable commit hook, plus mypy for Python paths. No paths = whole tree.")]
 check *paths:
     @just tools::check {{ paths }}
 
