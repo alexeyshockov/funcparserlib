@@ -49,5 +49,26 @@ uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 
 ## Invariants
 
-The invariants, each with what enforces it, are in [`ARCHITECTURE.md`](ARCHITECTURE.md#invariants). Challenge one
-in discussion rather than routing around it.
+The architectural invariants (boundaries, dependency direction, what a part never knows) are in
+[`ARCHITECTURE.md`](ARCHITECTURE.md#invariants); these are the rules for working in it.
+
+Rule, then what enforces it. Challenge one in discussion rather than routing around it.
+
+- **A grammar written for 1.0 parses to the same value, and its errors say what each doc example
+  says.** The doctests in `docs/` and in the docstrings (pytest's `--doctest-glob` and
+  `--doctest-modules`), which compare error messages too, `tests/test_parsing.py`.
+- **The combinators' types are the product.** What `p1 + p2`, `-p`, `p1 | p2`, `p >> f`, `many()`,
+  `maybe()`, `forward_decl()` infer for a user is asserted in `typing_tests/` (`just types-api`,
+  ADR 0001).
+- **An error names everything expected where parsing stopped**, a label instead of a parser's parts, and an error
+  from a nested `parse()` unchanged. `tests/test_errors.py`.
+- **Values are `@valueclass`**: `Token`, `TokenSpec`, `State` and the parsing results are frozen to
+  type checkers and assign their fields directly at runtime. The conventions runner, CON513.
+- **`Parser` is the one exported class open to subclassing**; everything else exported is `@final`.
+  `[tool.conventions.subclassable]`, CON200.
+- **The docs pages are tests.** A `>>>` session in `docs/` or `README.md` runs under pytest. `examples/` is
+  type-checked and run (`just types`, `tests/examples/test_examples.py`).
+- **The package runs on the floor; what it teaches uses the newest syntax.** The package and `tests/` are
+  written for `requires-python`, the oldest supported CPython. `examples/`, `docs/` and `README.md` are written
+  for the version ruff's `per-file-target-version` gives `examples/**`, which the type checkers read and below
+  which `conftest.py` leaves them out of the tests. The floor's nox sessions, ADR 0001.
