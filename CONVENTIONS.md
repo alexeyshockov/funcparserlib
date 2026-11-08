@@ -1,8 +1,10 @@
 # Conventions
 
 Rules for code, tooling and releases in this repository. `CONTRIBUTING.md` covers how to contribute
-and adds what is this project's own. Parts of the tooling are generated; propose changes to them in
-an issue.
+and adds what is this project's own. Parts of the tooling are rendered from
+[python-project-template](https://github.com/alexeyshockov/python-project-template), whose README lists
+the files it owns; a change to one of them is made there and reaches this repository through
+`copier update`, so propose it in an issue.
 
 ## Tooling
 
