@@ -250,6 +250,21 @@ def test_the_end_of_input_is_rendered_after_the_last_token() -> None:
     )
 
 
+def test_a_token_over_several_lines_is_marked_to_the_end_of_its_first() -> None:
+    tokenize = make_tokenizer(
+        [TokenSpec("n", r"\d+"), TokenSpec("s", r'"[^"]*"'), TokenSpec("sp", r"\s+")]
+    )
+    source = '1 "ab\ncd"'
+    e = error(SUM, [t for t in tokenize(source) if t.type != "sp"])
+    assert e.render(source).split("\n")[1:] == ['1 | 1 "ab', "      ^^^"]
+
+
+def test_a_line_is_rendered_as_it_is_without_its_carriage_return() -> None:
+    source = "1 +  \r\n+ * 3"
+    tokens = [t for t in TOKENIZE(source.replace("\r", " ")) if t.type != "sp"]
+    assert error(SUM, tokens[:2]).render(source).split("\n")[1:] == ["1 | 1 +  ", "       ^"]
+
+
 def test_render_without_a_source_or_a_position_is_the_message() -> None:
     e = error(SUM, TOKENS)
     assert e.render() == str(e)
@@ -467,6 +482,11 @@ def test_a_choice_named_after_use_among_dispatched_alternatives_is_named_by_its_
     assert error(p, "w").expected == ("'x'", "word", "'z'", "'y'")
 
 
+def test_a_token_that_cannot_be_hashed_fails_dispatched_alternatives_as_any_token() -> None:
+    p = (x | y | z) + -finished
+    assert str(error(p, [["x"]])) == "got unexpected token: ['x'], expected: 'x' or 'y' or 'z'"
+
+
 def test_a_chain_of_alternatives_builds_one_dispatch_table(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[object] = []
     table = parser_module._dispatch_table
@@ -564,6 +584,11 @@ def test_a_function_does_not_run_over_a_rejected_value() -> None:
 
 def test_a_rejected_value_is_no_reason_to_try_an_alternative() -> None:
     assert messages(digit.validated(odd) | a("2"), ["2"]) == ["2 is even"]
+
+
+def test_a_part_that_stopped_at_a_rejected_value_is_no_reason_to_try_an_alternative() -> None:
+    p = counted(digit.validated(odd), a("x")) | (a("2") + a("x") + a("x"))
+    assert messages(p + -finished, list("2xx")) == ["2 is even"]
 
 
 def test_when_still_decides_among_alternatives() -> None:

@@ -241,9 +241,8 @@ class _TextPlaces(Sequence[Any]):
     def __len__(self) -> int:
         return len(self._text)
 
-    def __getitem__(self, i: Any) -> Any:
+    def __getitem__(self, offset: Any) -> Any:
         text = self._text
-        offset = i + len(text) if i < 0 else i
         line = text.count("\n", 0, offset) + 1
         column = offset - text.rfind("\n", 0, offset)
         word = _WORD.match(text, offset)
