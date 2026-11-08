@@ -51,7 +51,8 @@ DIAGRAM_TOKEN = re.compile(
     r"|[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\(\)"
     r")"
 )
-RUST_ITEM = re.compile(r"\b(?:fn|struct|enum|trait|mod|type|const|static|macro_rules!)\s+(\w+)")
+RUST_COMMENT = re.compile(r"//[^\n]*|/\*.*?\*/", re.S)
+IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 GUIDANCE = re.compile(r"<!--\s*architecture:")
 GUIDANCE_BLOCK = re.compile(r"<!--\s*architecture:.*?-->", re.S)
 
@@ -61,18 +62,29 @@ def _blank(match: re.Match[str]) -> str:
 
 
 def _python_names(tree: ast.Module) -> Iterator[str]:
+    """Every name the module defines or uses: definitions, references, attributes, imports, keyword
+    arguments, and string constants shaped like a name, as an environment variable read by name is.
+    """
     for node in ast.walk(tree):
         match node:
             case ast.ClassDef() | ast.FunctionDef() | ast.AsyncFunctionDef():
                 yield node.name
-            case ast.Name(ctx=ast.Store()):
+            case ast.Name():
                 yield node.id
-            case ast.Attribute(ctx=ast.Store()):
+            case ast.Attribute():
                 yield node.attr
             case ast.arg():
                 yield node.arg
-            case ast.alias(asname=str() as name):
+            case ast.keyword(arg=str() as name):
                 yield name
+            case ast.alias():
+                yield from node.name.split(".")
+                if node.asname:
+                    yield node.asname
+            case ast.ImportFrom(module=str() as module):
+                yield from module.split(".")
+            case ast.Constant(value=str() as value) if IDENTIFIER.fullmatch(value):
+                yield value
             case _:
                 pass
 
@@ -102,8 +114,8 @@ def _requirement_names(project: Project, *, own: bool = True) -> Iterator[str]:
 
 
 def known_names(project: Project) -> set[str]:
-    """Every name a guide may cite: what the repository's Python and Rust define, its modules and
-    distributions, what they depend on, the keywords, the builtins and the standard library.
+    """Every name a guide may cite: what the repository's Python and Rust define or use, its modules
+    and distributions, what they depend on, the keywords, the builtins and the standard library.
     """
 
     def compute() -> set[str]:
@@ -119,7 +131,8 @@ def known_names(project: Project) -> set[str]:
                     names.update(_python_names(tree))
             elif path.suffix == ".rs":
                 names.add(path.stem)
-                names.update(RUST_ITEM.findall(project.text(path) or ""))
+                code = RUST_COMMENT.sub("", project.text(path) or "")
+                names.update(IDENTIFIER.findall(code))
         return names
 
     return project.memo("architecture.names", compute)
@@ -196,12 +209,12 @@ def architecture(project: Project) -> Iterator[Finding]:
     Reason: the guide is read instead of the code, so a codemap entry left behind by a rename or a
     move misleads exactly the reader who relies on it. A path resolves where a listed file or
     directory ends with it; a name, by its last dotted part, where the repository's Python or Rust
-    defines it, or it is a module, a distribution or dependency any `pyproject.toml` names, a
-    keyword, a builtin or in the standard library. A span that is neither shape, such as an operator
-    or a command, is not read.
+    defines or uses it outside a comment, or it is a module, a distribution or dependency any
+    `pyproject.toml` names, a keyword, a builtin or in the standard library. A span that is neither
+    shape, such as an operator or a command, is not read.
 
-    Fix: rename or drop the entry. A name the check cannot see, such as a third-party symbol, takes
-    `conventions: ignore[CON311]` on its line.
+    Fix: rename or drop the entry. A name the code never spells, such as one the guide says does not
+    exist, takes `conventions: ignore[CON311]` on its line.
 
     CON312: Every path and call a diagram in `ARCHITECTURE.md` names resolves.
 
