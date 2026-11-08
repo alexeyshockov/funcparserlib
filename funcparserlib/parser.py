@@ -530,6 +530,19 @@ class ParsingSuccess(Generic[R]):
 
         A failure `other` is returned as it is; an ignored value on either side is dropped from the
         tuple.
+
+        Examples:
+            ```pycon
+            >>> @parser("x then y")
+            ... def x_then_y(tokens, s):
+            ...     first = a("x").run(tokens, s)
+            ...     return first.bind(lambda _, st: first + a("y").run(tokens, st))
+            >>> x_then_y.parse("xy")
+            ('x', 'y')
+            >>> x_then_y.run("xz", State(0, 0)).state.max
+            1
+
+            ```
         """
         # Assume that the other state is further away from the current one
         # (matches Parser.__add__() behavior)

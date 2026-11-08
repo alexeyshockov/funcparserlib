@@ -41,6 +41,29 @@ Backtracking needs no new name. `State` is a dataclass with public fields, and a
 random grammars, and on 511,500 compiled. It carries any field `State` gains. `st.reset_pos(s.pos)`
 differed on 443 of them: it keeps the errors the failed branch recorded.
 
+A parsing function returns a result, and a failure is one. `Parser.run` gives a `ParsingSuccess` with the
+value and the state after it, or a `ParsingFailure` with the state where parsing stopped, its message and
+whether it is committed. A function holds a failure, reads its `state.max`, `state.expected` and
+`state.problems`, and decides: return it, try another parser from that state as above, or record it and go
+on. `NoParseError` is raised at the end of a parse, by `Parser.parse()` and its kin, and when a function
+reads the `value` of a failure or unpacks it.
+
+A result has the operations of the parser that made it, so a function composes results as a grammar
+composes parsers:
+
+| Result | Parser |
+| --- | --- |
+| `res.map(f)` | `p >> f` |
+| `res.starmap(f)` | `p.starmap(f)` |
+| `res.bind(f)` | `p.bind(f)` |
+| `res1 + res2` | `p1 + p2` |
+
+Each gives a failure back as it is, so the first failure is what a chain of them returns. `+` combines the
+values as `+` of parsers does: a tuple that grows to the right, with an ignored value dropped. The
+combinators do not call these methods: `Parser.__add__` and the others repeat the logic inline and test a
+result by `res.__class__ is ParsingFailure`, which spares a call per parser. The methods are for parsing
+functions.
+
 Rejected:
 
 - **An abstract `Parser` with a private concrete class.** `Parser(f)` stops working, which the 1.0

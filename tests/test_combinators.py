@@ -124,6 +124,36 @@ def test_expand_tuple_args_for_a_method_keeps_self() -> None:
     assert pair.join(("a", "b")) == "a-b"  # type: ignore[call-arg, misc]  # ty: ignore[too-many-positional-arguments]
 
 
+# Results compose as the parsers that made them.
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "text"),
+    [
+        (a("x"), a("y"), "xy"),
+        (a("x") + a("y"), a("z"), "xyz"),
+        (-a("x"), a("y"), "xy"),
+        (a("x"), -a("y"), "xy"),
+        (a("x"), a("y"), "xz"),
+        (a("x"), a("y"), "wy"),
+    ],
+    ids=[
+        "two values",
+        "a tuple grows",
+        "ignored left",
+        "ignored right",
+        "failure right",
+        "failure left",
+    ],
+)
+def test_the_sum_of_results_is_the_result_of_the_sum_of_parsers(
+    first: P, second: P, text: str
+) -> None:
+    left = first.run(text, State(0, 0))
+    right = second.run(text, left.state)
+    assert left + right == (first + second).run(text, State(0, 0))
+
+
 # Properties of the combinators, over inputs of single characters.
 
 CHARS = st.characters(codec="ascii", categories=["L", "N", "P"])

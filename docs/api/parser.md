@@ -191,6 +191,9 @@ parser has read a token, `Parser.context()` names the part of the grammar an err
 
 `Parser(f)` and `parser()` make a parser of a function of the tokens and a `State`, which returns a `ParsingResult`.
 Such a function calls other parsers through `Parser.run`, and asks `State.rejected_since()` before it reads a value.
+A failure is a result too: its state says where parsing stopped and what was expected there. Results compose as the
+parsers that made them: `map()`, `starmap()`, `bind()` and `+` work on them as `>>`, `starmap()`, `bind()` and `+` work
+on parsers, and give a failure back as it is (ADR 0006).
 
 ::: funcparserlib.parser.ParserFn
 
