@@ -1,8 +1,7 @@
 name: Publish to PyPI
 
-# A published GitHub release `vX.Y.Z` ships the commit its tag names. The tree there holds
-# X.Y.Z.devN; the build job checks that, writes X.Y.Z into every distribution and pin in its own
-# checkout, and builds them. Nothing is pushed back.
+# A published release `vX.Y.Z` ships the commit its tag names, whose tree holds X.Y.Z.devN; the
+# build job writes X.Y.Z into its own checkout and builds it. Nothing is pushed back.
 on:
   release:
     types: [published]
@@ -12,7 +11,7 @@ permissions:
 
 jobs:
   tests:
-    # `./` names this repository at the release's commit.
+    # `./` is this repository at the release's commit.
     uses: ./.github/workflows/tests.yaml # zizmor: ignore[self-repository]
 
   build:
@@ -27,8 +26,8 @@ jobs:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v10.3.3
         with:
-          # No cache on the path to a release: a cache a lower-privileged PR run wrote must not
-          # reach the artifacts (zizmor cache-poisoning). setup-uv defaults to "auto", so off.
+          # No cache on the path to a release: a cache written by a PR run must not reach the
+          # artifacts (zizmor cache-poisoning). setup-uv defaults to "auto".
           enable-cache: false
       - uses: extractions/setup-just@v4
         with:
@@ -36,7 +35,7 @@ jobs:
       - run: just tools::run conventions release "$TAG" --write
         env:
           TAG: ${{ github.event.release.tag_name }}
-      # The PyPI version of the tag: `vX.Y.Z` without the `v`, for the environment's link.
+      # The tag without its `v`, for the environment's link.
       - id: version
         run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
         env:
@@ -56,7 +55,7 @@ jobs:
       url: https://pypi.org/project/funcparserlib/${{ needs.build.outputs.version }}
     permissions:
       contents: read
-      # Required for PyPI trusted publishing + Sigstore-signed PEP 740 attestations
+      # PyPI trusted publishing and Sigstore-signed PEP 740 attestations
       id-token: write
       attestations: write
     steps:
@@ -64,11 +63,8 @@ jobs:
         with:
           name: dist
           path: dist
-      # uv publish (as of 0.11) only uploads pre-existing attestations; it does
-      # not generate them. Use the official PyPA action, which generates PEP 740
-      # PyPI Publish Attestations via Sigstore and uploads them alongside the
-      # distributions. Track astral-sh/uv#15618 — once landed we can swap back
-      # to a single `uv publish` step.
+      # `uv publish` only uploads existing attestations; this action generates them. Track
+      # astral-sh/uv#15618.
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           attestations: true

@@ -1,8 +1,9 @@
 # The release recipes.
 # Generated; propose changes in an issue rather than editing this file.
 #
-# The tree always holds the next release's development version, X.Y.Z.devN, in every
-# distribution, every `==` pin between them. A release changes no file:
+# The tree holds the next release's development version, X.Y.Z.devN, in every distribution, every
+# `==` pin between them.
+# A release changes no file:
 #
 #   just release-check           # type coverage + API BC vs the previous stable tag
 #   <land the CHANGELOG section, if there is a CHANGELOG>
@@ -10,11 +11,10 @@
 #   <review the draft on GitHub, click Publish>  -> .github/workflows/pypi-publish.yaml
 #   just version X.Y.Z+1.dev0    # the next version, committed by you whenever it is chosen
 
-# Latest tag matching strictly `vX.Y.Z` (no `b1` / `rc1` / `.dev0` suffix).
+# Latest tag matching `vX.Y.Z` exactly, without a `b1`, `rc1` or `.dev0` suffix.
 previous_stable_tag := `git tag --sort=-v:refname --list 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1`
 
-# Exit 1, a change found, is informational: a change is read and decided on, not refused. Exit 2,
-# a base it cannot read or a crash, fails the recipe.
+# Exit 1 (a change found) is informational; exit 2 (an unreadable base, a crash) fails the recipe.
 [doc("Show what a caller of the public API at [base] (default: previous stable tag) meets now")]
 api-diff base=previous_stable_tag:
     #!/usr/bin/env bash
@@ -31,7 +31,7 @@ release-check base=previous_stable_tag:
     @echo
     @just api-diff {{ base }}
 
-# `uv lock` records each distribution's version, so a new version is relocked with it.
+# `uv lock` records each distribution's version.
 [doc("Print the version, or write VERSION into every distribution and pin, and relock; commits nothing")]
 version *version:
     #!/usr/bin/env bash

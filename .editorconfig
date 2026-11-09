@@ -1,4 +1,3 @@
-# EditorConfig is awesome: http://EditorConfig.org
 # Generated; propose changes in an issue rather than editing this file.
 
 root = true
@@ -8,13 +7,9 @@ charset = utf-8
 end_of_line = lf
 indent_style = space
 insert_final_newline = true
-# Enforced by the `editorconfig-checker` hook, which is the gate for whitespace,
-# line endings and encoding. Declared here rather than inside a fixer script so the
-# rule is one statement that editors, humans and the gate all read.
 trim_trailing_whitespace = true
 
-# One width for the whole repository, and rustfmt's default too, so a Rust half is held to
-# the same ruler by `cargo fmt` instead of reading a different one in the same tree.
+# The width also applies to Rust, so `cargo fmt` uses the same ruler.
 [*.{py,toml,rs}]
 indent_size = 4
 max_line_length = 100
@@ -22,8 +17,7 @@ max_line_length = 100
 [justfile]
 indent_size = 4
 
-# Prose, not code: markdownlint already exempts tables, code blocks and headings,
-# and reflowing docs to 100 would buy nothing.
+# Prose is not reflowed to 100.
 [*.md]
 indent_size = 4
 max_line_length = 120

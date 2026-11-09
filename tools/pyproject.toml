@@ -1,46 +1,35 @@
 # The pinned tool environment: every tool the recipes run that is not a commit hook.
 # Generated; propose changes in an issue rather than editing this file.
 #
-# A separate project, so these versions do not take part in the project's own resolution and keep
-# working on interpreters they do not support. Versions in force are uv.lock's; regenerate it with
-# `just tools-upgrade` after its requirements below change.
-#
-# A tool that has to run inside the project's environment is not here: slotscheck imports the
-# package, and deptry reads the standard-library list and the installed distributions of the
-# interpreter it runs on. Those are in the project's `lint` dependency group instead.
-#
-# Linters with a commit hook are pinned by rev in `.pre-commit-config.yaml` instead.
+# A separate project, so these versions stay out of the project's resolution and run on
+# interpreters the project does not support. Versions in force are uv.lock's; `just tools-upgrade`
+# regenerates it. Tools that run inside the project's environment (slotscheck, deptry) are in its
+# `lint` dependency group, and linters with a commit hook are pinned in `.pre-commit-config.yaml`.
 [project]
 name = "tools"
 version = "0"
-# The toolbox's own interpreter, independent of the project's `.python-version`: every tool here
-# reads the project's code or the project's `.venv` without running on its interpreter. One minor
-# version, because uv picks the interpreter from this line and nothing else pins it.
+# The toolbox's own interpreter, independent of the project's. One minor version: uv picks the
+# interpreter from this line alone.
 requires-python = "==3.14.*"
 dependencies = [
     # --- Type checkers ---
-    # mypy gates the owned code: packages, examples, tests, benchmarks. All four gate the
-    # `typing_tests/` suites (`types-api`); ty, pyrefly and basedpyright are informational over the
-    # packages (`types-info`), and pyrefly's `coverage` gates the public API at 100%.
+    # mypy gates the owned code; all four gate `typing_tests/` (`types-api`); ty, pyrefly and
+    # basedpyright are informational over the packages (`types-info`).
     "ty >=0.0.95",
     "basedpyright >=1.40.2",
     "mypy >=2.4.1",
     "pyrefly >=1.4.0",
 
     # --- The conventions ---
-    # `conventions/` is this project's own package, installed as the `conventions` command; it
-    # reads the tree with `ast` and `git` and imports nothing from the package. `checks/` holds
-    # the repository's own rules as pytest files. Both run here, on this floor, rather than from
-    # the project's suite: they answer questions about the repository, not the library.
+    # `conventions/` is this project's package, installed as the `conventions` command. `checks/`
+    # holds the repository's own rules as pytest files. Both run here, not in the project's suite.
     "click >=8.2",
-    # PEP 440 versions and requirements, for the version rules and the release commands.
+    # PEP 440 versions and requirements.
     "packaging >=24",
     "pytest >=9.2",
 
     # --- Test sessions ---
-    # The noxfile defines every environment the tests run in; `just tests` runs the sessions
-    # tagged `local`, and `.github/workflows/tests.yaml` the ones tagged `ci`. Sessions use uv
-    # environments under `.nox/`, never this one.
+    # Sessions use uv environments under `.nox/`, never this one.
     "nox >=2026.10.20",
 
     # --- Structure ---
@@ -51,7 +40,7 @@ dependencies = [
     "griffe >=2.4", # the sealing rules read a dependency's classes; mkdocstrings' parser
 
     # --- Docs ---
-    # 0.0.67 is the first to write llms.txt; an older one ignores `[project.plugins.llmstxt]`.
+    # 0.0.67 is the first to write llms.txt.
     "zensical >=0.0.67",
     "mkdocstrings[python] >=0.27", # API reference autogen (via zensical's compat shim)
     # A member without a docstring shows its base's, in the reference and in CON916.
@@ -60,12 +49,11 @@ dependencies = [
 
 [project.scripts]
 conventions = "conventions._cli:main"
-# A tool run with what it needs to know about the workspace: its files, its distributions, ty's
-# search path, the interpreter and the floor. The recipes call it; see `conventions/_toolbox.py`.
+# Runs a tool with the workspace's files, distributions, interpreter and floor; see
+# `conventions/_toolbox.py`.
 toolbox = "conventions._toolbox:main"
 
-# The packages are `conventions/` and `mdautolink/`; `checks/` and the scripts beside them are not
-# built.
+# `checks/` and the scripts beside the packages are not built.
 [build-system]
 requires = ["uv_build >=0.12.21, <0.14"]
 build-backend = "uv_build"
@@ -78,16 +66,12 @@ module-root = ""
 package = true
 default-groups = ["mdautolink"]
 
-# `mdautolink/`, a Python-Markdown extension the docs build loads: what it needs, apart from what
-# the rest of the toolbox does, so the package can be lifted out with its requirements.
+# `mdautolink/`, a Python-Markdown extension the docs build loads, with its own requirements.
 [dependency-groups]
 mdautolink = ["griffe >=1.5", "markdown >=3.6"]
 
-# ruff resolves this config by walking up from each file under tools/. 100 columns and a reduced
-# rule set regardless of the project's own; scripts here print and call subprocesses, so `T20`,
-# `S`, `PTH`, `PL` and `TRY` are off.
-#
-# No recipe in `just gate` covers tools/ — each checker names its own targets.
+# ruff finds this config by walking up from each file under tools/: 100 columns and a reduced rule
+# set, with `T20`, `S`, `PTH`, `PL` and `TRY` off because scripts here print and call subprocesses.
 [tool.ruff]
 line-length = 100
 
@@ -98,12 +82,8 @@ select = ["F", "E", "W", "I", "UP", "B"]
 keep-runtime-typing = true
 
 
-# The checks run under this file rather than the project's, which is what keeps the two apart:
-# the project's `[tool.pytest.ini_options]` names `anyio_mode` and `timeout`, options that belong to
-# plugins the toolbox does not have, and pytest reports each as an unknown config option. Read with
-# `-c tools/pyproject.toml`, so neither config has to know about the other. The path is named on the
-# command line rather than by `testpaths`, which resolves against a rootdir this file does not fix.
+# The checks run with `-c tools/pyproject.toml`: the project's `[tool.pytest.ini_options]` names
+# options of plugins the toolbox lacks, which pytest reports as unknown. The path is on the command
+# line because `testpaths` resolves against a rootdir this file does not fix.
 [tool.pytest.ini_options]
-# The files are `*_check.py`, not `test_*.py`: they check the shape of the repository rather than
-# the behaviour of the library.
 python_files = ["*_check.py"]

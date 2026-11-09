@@ -2,42 +2,29 @@
 # Generated; propose changes in an issue rather than editing this file.
 #
 # Dev tooling comes from three places:
-#
-#   1. Self-contained linters/formatters (ruff, typos, prettier, actionlint, zizmor, ...) —
-#      pinned by rev in .pre-commit-config.yaml, run through `prek run`. Nothing here
-#      calls a bare `ruff`, so the local binary can never drift from the CI one.
+#   1. Linters and formatters (ruff, typos, prettier, actionlint, zizmor, ...): pinned by rev in
+#      .pre-commit-config.yaml and run through `prek run`, so no local binary can drift from CI's.
 #   2. Tools that read the project from outside (type checkers, import-linter, vulture, griffe,
-#      the docs builder) — one uv project under `tools/`, constrained by its pyproject.toml
-#      and pinned by its uv.lock, on its own interpreter. Never installed into .venv: such a
-#      tool must not constrain the project's resolution.
-#   3. Tools that run inside the project's environment (deptry, slotscheck) — the project's
-#      `lint` dependency group, resolved and locked with the project.
+#      the docs builder): one uv project under `tools/` on its own interpreter, never installed
+#      into .venv, so they do not constrain the project's resolution.
+#   3. Tools that run inside the project's environment (deptry, slotscheck): the project's `lint`
+#      dependency group.
+# uv, just and prek are the host tools `just doctor` installs; they are the only unpinned ones.
 #
-# uv itself, just and prek are the host tools `just doctor` installs; nothing gates on their
-# versions, which is why they are the only three left unpinned.
+# A recipe either asserts or writes: `check` and `gate` are read-only, and `fix` is the only
+# recipe here that changes a file. The hooks are read-only at the `pre-commit` stage for the same
+# reason (see .pre-commit-config.yaml).
 #
-# Cutting across both: a recipe either asserts or it writes, never both. `check` and
-# `gate` are read-only; `fix` is the only recipe in this file that changes a file. That is
-# why the hooks are configured read-only at the `pre-commit` stage and their write-mode
-# twins sit at the `manual` stage — see the header of .pre-commit-config.yaml for what a
-# gate that rewrote its own subject was able to hide.
-#
-# The importing justfile provides `conventions` (the first step of `gate`), the `frozen_revs`
-# list of the project's own frozen hook revs (empty when it has none), plus whatever is the
-# project's own.
+# The importing justfile provides `conventions` (the first step of `gate`), `frozen_revs` (the
+# project's own frozen hook revs, empty when it has none), and its own recipes.
 
-# Runs a tool from the toolbox. `--project tools` syncs the toolbox environment on demand.
-# `--locked` fails when tools/pyproject.toml is ahead of tools/uv.lock, instead of re-resolving and
-# rewriting it. `env -u VIRTUAL_ENV` silences uv's warning about an activated .venv.
-#
-# `UV_PROJECT_ENVIRONMENT` puts the toolbox's environment at `.venv-tools` in the repository root
-# rather than nesting one inside `tools/`. It is resolved against the project directory, so
-# `../.venv-tools` lands beside `.venv`, which is where `.gitignore` and `.claudeignore` already
-# expect a `.venv-*` to be. It is set per invocation and never exported: exported, it would send
-# `just venv` — an ordinary `uv sync` of the project — to the same place.
+# Runs a tool from the toolbox, syncing its environment on demand. `--locked` fails when
+# tools/pyproject.toml is ahead of tools/uv.lock. `env -u VIRTUAL_ENV` silences uv's warning about
+# an activated .venv. `UV_PROJECT_ENVIRONMENT` (relative to `tools/`) puts the environment at
+# `.venv-tools` beside `.venv`; it is not exported, or `just venv` would sync there too.
 tools := "env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools"
 
-# A variable is evaluated when a recipe uses it, so the lookups below cost nothing elsewhere.
+# Variables are evaluated when a recipe uses them, so the lookups below cost nothing elsewhere.
 set lazy
 
 # Each package as `<distribution directory>/<import name>`, and each distribution's directory once
@@ -46,20 +33,14 @@ set lazy
 packages := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages`
 dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --dirs`
 
-# Each distribution's tests, and the `typing_tests/` suites and `benchmarks/` directories that
-# exist. `toolbox` runs each type checker at the floor (the version the first distribution's
-# `requires-python` starts from) against `.venv`, a file ruff's `per-file-target-version` pins at
-# its own version, and ty with each distribution's own view of the workspace.
+# Each distribution's tests, and the `typing_tests/` and `benchmarks/` directories that exist.
 test_dirs := shell('for d in $1; do [ "$d" = . ] && printf "tests " || printf "%s/tests " "$d"; done', dists)
 suites := shell('for d in $1; do s=$([ "$d" = . ] && echo typing_tests || echo "$d/typing_tests"); [ -d "$s" ] && printf "%s " "$s"; done; true', dists)
 bench_dirs := shell('for d in $1; do b=$([ "$d" = . ] && echo benchmarks || echo "$d/benchmarks"); [ -d "$b" ] && printf "%s " "$b"; done; true', dists)
 
-# The recipes of the pinned tool environment (`tools/`) live in `tools/justfile`, as a just module.
-# The recipes below delegate to it, passing what differs per distribution as arguments.
 [doc("The pinned tool environment (tools/): the versions in force, the upgrade, the host setup")]
 mod tools
 
-# A feature's recipes, where the project has the feature.
 import? 'docs.just'
 [doc("The benchmarks (benchmarks/justfile): run, compare, type-check")]
 mod bench 'benchmarks/justfile'
@@ -68,7 +49,6 @@ mod bench 'benchmarks/justfile'
 doctor:
     @just tools::doctor
 
-# Makes `.venv` match the lock; it does not check or fetch dependencies. `deps` judges them.
 # `uv sync` removes every group it does not name, so a re-sync names them all or drops `lint`.
 [doc("Build .venv from the lock (uv sync, every group and extra)")]
 venv:
@@ -91,32 +71,25 @@ tool *args:
 pins:
     @just tools::pins
 
-# The shared hooks' revs pinned on purpose, as `<repo>=<rev>`, where `<repo>` is the last segment
-# of the hook's repository URL. The reason for each is commented beside its hook in
-# .pre-commit-config.yaml, which arrives with this list in the same update.
+# The shared hooks' revs pinned on purpose, as `<repo>=<rev>` with the last segment of the hook's
+# repository URL; the reason is commented beside the hook in .pre-commit-config.yaml.
 shared_frozen_revs := "typos=v1.50.3"
 
 [doc("Verify the pre-commit revs that must not move (shared_frozen_revs, frozen_revs) have not moved")]
 frozen-revs:
     @just tools::frozen-revs '{{ shared_frozen_revs }},{{ frozen_revs }}'
 
-
 # --- Types ---
 
-# Each recipe below names its target once, and every checker in it reads that target.
-
-# mypy gates the code the project owns: the packages strict; the examples, the tests and the
-# benchmarks at the depth `mypy.ini` gives them. It analyses `.venv` through `--python-executable`
-# while running from the toolbox, once per distribution. `venv` syncs `.venv` with every group, so
-# the benchmark stacks' dependencies are there to resolve.
-# Presence of annotations on the public API is pyrefly's question (`type-coverage`); this one is
-# correctness.
+# `toolbox` runs each checker once per distribution, at the floor (the version the first
+# distribution's `requires-python` starts from), against `.venv` through the checker's
+# interpreter option. mypy reads the packages strict and the examples, tests and benchmarks at
+# the depth `mypy.ini` gives them.
 [doc("Check types of the packages, the examples, the tests and the benchmarks (mypy, blocking)")]
 types:
     {{ tools }} toolbox mypy -- {{ packages }} examples {{ test_dirs }} {{ bench_dirs }}
 
-# Second opinions on the packages. `-` is just's ignore-failure prefix: ty, pyrefly and
-# basedpyright run so a finding is seen, not so it can block. basedpyright reads
+# `-` ignores a failure: these run so a finding is seen. basedpyright reads
 # `tools/basedpyright.json` here only.
 [doc("Second opinions on the packages from ty, pyrefly and basedpyright (informational, never blocks)")]
 types-info:
@@ -127,24 +100,19 @@ types-info:
 [doc("Check types (the gates and the second opinions)")]
 types-all: types types-api types-info tools::types
 
-# `--public-only` counts the symbols a caller reaches through the public modules and their
-# re-exports, each reported where it is defined. The threshold is pyrefly's default, 100%. A public
-# variable or attribute needs an annotation unless it is a literal constant, which is the typing
-# guide's completeness rule; `Any` counts as annotated (no `--strict`).
+# `--public-only` counts the symbols reachable through the public modules and their re-exports,
+# each reported where it is defined. The threshold is pyrefly's default, 100%. A public variable or
+# attribute needs an annotation unless it is a literal constant; `Any` counts as annotated.
 [doc("Check that the public API is fully annotated (pyrefly coverage, gated at 100%)")]
 type-coverage:
     {{ tools }} toolbox pyrefly coverage check --public-only {{ packages }}
 
-# Each distribution's `typing_tests/`, beside its package, asserts (via `assert_type`) the types a
-# user's checker infers from the public API, and marks each call the API must reject with one
-# ignore per checker. All four checkers gate, at the package's strictness, and fail on a warning
-# as on an error; each reports an ignore that suppresses nothing, so an expected error that stops
-# happening fails the recipe. Each reads only its own ignores (pyrefly by `enabled-ignores`).
-# basedpyright reads its defaults here, not `tools/basedpyright.json`.
-# `toolbox` hands each checker the synced env through its own interpreter option and holds it to
-# the floor, once per distribution: every suite is a `typing_tests` package, and one run over two
-# of them is a duplicate module. Every checker runs whatever the others report, and the recipe fails
-# if any did.
+# Each distribution's `typing_tests/` asserts (`assert_type`) what a user's checker infers from the
+# public API, with one ignore per checker on each call the API must reject. Every checker gates at
+# the package's strictness, fails on a warning, reports an ignore that suppresses nothing, and reads
+# only its own ignores (pyrefly by `enabled-ignores`). basedpyright reads its defaults here, not
+# `tools/basedpyright.json`. One run per distribution: every suite is a `typing_tests` package, and
+# one run over two is a duplicate module. All checkers run whatever the others report.
 [doc("Type-check the public API as users' checkers see it (mypy, ty, pyrefly, basedpyright; blocking)")]
 types-api:
     #!/usr/bin/env bash
@@ -158,12 +126,9 @@ types-api:
 
 # --- Tests ---
 
-# The noxfile defines every environment the tests run in. The sessions tagged `local` run here, one
-# after another; the ones tagged `ci` are `.github/workflows/tests.yaml`'s matrix. Arguments pass to
-# nox: `just tests --list`, `just tests --session "tests(python='3.14t')"`.
-#
-# nox runs the union of every selection it is given, so `--tags local` is added only when the
-# arguments select nothing themselves.
+# The noxfile's sessions tagged `local` run here in turn; those tagged `ci` are the matrix of
+# `.github/workflows/tests.yaml`. Arguments pass to nox (`just tests --list`). nox runs the union of
+# every selection, so `--tags local` is added only when the arguments select nothing.
 [positional-arguments]
 [doc("Run the local test matrix: the noxfile's sessions tagged `local`")]
 tests *args:
@@ -176,11 +141,9 @@ tests *args:
     done
     exec just tools::nox --tags local "$@"
 
-# The quick loop while editing; `just tests` is the check: pytest in `.venv`, the environment `venv`
-# builds, on its interpreter only, with every distribution installed, so an import of another
-# distribution that a distribution does not declare passes here and fails in `tests`. It runs from the current directory, and pytest
-# takes its configuration from the distribution the paths are in, so one call covers one
-# distribution: `just test tests/x.py -k name -x`.
+# pytest runs in `.venv` with every distribution installed, so an undeclared import of another
+# distribution passes here and fails in `tests`. It runs from the current directory and takes its
+# configuration from the distribution the paths are in, so one call covers one distribution.
 [no-cd]
 [positional-arguments]
 [doc("Run pytest in .venv from the current directory, on one distribution's tests (not part of the PR checks, `just gate`)")]
@@ -189,30 +152,25 @@ test *args:
 
 # --- The gate ---
 
-# One list, cheapest first, and CI names the same one: `.github/workflows/ci.yaml`'s `gate` job installs
-# just and runs each dependency below as its own step, so GitHub reports which one failed, and
-# the conventions runner holds the two lists to each other (CON700-CON704). Add a recipe here and
-# that check fails until the workflow names it too; nothing here is spelled out a second time in YAML.
-# `tests` is the exception: CI runs the tests as the matrix of `.github/workflows/tests.yaml`, which
-# `ci.yaml` calls.
-#
-# Not here, on purpose: `lint` (pre-commit.ci runs the hooks from the same config). The type-checking
-# rows are the target-level table in CONVENTIONS.md, one recipe per row that gates.
+# Cheapest first. `.github/workflows/ci.yaml`'s `gate` job runs each dependency as its own step and
+# the conventions runner holds the two lists equal (CON700-CON704); `tests` is the exception,
+# run as the matrix of `.github/workflows/tests.yaml`. The hooks are not here: pre-commit.ci runs
+# them.
 [doc("Everything a pull request must pass, the local test matrix last")]
 gate: conventions imports deps slots types type-coverage types-api tools::types tests
 
 
 # --- Structure ---
 
-# Per distribution, from its own directory: import-linter finds the package from where it runs.
+# Runs per distribution, from its directory: import-linter finds the package from where it runs.
 [doc("Check import-graph architecture contracts (import-linter, config in pyproject.toml)")]
 imports:
     #!/usr/bin/env bash
     set -euo pipefail
     for dist in {{ dists }}; do just tools::imports "$dist"; done
 
-# Per distribution, from its own directory and `pyproject.toml`: an import of another distribution
-# that it does not declare is a finding, though the shared `.venv` holds it.
+# Runs per distribution, so an undeclared import of another distribution is a finding though the
+# shared `.venv` holds it.
 [doc("Check that declared dependencies are the ones the code imports (deptry, config in pyproject.toml)")]
 deps:
     #!/usr/bin/env bash

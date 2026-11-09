@@ -1,24 +1,21 @@
 # The benchmark recipes: a module of the root justfile, reached as `just bench::<recipe>`.
 # Generated; propose changes in an issue rather than editing this file.
 #
-# The micro-benchmarks are the `bench_*.py` files of each distribution's `benchmarks/` directory,
-# beside its `tests/`; a single-distribution repository keeps them in this directory. They run in
-# the noxfile's `bench` sessions, one interpreter each, under `pytest.ini` beside this file; the
-# session tagged `bench` is the default, and the project's noxfile says which interpreter that is.
-# `just types` type-checks them with the tests.
+# The micro-benchmarks are the `bench_*.py` files of each distribution's `benchmarks/` directory.
+# They run in the noxfile's `bench` sessions under `pytest.ini` beside this file; the session
+# tagged `bench` is the default.
 
 set working-directory := '..'
 
-# A variable is evaluated when a recipe uses it, so the lookups below cost nothing elsewhere.
+# Variables are evaluated when a recipe uses them, so the lookups below cost nothing elsewhere.
 set lazy
 
 tools := "env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools"
 dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --dirs`
-# Each distribution's `benchmarks/` directory that exists.
 bench_dirs := shell('for d in $1; do b=$([ "$d" = . ] && echo benchmarks || echo "$d/benchmarks"); [ -d "$b" ] && printf "%s " "$b"; done; true', dists)
 
-# `results/` keeps every run, with the machine, the interpreter and the commit it ran on. Another
-# interpreter's session runs by name: `just tools::nox -s "bench(python='3.14')" -- benchmarks`.
+# Another interpreter's session runs by name:
+# `just tools::nox -s "bench(python='3.14')" -- benchmarks`.
 [doc("Run the micro-benchmarks in the noxfile's sessions tagged `bench`, every distribution's or DIST's; the other arguments go to pytest")]
 [positional-arguments]
 micro *args:
@@ -43,7 +40,7 @@ compare *runs:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ $# -eq 0 ]; then
-        # The two newest runs of one machine and interpreter: the directory of the newest run.
+        # The two newest runs in the newest run's directory (one machine and interpreter).
         newest=$(ls -t benchmarks/results/*/*.json 2>/dev/null | head -n 1)
         [ -n "$newest" ] || { echo "no saved runs under benchmarks/results/"; exit 1; }
         set -- $(ls -t "$(dirname "$newest")"/*.json | head -n 2)

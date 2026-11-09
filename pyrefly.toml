@@ -1,18 +1,13 @@
 # pyrefly's configuration.
 # Generated; propose changes in an issue rather than editing this file.
 #
-# pyrefly is a second opinion over the packages (`just types-info`) and gates the `typing_tests/`
-# suites with the other checkers (`just types-api`); mypy gates the owned code, configured in
-# `mypy.ini`. Without this file pyrefly imports `mypy.ini` as a one-off
-# migration and maps `strict` to its annotation-presence rules, which `mypy.ini` opts out of.
-#
-# The `default` preset: correctness diagnostics without annotation-presence or implicit-`Any` rules.
-# No `python-version`: the recipes pass `--python-version` from `requires-python`, and run a file
+# Without this file pyrefly imports `mypy.ini` and maps `strict` to annotation-presence rules, which
+# `mypy.ini` opts out of. The `default` preset has no annotation-presence or implicit-`Any` rules.
+# No `python-version`: the recipes pass `--python-version` from `requires-python` and run a file
 # ruff's `per-file-target-version` pins apart, at its version.
 preset = "default"
-# pyrefly reads its own ignores only. By default it also honours mypy's `# type: ignore` whatever
-# its code, and never reports one unused: a finding of its own on a line mypy ignores would vanish
-# from `types-info`, and an expected error in a typing test would go unchecked in `types-api`.
+# By default pyrefly also honours mypy's `# type: ignore` and never reports one unused, which would
+# hide its own findings and leave `types-api`'s expected errors unchecked.
 enabled-ignores = ["pyrefly"]
 project-includes = [
     "funcparserlib",

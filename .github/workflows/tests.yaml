@@ -1,9 +1,7 @@
 # The CI test matrix.
 # Generated; propose changes in an issue rather than editing this file.
 #
-# The noxfile defines every environment the tests run in, and its sessions tagged `ci` are this
-# matrix, one job each: `just tools::ci-matrix` lists them, and a job runs one session by name.
-# `ci.yaml` calls this workflow; its aggregate job, which needs this one, is the required check.
+# The noxfile's sessions tagged `ci` (`just tools::ci-matrix`) are the matrix, one job each.
 name: tests
 
 on:
@@ -66,6 +64,5 @@ jobs:
       - run: just tools::nox --session "$SESSION"
         env:
           SESSION: ${{ matrix.session }}
-          # Set when the workflow is called with `artifacts`: a session that reads it installs the
-          # built distribution from `dist/` instead of building one.
+          # A session that reads it installs the built distribution from `dist/`.
           ARTIFACTS_DIR: ${{ inputs.artifacts != '' && 'dist' || '' }}

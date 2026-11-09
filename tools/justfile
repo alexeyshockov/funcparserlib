@@ -1,27 +1,15 @@
 # The recipes of the pinned tool environment (`tools/`).
 # Generated; propose changes in an issue rather than editing this file.
 #
-# A just module (`mod tools`), not an import. A module namespaces its recipes, so nothing here can
-# collide with a project's own. Across an import, just refuses a duplicate recipe or variable unless
-# the importer sets `allow-duplicate-recipes` / `allow-duplicate-variables`, and with them the
-# importer's definition silently replaces the imported one. A module is also scope-isolated: nothing
-# here reads a variable from the importing justfile, so whatever is per project arrives as a recipe
-# argument: a package's directory, its import name.
-#
-# The working directory is the repository root, not this one. Every path below — the hooks file,
-# tools/pyproject.toml, tools/uv.lock — is named from there, and `just tools <recipe>` reaches
-# them the same way from anywhere in the tree.
+# A just module (`mod tools`): its recipes cannot collide with a project's own, and it reads no
+# variable of the importing justfile, so per-project values arrive as recipe arguments.
+# Paths below are relative to the repository root, the working directory set here.
 set working-directory := '..'
 
-# Runs a tool from the toolbox. `--project tools` syncs the toolbox environment on demand.
-# `--locked` fails when tools/pyproject.toml is ahead of tools/uv.lock, instead of re-resolving and
-# rewriting it. `env -u VIRTUAL_ENV` silences uv's warning about an activated .venv.
-#
-# `UV_PROJECT_ENVIRONMENT` puts the toolbox's environment at `.venv-tools` in the repository root
-# rather than nesting one inside `tools/`. It is resolved against the project directory, so
-# `../.venv-tools` lands beside `.venv`, which is where `.gitignore` and `.claudeignore` already
-# expect a `.venv-*` to be. It is set per invocation and never exported: exported, it would send
-# `just venv` — an ordinary `uv sync` of the project — to the same place.
+# Runs a tool from the toolbox, syncing its environment on demand. `--locked` fails when
+# tools/pyproject.toml is ahead of tools/uv.lock. `env -u VIRTUAL_ENV` silences uv's warning about
+# an activated .venv. `UV_PROJECT_ENVIRONMENT` (relative to `tools/`) puts the environment at
+# `.venv-tools` beside `.venv`; it is not exported, or `just venv` would sync there too.
 tools := "env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools"
 
 [doc("Install the host tools (uv, just, prek), build the pinned tool environment (tools/), and install the commit hooks")]
@@ -30,24 +18,20 @@ doctor:
     env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv sync --locked --project tools
     prek install
 
-# The toolbox's twin of a dependency upgrade: it moves tools/uv.lock within the constraints
-# tools/pyproject.toml states. A tool that must stay below a release says so there, as an
-# ordinary requirement ceiling with its reason — there is no second mechanism for it.
+# A tool that must stay below a release says so in tools/pyproject.toml as a requirement ceiling.
 [doc("Upgrade the locked tool versions within tools/pyproject.toml's constraints, then rebuild .venv-tools")]
 upgrade:
     uv lock --project tools --upgrade
     env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv sync --project tools
 
-# Session names carry quotes and parentheses (`tests(python='3.14t')`), so the arguments reach
-# nox as given rather than through a recipe's word splitting.
+# Session names carry quotes and parentheses (`tests(python='3.14t')`), so arguments are not split.
 [positional-arguments]
 [doc("Run nox from the pinned tool environment (tools/): `just tools nox --list`")]
 nox *args:
     {{ tools }} nox "$@"
 
-# The matrix `.github/workflows/tests.yaml` runs. A session tagged `windows` runs on
-# windows-latest, and one tagged `optional` may fail without failing the run. No session is an
-# error: GitHub runs no job for an empty matrix and reports the workflow as passed.
+# A session tagged `windows` runs on windows-latest; one tagged `optional` may fail without failing
+# the run. No session is an error: GitHub reports a workflow with an empty matrix as passed.
 [doc("Print the noxfile's sessions tagged `ci` as a GitHub Actions matrix (fails when there are none)")]
 ci-matrix:
     #!/usr/bin/env bash
@@ -68,15 +52,11 @@ ci-matrix:
     print(json.dumps({"include": include}))
     '
 
-# For a tool the recipes do not wrap.
 [doc("Run any tool from the pinned tool environment (tools/): `just tool toolbox ty -- <path>`")]
 run *args:
     {{ tools }} {{ args }}
 
-# Two files hold every version in force and neither repeats the other: `.pre-commit-config.yaml`
-# pins the self-contained linters by rev (which is what prek and pre-commit.ci actually read),
-# and `tools/uv.lock` pins everything else. Both are read here directly, so the numbers below are
-# the numbers in force rather than a third copy of them.
+# `.pre-commit-config.yaml` pins the linters and `tools/uv.lock` everything else.
 [doc("Report every tool version in force, and which could move (read-only)")]
 pins:
     #!/usr/bin/env bash
@@ -102,11 +82,8 @@ pins:
     echo "▸ what could move inside those constraints (dry run — nothing is written)"
     env -u VIRTUAL_ENV uv lock --project tools --upgrade --dry-run
 
-# pre-commit has no lock: `prek update` moves every rev to the newest tag, including one pinned on
-# purpose. This is that missing half. The list arrives as an argument rather than being read from a
-# scope a module does not have; the reason for each entry is commented next to its hook in
-# .pre-commit-config.yaml. An entry names a hook repository by the last segment of its URL, matched
-# whole, so an entry whose hook is gone reports it not found.
+# `prek update` moves every rev, including one pinned on purpose. An entry is the last segment of a
+# hook repository's URL, matched whole; one whose hook is gone reports not found.
 [doc("Verify the given pre-commit revs (a <repo>=<rev> list) have not moved")]
 frozen-revs revs:
     #!/usr/bin/env bash
@@ -131,7 +108,6 @@ frozen-revs revs:
     [ "$status" -eq 0 ] && echo "frozen revs intact: ${frozen[*]}"
     exit "$status"
 
-# The shared conventions over the whole repository, then the repository's own pytest checks.
 [doc("Check the rules in CONVENTIONS.md, then the repository's own checks")]
 conventions:
     #!/usr/bin/env bash
@@ -143,18 +119,13 @@ conventions:
         echo "conventions: no tools/checks/*_check.py of this repository's own"
     fi
 
-# The visibility rule's renames, applied: a module-local name gains the underscore and a shared
-# one loses it, in its module and wherever the package, its tests and its examples use it. A
-# rename that would shadow or collide is refused and printed, for a person to make.
+# A rename that would shadow or collide is refused and printed.
 [doc("Apply the visibility renames CON402 and CON403 ask for")]
 fix-visibility:
     {{ tools }} conventions fix CON402 CON403
 
-# The repository's own checks import pytest and the standard library only. They walk `ast`, where
-# reading an attribute off the wrong node is the likely mistake and a checker catches it.
-# mypy from the toolbox's environment analyses the toolbox's interpreter, which these files run on,
-# and reads the repository's `mypy.ini`; named paths override its file list.
-# The repository's own checks only; `tools/conventions/` is excluded: it is generated.
+# mypy from the toolbox analyses the toolbox's interpreter, which these files run on, and reads the
+# repository's `mypy.ini`. `tools/conventions/` is generated and excluded.
 [doc("Type-check the repository's own checks (mypy, blocking)")]
 types:
     #!/usr/bin/env bash
@@ -168,15 +139,14 @@ types:
 
 # --- Structure ---
 #
-# Each takes the directory holding the package's `pyproject.toml`, `.` for a package at the root,
-# and reads its configuration from there.
+# Each takes the directory holding the package's `pyproject.toml` (`.` at the root) and reads its
+# configuration from there.
 
-# The toolbox addressed by absolute path, for the recipes that change into a package's directory.
+# The toolbox by absolute path, for recipes that change into a package's directory.
 tools_at := "env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project " + source_directory()
 
-# import-linter reads the source and imports nothing. It finds the package from the directory it
-# runs in, which it puts on its own import path.
-# A distribution that declares no contracts is named and skipped: it has none to check.
+# import-linter finds the package from the directory it runs in. A distribution that declares no
+# contracts is skipped.
 [doc("Check import-graph contracts (import-linter) for the package in DIR")]
 imports dir:
     #!/usr/bin/env bash
@@ -189,9 +159,8 @@ imports dir:
     {{ tools_at }} lint-imports
 
 # deptry and slotscheck run in the project's `.venv`, from its `lint` group: slotscheck imports the
-# package, and deptry reads the standard-library list and the installed distributions of the
-# interpreter it runs on. `--no-sync` because `just venv` builds that environment; a missing tool
-# fails here rather than being installed by a check.
+# package, and deptry reads the installed distributions of its interpreter. `--no-sync`: `just venv`
+# builds that environment, and a check does not install tools.
 [doc("Check declared dependencies against imports (deptry) for PACKAGE in DIR")]
 deps dir package:
     cd {{ dir }} && env -u VIRTUAL_ENV uv run --no-sync deptry {{ package }}
@@ -200,26 +169,19 @@ deps dir package:
 slots dir package:
     cd {{ dir }} && env -u VIRTUAL_ENV uv run --no-sync slotscheck -m {{ package }}
 
-# vulture reads `[tool.vulture]` from the directory it runs in, and resolves its paths from there.
+# vulture reads `[tool.vulture]` from the directory it runs in.
 [doc("Find unused code (vulture) with DIR's configuration; extra ARGS go to vulture")]
 deadcode dir *args:
     cd {{ dir }} && {{ tools_at }} vulture {{ args }}
 
 # --- Check and fix ---
 
-# `check` asserts and never writes; `fix` writes and never asserts. A command that does both
-# cannot be trusted: prek notices a rewrite by diffing against git's index, so a fixing hook
-# handed an untracked path rewrites it and reports Passed. The hooks are read-only at the
-# `pre-commit` stage (see `.pre-commit-config.yaml`), so a false green of that shape cannot occur.
+# `toolbox` turns the optional paths into the files the hooks judge: the working tree (tracked and
+# new files) when none, a directory as the files git shows under it, and a path that names nothing
+# is refused with exit 2. Nothing writes to git's index.
 #
-# Both take optional paths, which `toolbox` turns into the files the hooks judge: the working tree
-# when none, tracked files and new ones; a directory as the files git shows under it; a path that
-# names nothing refused with exit 2. Nothing here writes to git's index: staging is a decision, and
-# a verification command does not make it.
-#
-# mypy, the checker that gates owned code, runs only for named paths: the whole tree is the type
-# recipes' to judge. It skips what is not Python, and checks a `typing_tests/` suite as package code.
-# mypy runs whatever the hooks said, and the recipe fails if either did.
+# mypy runs only for named paths (the type recipes judge the whole tree), skips non-Python files,
+# and checks a `typing_tests/` suite as package code. It runs whatever the hooks said.
 [doc("Read-only check: every applicable commit hook, plus mypy for Python paths. No paths = whole tree.")]
 check *paths:
     #!/usr/bin/env bash
@@ -232,9 +194,7 @@ check *paths:
     fi
     exit "$status"
 
-# No exit code worth reading but a refused path's 2: a fixing hook exits non-zero precisely when
-# it fixed something, which is this recipe succeeding. `fix` makes no claim — run `check` for the
-# verdict.
+# Only exit code 2 (a refused path) is read: a fixing hook exits non-zero when it fixed something.
 [doc("Apply every fixer whose finding the PR checks (`just gate`) can only report. `check` and `gate` never write.")]
 fix *paths:
     #!/usr/bin/env bash

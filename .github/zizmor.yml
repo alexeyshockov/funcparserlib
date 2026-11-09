@@ -1,10 +1,7 @@
-# zizmor — GitHub Actions security audit config. https://docs.zizmor.sh/configuration/
 # Generated; propose changes in an issue rather than editing this file.
 #
-# unpinned-uses policy: accept version/ref pins (@v6, @release/v1) for actions
-# from orgs we trust not to force-move a tag, and require a full commit SHA for
-# any other (third-party) action. Keeps the guard meaningful without churning
-# first-party bumps or fighting pypa's documented branch-pin convention.
+# unpinned-uses: a version or ref pin (@v6, @release/v1) is accepted for the orgs listed, and any
+# other action needs a full commit SHA.
 rules:
   unpinned-uses:
     config:
@@ -13,6 +10,6 @@ rules:
         "astral-sh/*": ref-pin
         "pypa/*": ref-pin
         "SonarSource/*": ref-pin
-        # `extractions/setup-just`: CI runs the recipes, so every workflow installs just.
+        # `extractions/setup-just`: every workflow installs just.
         "extractions/*": ref-pin
         "*": hash-pin
