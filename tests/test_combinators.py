@@ -331,6 +331,7 @@ def test_a_legacy_callable_object_warns_by_its_repr() -> None:
         assert Parser(LegacyDigit()).parse("1") == "1"
 
 
+@pytest.mark.interpreted_only  # the parser warns once, and the interpreted run spends it
 def test_the_warning_of_a_legacy_parsing_function_is_from_the_module_of_the_function() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
