@@ -13,12 +13,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The commit hooks run on pre-commit.ci from `.pre-commit-config.yaml`. The jobs here need the
-# project importable or a specific interpreter. Each step runs a `just` recipe, and the conventions
-# runner (CON700) holds the `gate` job to `just gate`'s dependency list.
+# The commit hooks run on pre-commit.ci. The jobs here need the project importable or a specific
+# interpreter; CON700 holds the `gate` job to `just gate`'s dependency list.
 jobs:
-  # Everything `just gate` runs, one recipe per named step so GitHub reports which one failed, in
-  # the gate's order.
+  # Everything `just gate` runs, one step per recipe, in the gate's order.
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 15

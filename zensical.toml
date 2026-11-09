@@ -12,8 +12,8 @@ strict = true
 docs_dir = "docs"
 extra_css = ["media/extra.css"]
 
-# `getting-started/` and `api/` keep the paths the published site has had since 1.0, so links into
-# funcparserlib.pirx.ru keep working; CONVENTIONS.md would name them `guide/` and `reference/`.
+# `getting-started/` and `api/` are the published paths that external links use; CONVENTIONS.md
+# would name them `guide/` and `reference/`.
 nav = [
     { "Home" = "index.md" },
     { "Getting Started" = [
@@ -97,9 +97,8 @@ toggle.name = "Switch to light mode"
 
 [project.plugins.search]
 
-# `llms.txt`, an index of the site for language models, and `llms-full.txt`, every page in one
-# file; each page is also published as Markdown beside its HTML. The guides first and the API
-# reference after; the ADRs under "Optional", the spec's skippable part.
+# `llms.txt` indexes the site, `llms-full.txt` holds every page; each page is also published as
+# Markdown. The ADRs go under "Optional".
 [project.plugins.llmstxt]
 full_output = "llms-full.txt"
 
@@ -116,8 +115,7 @@ full_output = "llms-full.txt"
 
 [project.plugins.mkdocstrings.handlers.python.options]
 extensions = ["tools/griffe_refclass.py:RefclassExtension"]
-# The `__init__` of a dataclass is generated and has no docstring; the class docstring and the
-# signature describe the construction.
+# A dataclass `__init__` is generated and has no docstring.
 filters = ["!^_[^_]", "!^__init__$"]
 docstring_style = "google"
 show_root_toc_entry = false
@@ -132,7 +130,6 @@ members = false
 [project.markdown_extensions.attr_list]
 [project.markdown_extensions."pymdownx.highlight"]
 [project.markdown_extensions."pymdownx.superfences"]
-# Mermaid diagrams in ```mermaid fences, rendered in the browser.
 custom_fences = [
     { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" },
 ]
@@ -141,8 +138,7 @@ check_paths = true
 
 [project.markdown_extensions."pymdownx.blocks.admonition"]
 
-# Inline code naming an API object links to its reference entry (`tools/mdautolink`).
-# `modules` is spelled out because the index reads a module's exports, and the pages render the
-# lexer's and util's objects one by one, never the modules themselves.
+# Inline code naming an API object links to its reference entry (`tools/mdautolink`). The index
+# reads each module's exports, and the pages render objects individually, so `modules` lists them.
 [project.markdown_extensions.mdautolink]
 modules = ["funcparserlib.lexer", "funcparserlib.parser", "funcparserlib.util"]

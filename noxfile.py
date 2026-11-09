@@ -28,7 +28,7 @@ MEMBERS = {
 FIRST = nox.project.load_toml(Path(next(iter(MEMBERS))) / "pyproject.toml")
 VERSIONS = nox.project.python_versions(FIRST)
 FLOOR, NEWEST = VERSIONS[0], VERSIONS[-1]
-# A third of the cores: the tests share a working machine, and past 4 workers they gain little.
+# A third of the cores, at least 2.
 WORKERS = ("-n", str(max(2, (os.cpu_count() or 2) // 3)), "--dist", "worksteal")
 
 
@@ -78,10 +78,8 @@ def exhaustive(session: nox.Session) -> None:
     )
 
 
-# The micro-benchmarks (`just bench::micro`), where the project has them: one session per
-# interpreter. The one tagged `bench` is what `just bench::micro` runs: the newest, unless a
-# dependency the benchmarks build has no wheel for it yet, in which case the tag moves to another
-# version in BENCH_PYTHONS.
+# One micro-benchmark session per interpreter; the one tagged `bench` is what `just bench::micro`
+# runs. It is the newest unless a benchmark dependency has no wheel for it, then the tag moves.
 BENCH_PYTHONS = [nox.param(v, tags=["bench"] if v == NEWEST else []) for v in VERSIONS]
 
 if any(Path(member, "benchmarks").is_dir() for member in MEMBERS):
