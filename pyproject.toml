@@ -41,13 +41,11 @@ dev = [
     { include-group = "tests" },
     { include-group = "examples" },
 ]
-# What examples/ imports besides the package: markdown.py, changelog.py, adr.py and yaml.py read
-# another library's token stream, markdown-it-py's and ruamel.yaml's; msgpack_format.py is checked
-# against msgpack.
+# Libraries whose token streams the examples read, and msgpack, which `msgpack_format.py` is checked
+# against.
 examples = ["markdown-it-py ~=4.0", "msgpack ~=1.1", "ruamel.yaml ~=0.19"]
-# The micro-benchmarks in `benchmarks/` (`just bench::micro`).
 bench = [
-    # The other parsing libraries bench_comparison.py measures against.
+    # The parsing libraries `bench_comparison.py` measures against.
     "lark ~=1.3",
     "msgpack ~=1.1",
     "orjson ~=3.11",
@@ -56,7 +54,6 @@ bench = [
     "pytest-benchmark ~=5.2",
 ]
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
-# The mutation run (`just mutants`), which no gate depends on.
 mutation = ["mutmut ~=3.8"]
 tests = [
     "hypothesis ~=6.169",
@@ -69,9 +66,7 @@ tests = [
 [tool.uv]
 build-backend.module-root = ""
 build-backend.module-name = "funcparserlib"
-# The sdist carries the tests, the typing tests, the docs (whose `>>>` sessions are doctests) and
-# the changelog, with what the tests run (the examples and the root `conftest.py`), so a packager
-# can run them from it.
+# So a packager can run the tests from the sdist.
 build-backend.source-include = [
     "CHANGELOG.md",
     "conftest.py",
@@ -84,8 +79,7 @@ build-backend.source-include = [
 [tool.pytest.ini_options]
 timeout = 30
 testpaths = ["tests", "funcparserlib", "docs", "README.md"]
-# `-p no:benchmark`: `.venv` holds pytest-benchmark for `just bench::micro`, and loaded here it
-# creates `.benchmarks/`.
+# `-p no:benchmark`: pytest-benchmark, installed for the micro-benchmarks, creates `.benchmarks/`.
 addopts = ["--doctest-modules", "--doctest-glob=*.md", "-p", "no:benchmark", "-m", "not exhaustive"]
 markers = [
     "interpreted_only: left alone by `tests.shadow`: it counts calls, or differs on purpose",
@@ -94,10 +88,7 @@ markers = [
 ]
 filterwarnings = ["error"]
 
-# `just mutants`: the code whose bugs tests see least, as a broken fast path falls back to the same
-# result, and the parsers of text, which both sides of that comparison are built from: `just
-# mutants` runs those names of `parser.py`. The two deselected tests sit near the recursion limit,
-# which mutmut's wrappers pass.
+# The two deselected tests sit near the recursion limit, which mutmut's wrappers push past.
 [tool.mutmut]
 paths_to_mutate = [
     "funcparserlib/lexer.py",
@@ -131,9 +122,8 @@ fail-under = 30
 
 [tool.ruff]
 extend = "shared.ruff.toml"
-# The examples, and the docs that include them, teach the newest syntax: PEP 695 generics and
-# `type` aliases, from 3.12. Every type checker reads this table too, and `conftest.py` leaves the
-# examples, the docs and the README out of a run on an older interpreter (ADR 0001).
+# The examples, the docs and the README use 3.12 syntax; the type checkers read this too, and
+# `conftest.py` leaves them out below 3.12 (ADR 0001).
 per-file-target-version = { "examples/**" = "py312" }
 
 [tool.deptry]
