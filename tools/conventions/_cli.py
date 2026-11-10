@@ -184,16 +184,23 @@ def api_diff(base: str, root: Path | None) -> None:
 
 @cli.command()
 @click.option("--dirs", is_flag=True, help="Print each distribution's directory once instead.")
+@click.option(
+    "--examples", is_flag=True, help="Print the examples directories that hold Python instead."
+)
 @ROOT_OPTION
-def packages(dirs: bool, root: Path | None) -> None:
+def packages(dirs: bool, examples: bool, root: Path | None) -> None:
     """Print each package as `<distribution directory>/<import name>`, separated by spaces.
 
     The packages are `[tool.conventions] packages`, else the root distribution's, else each
     workspace member's. A package of the root distribution prints as its import name alone, and its
-    directory as `.`.
+    directory as `.`. `--examples` prints instead the root's `examples` and each distribution's
+    `<dir>/examples` that hold a Python file, and an empty line when none does.
     """
+    if dirs and examples:
+        raise click.UsageError("--dirs and --examples print different lists; pass one")
     with _verdict():
-        paths = Project(root or _toplevel()).settings["packages"]
+        project = Project(root or _toplevel())
+        paths = project.example_dirs if examples else project.settings["packages"]
     if dirs:
         paths = dict.fromkeys(path.rpartition("/")[0] or "." for path in paths)
     click.echo(" ".join(paths))

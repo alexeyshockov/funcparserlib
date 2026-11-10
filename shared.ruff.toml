@@ -102,11 +102,11 @@ ignore = [
 # Tests import lazily (optional extras) and test internals.
 "**/tests/**" = ["PLC0415", "PLC2701"]
 # Runnable programs print their result.
-"examples/*" = ["T201"]
+"**/examples/**" = ["T201"]
 # Benchmarks time internal primitives.
 "**/benchmarks/**" = ["T201", "PLC2701"]
 # The generated `_commons.py` spells generics with `TypeVar` to run on the oldest supported Python.
-"funcparserlib/_commons.py" = ["UP047"]
+"**/_commons.py" = ["UP047"]
 
 [lint.isort]
 # Pairs with `skip-magic-trailing-comma`.

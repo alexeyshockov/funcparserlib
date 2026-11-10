@@ -6,6 +6,11 @@ and adds what is this project's own. Parts of the tooling are rendered from
 the files it owns; a change to one of them is made there and reaches this repository through
 `copier update`, so propose it in an issue.
 
+`copier update` carries only what the template changed. A package or an examples directory added
+after the render reaches the lists rendered from them (`mypy.ini`, `pyrefly.toml`, the interrogate
+hook) by hand: `just conventions` names each entry missing (CON808). `copier recopy --overwrite` is
+not the way: it also deletes every line the project added to a file it rewrites.
+
 ## Tooling
 
 Tools live in three places, each with its own pins:

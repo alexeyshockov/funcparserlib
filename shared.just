@@ -32,6 +32,8 @@ set lazy
 # else each workspace member's.
 packages := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages`
 dists := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --dirs`
+# The root's `examples` and each distribution's that hold Python.
+example_dirs := `env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT=../.venv-tools uv run --locked --project tools conventions packages --examples`
 
 # Each distribution's tests, and the `typing_tests/` and `benchmarks/` directories that exist.
 test_dirs := shell('for d in $1; do [ "$d" = . ] && printf "tests " || printf "%s/tests " "$d"; done', dists)
@@ -87,7 +89,7 @@ frozen-revs:
 # the depth `mypy.ini` gives them.
 [doc("Check types of the packages, the examples, the tests and the benchmarks (mypy, blocking)")]
 types:
-    {{ tools }} toolbox mypy -- {{ packages }} examples {{ test_dirs }} {{ bench_dirs }}
+    {{ tools }} toolbox mypy -- {{ packages }} {{ example_dirs }} {{ test_dirs }} {{ bench_dirs }}
 
 # `-` ignores a failure: these run so a finding is seen. basedpyright reads
 # `tools/basedpyright.json` here only.

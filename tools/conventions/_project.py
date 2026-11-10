@@ -1,6 +1,7 @@
 """The repository under check: its files, its configuration and its packages, each read once."""
 
 import ast
+import configparser
 import subprocess
 import tomllib
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -119,6 +120,50 @@ class Project:
                 "workspace members default it"
             )
         return found
+
+    @cached_property
+    def example_dirs(self) -> Sequence[str]:
+        """The examples directories that hold Python, each relative to the root.
+
+        The root's `examples`, then each distribution's `<dir>/examples`, in `packages` order.
+        """
+        dirs = (path.rpartition("/")[0] for path in self.settings["packages"])
+        candidates = ["examples", *(f"{d}/examples" for d in dirs if d)]
+        return tuple(
+            path
+            for path in dict.fromkeys(candidates)
+            if (self.root / path).is_dir() and next((self.root / path).rglob("*.py"), None)
+        )
+
+    @cached_property
+    def mypy_files(self) -> Sequence[str] | None:
+        """`[mypy] files` in `mypy.ini`, what a mypy run without paths checks; `None` without the
+        file.
+        """
+        path = self.root / "mypy.ini"
+        if not path.is_file():
+            return None
+        config = configparser.ConfigParser()
+        try:
+            config.read_string(path.read_text(encoding="utf-8"))
+        except configparser.Error as e:
+            raise RunError(f"cannot read mypy.ini: {e}") from None
+        files = config.get("mypy", "files", fallback="")
+        return tuple(f.strip() for f in files.split(",") if f.strip())
+
+    @cached_property
+    def pyrefly_includes(self) -> Sequence[str] | None:
+        """`project-includes` in `pyrefly.toml`, what a pyrefly run without paths checks; `None`
+        without the file.
+        """
+        path = self.root / "pyrefly.toml"
+        if not path.is_file():
+            return None
+        try:
+            includes = tomllib.loads(path.read_text(encoding="utf-8")).get("project-includes", [])
+        except tomllib.TOMLDecodeError as e:
+            raise RunError(f"cannot read pyrefly.toml: {e}") from None
+        return tuple(str(include) for include in includes)
 
     @cached_property
     def package_roots(self) -> Mapping[str, Path]:

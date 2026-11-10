@@ -1,5 +1,6 @@
-"""CON8xx: a tool is configured in one place, a second place cannot appear beside it, and pytest's
-configuration fails a test on an exception nothing receives.
+"""CON8xx: a tool is configured in one place, a second place cannot appear beside it, pytest's
+configuration fails a test on an exception nothing receives, and the lists rendered from the
+packages name every package.
 """
 
 import re
@@ -324,6 +325,82 @@ def unraisable_fails(project: Project) -> Iterator[Finding]:
                 "CON807",
                 'an unraisable exception passes the tests; add "error" to filterwarnings',
             )
+
+
+def _read(project: Project, name: str) -> str | None:
+    path = project.root / name
+    return project.text(path) if path.is_file() else None
+
+
+def _first_line(text: str, prefix: str) -> int | None:
+    return next((n for n, line in enumerate(text.splitlines(), 1) if line.startswith(prefix)), None)
+
+
+def _interrogate_args(text: str) -> tuple[int, list[str]] | None:
+    """The line of the interrogate hook's `args:` and the paths in its list, when it has one."""
+    lines = text.splitlines()
+    hook = next((n for n, line in enumerate(lines, 1) if line.strip() == "- id: interrogate"), None)
+    if hook is None:
+        return None
+    for number, line in enumerate(lines[hook:], hook + 1):
+        if line.strip().startswith(("- id:", "- repo:")):
+            return None
+        if line.strip() == "args:":
+            paths: list[str] = []
+            indent = None
+            for item in lines[number:]:
+                stripped = item.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                depth = len(item) - len(item.lstrip())
+                indent = depth if indent is None else indent
+                if depth != indent or not stripped.startswith("- "):
+                    break
+                if not (value := stripped[2:].strip()).startswith("-"):
+                    paths.append(value)
+            return number, paths
+    return None
+
+
+@rule("CON808")
+def rendered_package_lists(project: Project) -> Iterator[Finding]:
+    """`mypy.ini`'s `files` and `pyrefly.toml`'s `project-includes` name each package and each
+    examples directory that holds Python, and the interrogate hook's arguments name each package.
+
+    Reason: the template renders these lists once, from `[tool.conventions] packages` and the
+    examples directories. `copier update` carries only what the template changed, so a package or an
+    examples directory added later never reaches them, and a checker run without paths reads less
+    than the project holds. `copier recopy --overwrite` re-renders them, and also deletes every line
+    the project added to a file it rewrites.
+
+    Fix: add the path the message names to that list, or remove the one it names as no package.
+    `conventions packages` and `conventions packages --examples` print what the lists hold.
+    """
+    packages = list(project.settings["packages"])
+    everything = [*packages, *project.example_dirs]
+    lists = (
+        ("mypy.ini", "files", project.mypy_files),
+        ("pyrefly.toml", "project-includes", project.pyrefly_includes),
+    )
+    for name, key, listed in lists:
+        if listed is not None:
+            line = _first_line(project.text(project.root / name) or "", key)
+            yield from _compare(name, line, f"`{key}`", everything, list(listed))
+    text = _read(project, ".pre-commit-config.yaml")
+    if text is not None and (found := _interrogate_args(text)) is not None:
+        line, listed_args = found
+        yield from _compare(
+            ".pre-commit-config.yaml", line, "interrogate's args", packages, listed_args
+        )
+
+
+def _compare(
+    path: str, line: int | None, where: str, expected: list[str], listed: list[str]
+) -> Iterator[Finding]:
+    for missing in (p for p in expected if p not in listed):
+        yield Finding(path, line, "CON808", f"{where} lacks {missing}")
+    for extra in (p for p in listed if p not in expected):
+        yield Finding(path, line, "CON808", f"{where} names {extra}, which is no package here")
 
 
 def _tool_tables(project: Project, path: Path) -> dict[str, Any]:

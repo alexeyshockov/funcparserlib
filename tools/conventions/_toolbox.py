@@ -14,7 +14,6 @@ Options before `--` go to the tool as given; paths after it are the targets. Exi
 tool's, the first failing one's when it runs once per distribution, 2 when a path is refused.
 """
 
-import configparser
 import functools
 import os
 import re
@@ -442,20 +441,18 @@ def _python_paths(root: Path, name: str, paths: Sequence[str]) -> list[str]:
 
 def _mypy_files(root: Path) -> list[str]:
     """`[mypy] files` in `mypy.ini`: what a mypy run without paths checks."""
-    config = configparser.ConfigParser()
-    config.read(root / "mypy.ini", encoding="utf-8")
-    return [f.strip() for f in config.get("mypy", "files", fallback="").split(",") if f.strip()]
+    try:
+        return list(Project(root).mypy_files or [])
+    except RunError as e:
+        _refuse(str(e))
 
 
 def _pyrefly_includes(root: Path) -> list[str]:
     """`project-includes` in `pyrefly.toml`: what a pyrefly run without paths checks."""
     try:
-        with (root / "pyrefly.toml").open("rb") as f:
-            return list(tomllib.load(f).get("project-includes", []))
-    except FileNotFoundError:
-        return []
-    except tomllib.TOMLDecodeError as e:
-        _refuse(f"cannot read pyrefly.toml: {e}")
+        return list(Project(root).pyrefly_includes or [])
+    except RunError as e:
+        _refuse(str(e))
 
 
 def pyrefly_config(root: Path) -> list[str]:
