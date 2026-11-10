@@ -73,3 +73,9 @@ repository, before the first release from this tooling:
 ## Commits
 
 Conventional Commits with a scope; the rules are in `CONVENTIONS.md`.
+
+## Changelog
+
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions
+follow [semantic versioning](https://semver.org/spec/v2.0.0.html). `CONVENTIONS.md` says when an
+entry is written and how a release names its section.
