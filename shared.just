@@ -15,8 +15,8 @@
 # recipe here that changes a file. The hooks are read-only at the `pre-commit` stage for the same
 # reason (see .pre-commit-config.yaml).
 #
-# The importing justfile provides `conventions` (the first step of `gate`), `frozen_revs` (the
-# project's own frozen hook revs, empty when it has none), and its own recipes.
+# The importing justfile provides `frozen_revs` (the project's own frozen hook revs, empty when it
+# has none) and its own recipes, under names not used here: just refuses a second definition.
 
 # Runs a tool from the toolbox, syncing its environment on demand. `--locked` fails when
 # tools/pyproject.toml is ahead of tools/uv.lock. `env -u VIRTUAL_ENV` silences uv's warning about
@@ -152,6 +152,10 @@ tests *args:
 test *args:
     "{{ justfile_directory() }}/.venv/bin/python" -m pytest "$@"
 
+[doc("Check the conventions (`conventions explain CODE` for a finding), then the repository's own checks")]
+conventions:
+    @just tools::conventions
+
 # --- The gate ---
 
 # Cheapest first. `.github/workflows/ci.yaml`'s `gate` job runs each dependency as its own step and
@@ -198,3 +202,21 @@ check *paths:
 [doc("Apply every fixer whose finding the PR checks (`just gate`) can only report. `check` and `gate` never write.")]
 fix *paths:
     @just tools::fix {{ paths }}
+
+# --- Housekeeping ---
+
+[doc("Inverse dependency tree for a package, to see why it is installed")]
+why package:
+    uv tree --invert --package {{ package }}
+
+[doc("Remove local caches and generated test and lint artifacts")]
+clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    find . \( -name '.venv*' -o -name .nox -o -name .git -o -name node_modules -o -name target \) -prune \
+        -o -type d -name __pycache__ -exec rm -rf {} +
+    for dist in {{ dists }}; do
+        (cd "$dist" && rm -rf .hypothesis .import_linter_cache .mypy_cache .pytest_cache .ruff_cache htmlcov \
+            .coverage .coverage.* coverage.xml coverage.json)
+    done
+    rm -rf .cache tools/.ruff_cache

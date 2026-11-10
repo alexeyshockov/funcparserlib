@@ -1,81 +1,80 @@
-# Contributing to funcparserlib
+# Contributing
 
-`AGENTS.md` is the repository guide: layout, design invariants, and the verification ladder. The general
-rules — the tooling tiers, the type gates, the source conventions, commits, pull requests and the
-release flow — are in `CONVENTIONS.md`. This file is the contributor path for what is funcparserlib's own.
+This file is the process. How code and configuration are written is `CONVENTIONS.md`; the map of
+the code is `ARCHITECTURE.md`; what is this project's own (layout, extra prerequisites, working
+rules) is `AGENTS.md`, written for people as much as for agents.
+
+## Reporting issues
+
+- **A bug**: the version, the Python version and platform, and the smallest code that shows it.
+- **A feature**: the problem first, then the API you would like to write.
+- **A vulnerability**: privately, as `SECURITY.md` says, never in a public issue.
 
 ## Development setup
 
-Python 3.12+ for the development environment (the examples and the docs are written for it; the package
-runs from 3.11), [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/). Then:
+You need [uv](https://docs.astral.sh/uv/) and [just](https://just.systems/).
+Then:
 
 ```shell
-just doctor              # install host tools and the commit hooks
-just venv                # sync every dependency group
+just doctor                  # install the host tools and the commit hooks
+just venv                    # build .venv with every dependency group and extra
 ```
 
 Day to day:
 
 ```shell
-just check path/to/file.py   # read-only verdict for one file (never rewrites it)
-just types                   # mypy over the package — the correctness gate
-just gate                    # everything a pull request must pass (CI's gate job runs its static part)
-just tests                   # the suite on the 3.11 floor and on free-threaded 3.15t
-just docs-serve              # the site with live reload
-just fix                     # the only recipe that rewrites files
-just --list                  # every recipe, always current
+just check path/to/file.py   # read-only verdict for one file: the commit hooks plus mypy
+just fix path/to/file.py     # apply what `check` can only report
+just test path/to/tests.py   # pytest in .venv
+just tests                   # the local test matrix (the noxfile's sessions tagged `local`)
+just gate                    # everything a pull request must pass
+just docs-build              # build the site
+just --list                  # every recipe
 ```
 
-Run one test with `uv run pytest tests/test_parsing.py -k many -v`.
+## Pull requests
 
-## Code style and conventions
+Pull requests are squash-merged, so the commits inside one are yours to shape; the title and the
+description are what stays. Before opening:
 
-- **The types are the product.** Preserve what a user's checker infers for the combinators, not only what
-  they do at runtime; `typing_tests/` is where a change in inference shows.
-- **Docs are tests.** A `>>>` session in a docs page or a docstring runs under pytest; when output
-  changes, the page changes with it.
-- **A 1.0 grammar keeps working.** The combinators, their results and their error messages are the
-  compatibility surface; `CHANGELOG.md` names every break.
+- [ ] `just gate` passes, and the smallest focused test for the change is added or updated
+- [ ] A user-visible change has a `CHANGELOG.md` entry, and the README, `docs/` and an example
+      reflect it
+- [ ] A design decision is recorded in an ADR (`docs/adr/`), and an invariant you changed is
+      updated in the guide that owns it
+- [ ] Work you deliberately deferred is named in the description, with why
 
-## Tests
+Verify from narrow to wide: `just check` on the changed files, the focused test, the checks the
+change touches (`just conventions`, `just imports`, `just types-api` for public inference), then
+`just gate`. `just types-info` gives second opinions that never block: fix what is cheap, name the
+rest.
 
-`tests/test_parsing.py` and `tests/test_combinators.py` cover the combinators, `tests/test_lexer.py` the
-tokenizer, and `tests/test_errors.py` error reporting: what an error expects, labels, `commit()`, `Parser.context()`,
-`Parser.validated()`, `describe=` and `render()`. `tests/test_json.py` and `tests/test_dot.py` drive the example grammars
-in `tests/json.py` and `tests/dot.py`, and `tests/examples/test_examples.py` runs `examples/`.
+A change is breaking only if it breaks a released version; say so in the title (`!`) and in the
+changelog entry.
 
-Compiled and interpreted parsers have to agree, and three things check that. The property tests in
-`tests/test_compile.py`, `tests/test_text.py` and `tests/test_binary.py` draw random grammars, and a test fails if a form
-of generated code is out of their reach, so a new combinator goes into those generators. `tests/shadow.py` runs every
-parse of the suite on the compiled parser as well: mark a test `interpreted_only` if it counts what a parse calls.
-`tests/test_exhaustive.py` walks every small grammar, for the shapes random grammars rarely draw. A failure Hypothesis
-finds goes into a test of its own, as `.hypothesis` is local.
-
-Properties go in the same modules, written with [Hypothesis](https://hypothesis.readthedocs.io/): the tokens
-reassemble the text and know their positions, a sequence keeps what it does not skip, the error names the first token
-that differs, and the example JSON grammar reads what `json.dumps` writes as `json.loads` does. A failing property
-prints the smallest input it found; keep it as an example-based test when the fix lands.
-
-## Maintainer setup
-
-Releases are made from the upstream repository, `vlasovskikh/funcparserlib`, by its maintainer. Once per
-repository, before the first release from this tooling:
-
-- On PyPI, a trusted publisher for `funcparserlib`: this repository, workflow `pypi-publish.yaml`,
-  environment `pypi`.
-- On GitHub, the `pypi` environment (Settings → Environments), optionally restricted to `master` with
-  required reviewers.
-- [pre-commit.ci](https://pre-commit.ci/) enabled for the repository: CI runs the commit hooks there, not
-  in `ci.yaml`.
-- Releases are tagged `vX.Y.Z` (`just release X.Y.Z`). The version rules read `v*` tags only, so the
-  first release made this way is the first one they see.
-
-## Commits
-
-Conventional Commits with a scope; the rules are in `CONVENTIONS.md`.
+`master` is the only stable branch and is never force-pushed. Any other branch may be rebased at any
+time.
 
 ## Changelog
 
-`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions
-follow [semantic versioning](https://semver.org/spec/v2.0.0.html). `CONVENTIONS.md` says when an
-entry is written and how a release names its section.
+`CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the versions
+follow [semantic versioning](https://semver.org/spec/v2.0.0.html). An entry goes in the topmost,
+unreleased section, under Added, Changed, Fixed or Removed, with a breaking change called out.
+
+## Releasing
+
+For maintainers. A release is a GitHub release cut from `master`; publishing it creates the tag
+`vX.Y.Z` and uploads every distribution to PyPI through trusted publishing. It commits nothing.
+
+The tree always holds `X.Y.Z.devN`, where `X.Y.Z` is the next release; every distribution has the
+same version and pins the others with `==`. A patch release is for fixes that do not change the
+public API.
+
+1. `just release-check` reports what changed for a caller since the last stable tag. Read it.
+2. Name the changelog's unreleased section `## [X.Y.Z]`, dated, and push.
+3. `just release X.Y.Z` checks the tree and opens a draft GitHub release with that section.
+4. Review the draft on GitHub and publish it.
+5. `just version X.Y.Z+1.dev0` (or `X.Y+1.0.dev0`) sets the next development version; commit it.
+   The gate fails until it lands.
+
+A broken release is yanked on PyPI, never deleted, and fixed by the next patch release.

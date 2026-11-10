@@ -4,10 +4,6 @@ frozen_revs := ""
 import 'shared.just'
 import 'release.just'
 
-[doc("Check the conventions: source rules, the docs, ADR citations, messages, the tool configs, the CI gate")]
-conventions:
-    @just tools::conventions
-
 # What `just mutants` runs: of `parser.py`, the parsers that read text. tools/checks/mutants_check.py checks the names.
 mutants_default := "'funcparserlib.lexer*' 'funcparserlib.binary*' 'funcparserlib._compile*' 'funcparserlib.parser.xǁSkippingǁ*' 'funcparserlib.parser.x_regex*' 'funcparserlib.parser.x_lit*' 'funcparserlib.parser.x_skipping*'"
 

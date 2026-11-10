@@ -5,11 +5,10 @@ written as Python expressions over parsers (`p1 + p2`, `p1 | p2`, `p >> f`, `man
 regex-based lexer turns text into the tokens they read. The flat-layout package is
 `funcparserlib/`; tests are `tests/`.
 
-The general rules (tooling, types, source, exception messages, specs, commits) are
-`CONVENTIONS.md`; `CONTRIBUTING.md` is the contributor path. This file holds what is funcparserlib's
-own. `AGENTS.local.md`, if present, adds local instructions: read it before starting work. This
-file stays authoritative for repository facts and invariants, and nothing tracked depends on the
-local file.
+How code is written is `CONVENTIONS.md`; the process is `CONTRIBUTING.md`; the codemap and the
+architectural invariants are `ARCHITECTURE.md`. This file holds what is funcparserlib's own.
+`AGENTS.local.md`, if present, adds local instructions: read it before starting work. Nothing
+tracked depends on it.
 
 @AGENTS.local.md
 
@@ -32,22 +31,17 @@ benchmarks/               pytest-benchmark micro-benchmarks, bench_*.py; results
 
 ## Commands
 
+`just --list` shows every recipe; the shared ones are in `CONTRIBUTING.md`. This project's own:
+
 ```shell
-just doctor              # host tools and the commit hooks
-just venv                # every dependency group
-just check [FILES]       # read-only: every applicable hook, + mypy for Python paths
-just fix [FILES]         # apply the fixers
-just types               # mypy over the package, examples, tests, benchmarks: the correctness gate
-just gate                # everything a pull request must pass, the local test sessions last
-just tests               # the noxfile's local sessions: free-threaded 3.15t, shadow on 3.11, exhaustive
-just docs-build          # the site into site/
-just bench::micro        # the micro-benchmarks, saved under benchmarks/results/
-just bench::compare      # the last two saved runs side by side
 just mutants [FILTER]    # mutation testing, over an hour, on demand and in no gate
 uv run pytest tests/test_parsing.py::ParsingTest::test_many_backtracking -v
 ```
 
-## Invariants
+The development environment is Python 3.12+ (the examples and the docs are written for it; the package
+runs from 3.11).
+
+## Working rules
 
 The architectural invariants (boundaries, dependency direction, what a part never knows) are in
 [`ARCHITECTURE.md`](ARCHITECTURE.md#invariants); these are the rules for working in this repository.
@@ -72,3 +66,40 @@ Rule, then what enforces it. Challenge one in discussion rather than routing aro
   written for `requires-python`, the oldest supported CPython. `examples/`, `docs/` and `README.md` are written
   for the version ruff's `per-file-target-version` gives `examples/**`, which the type checkers read and below
   which `conftest.py` leaves them out of the tests. The floor's nox sessions, ADR 0001.
+- **A 1.0 grammar keeps working.** The combinators, their results and their error messages are the
+  compatibility surface; `CHANGELOG.md` names every break.
+
+## Tests
+
+`tests/test_parsing.py` and `tests/test_combinators.py` cover the combinators, `tests/test_lexer.py` the
+tokenizer, and `tests/test_errors.py` error reporting: what an error expects, labels, `commit()`,
+`Parser.context()`, `Parser.validated()`, `describe=` and `render()`. `tests/test_json.py` and
+`tests/test_dot.py` drive the example grammars in `tests/json.py` and `tests/dot.py`, and
+`tests/examples/test_examples.py` runs `examples/`.
+
+Compiled and interpreted parsers have to agree, and three things check that. The property tests in
+`tests/test_compile.py`, `tests/test_text.py` and `tests/test_binary.py` draw random grammars, and a test
+fails if a form of generated code is out of their reach, so a new combinator goes into those generators.
+`tests/shadow.py` runs every parse of the suite on the compiled parser as well: mark a test
+`interpreted_only` if it counts what a parse calls. `tests/test_exhaustive.py` walks every small grammar,
+for the shapes random grammars rarely draw. A failure Hypothesis finds goes into a test of its own, as
+`.hypothesis` is local.
+
+Properties go in the same modules, written with [Hypothesis](https://hypothesis.readthedocs.io/): the
+tokens reassemble the text and know their positions, a sequence keeps what it does not skip, the error
+names the first token that differs, and the example JSON grammar reads what `json.dumps` writes as
+`json.loads` does. A failing property prints the smallest input it found; keep it as an example-based test
+when the fix lands.
+
+## Maintainer setup
+
+Releases are made from the upstream repository, `vlasovskikh/funcparserlib`, by its maintainer. Once per
+repository, before the first release from this tooling:
+
+- On PyPI, a trusted publisher for `funcparserlib`: this repository, workflow `pypi-publish.yaml`,
+  environment `pypi`.
+- On GitHub, the `pypi` environment (Settings → Environments), optionally restricted to `master` with
+  required reviewers.
+- [pre-commit.ci](https://pre-commit.ci/) enabled for the repository: CI runs the commit hooks there, not
+  in `ci.yaml`.
+- The version rules read `v*` tags only, so the first release made this way is the first one they see.
