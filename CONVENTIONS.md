@@ -54,8 +54,7 @@ carries its reason beside the requirement. A distribution released from this rep
 The noxfile defines every environment the tests run in and is this project's to edit. Each session
 is tagged: `local` (run by `just tests`: at least the floor and the newest free-threaded build),
 `ci` (one job each in `tests.yaml`), `windows` (a `ci` session on `windows-latest`), `optional` (a
-`ci` session that may fail). The Python and platform classifiers and `requires-python` match the
-sessions tagged `ci` and not `optional` (CON809-CON811).
+`ci` session that may fail). The Python-version matrix is read from the classifiers.
 
 Coverage is measured in the noxfile's `coverage` session, never added to the others, and run by
 `just coverage`: branch coverage of every distribution, held at `fail_under = 85` in
