@@ -221,41 +221,6 @@ def ruff_only_adds(project: Project) -> Iterator[Finding]:
         )
 
 
-@rule("CON805")
-def no_contracts_table(project: Project) -> Iterator[Finding]:
-    """`pyproject.toml` carries no `[tool.contracts]` table.
-
-    Reason: the shared rules read `[tool.conventions]`; a `[tool.contracts]` table left from before
-    the rename configures nothing, and its carve-outs and initialisms silently stop applying.
-
-    Fix: rename the table to `[tool.conventions]`.
-    """
-    text, data = _pyproject(project)
-    if "contracts" in data.get("tool", {}):
-        yield Finding(
-            PYPROJECT,
-            _header_line(text, "tool.contracts"),
-            "CON805",
-            "[tool.contracts] is read by nothing; the table is [tool.conventions]",
-        )
-
-
-@rule("CON806")
-def no_contracts_directory(project: Project) -> Iterator[Finding]:
-    """Nothing is left in `tools/contracts/`: the repository's own checks are in `tools/checks/`.
-
-    Reason: `just tools::conventions` runs `tools/checks/` only, so a file left in
-    `tools/contracts/` from before the rename is a rule nothing runs, and the recipe reports that
-    the repository has none.
-
-    Fix: move each `tools/contracts/<topic>_contract.py` to `tools/checks/<topic>_check.py`.
-    """
-    for path in project.files:
-        relative = project.relative(path)
-        if relative.startswith("tools/contracts/"):
-            yield Finding(relative, None, "CON806", "move to tools/checks/<topic>_check.py")
-
-
 # The categories a `filterwarnings` entry can name and still cover pytest's unraisable warning.
 UNRAISABLE_CATEGORIES = frozenset(
     {

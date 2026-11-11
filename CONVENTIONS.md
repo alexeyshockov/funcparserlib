@@ -118,8 +118,7 @@ Coverage is measured in the noxfile's `coverage` session, never added to the oth
   (CON502, CON503). The package's own helpers go in `_utils.py`.
 - **A component's settings are one frozen dataclass of plain values**, one field per option, each
   documented as an attribute docstring (never an `Attributes:` section) and validated in
-  `__post_init__`. Resources and callbacks are arguments beside it, never fields. A field takes a
-  scope prefix only when its noun alone does not say what it belongs to.
+  `__post_init__`. Resources and callbacks are arguments beside it, never fields.
 - **An implementation is chosen by name while no user implements its seam**: a `Literal` field,
   imported only once named, failing with an `ImportError` that names the extra. The seam's Protocol
   stays private until a user has to implement it.
@@ -139,15 +138,13 @@ Coverage is measured in the noxfile's `coverage` session, never added to the oth
 ## Benchmarks
 
 - Benchmark code may reach into the package's internals; the package never imports it. It is
-  type-checked with the tests; a missing benchmark dependency shows as an unresolved import, which
-  `just venv` fixes, never a relaxed rule.
+  type-checked with the tests.
 - Micro-benchmarks are pytest-benchmark cases in `bench_*.py` files under a `benchmarks/` directory
   beside a distribution's `tests/`, in-process, with no server or network; `just bench::micro` runs
   them and `just bench::compare` compares saved runs.
 - Macro-benchmarks (a server, a driver, a load generator) stay out of CI and routine verification.
-- A figure is quoted with its interpreter and compared only within one machine and run, with
-  background load controlled and an anomaly rerun. A single absolute number is not a regression
-  signal.
+- A figure is quoted with its interpreter and compared only within one machine and run. A single
+  absolute number is not a regression signal.
 
 ## Exception messages
 
@@ -167,10 +164,6 @@ is CON6xx; a project's own data is `[tool.conventions.messages]`.
 - **Quote an interpolated value and name its kind**: `table "foo.bar"`.
 - **Tense is a claim**: `could not open` failed this time, `cannot open` can never work.
 - **Always give the reason**, and say what the code was trying to do, never the reporting function.
-  No known reason means the code is wrong, not the message.
-- **Active voice, never first person**; drop the subject where it would be the program itself.
-- Protocol- and RFC-mandated strings (a status phrase, a problem title) are not exception messages
-  and keep their own casing.
 - **A note is a detail or a hint**, at most one of each, a complete sentence. A detail is safe to
   lose; a hint states an action. A third note means the message is wrong.
 
