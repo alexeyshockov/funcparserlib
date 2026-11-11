@@ -57,10 +57,46 @@ jobs:
   tests:
     uses: ./.github/workflows/tests.yaml # zizmor: ignore[self-repository]
 
+  # On `master` writes the badge and data to an orphan branch; on a pull request posts a comment.
+  # `fail_under` in `pyproject.toml` is the gate; the thresholds here only colour the badge.
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.58.0
+      - name: pytest with coverage
+        run: just coverage
+      - name: coverage comment
+        id: coverage_comment
+        uses: py-cov-action/python-coverage-comment-action@e5fb2218463c3377f3504b0c5b5646ed53da7a2f # v4.5
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          ACTIVITY: ${{ github.event_name == 'push' && 'save_coverage_data_files' || 'process_pr' }}
+          MINIMUM_GREEN: 90
+          MINIMUM_ORANGE: 80
+      # A fork's pull request has no write permission; `coverage-comment.yaml` posts the stored text.
+      - name: store coverage comment for fork pull requests
+        if: steps.coverage_comment.outputs.comment_file_written == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-coverage-comment-action
+          path: python-coverage-comment-action.txt
+
   # The one required status check. It fails unless every job it needs succeeded; GitHub reports a
   # job skipped by a failed dependency as passed.
   ci:
-    needs: [gate, tests]
+    needs: [gate, tests, coverage]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15

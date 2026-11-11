@@ -56,8 +56,10 @@ bench = [
 lint = ["deptry >=0.25.1", "slotscheck >=0.19"]
 mutation = ["mutmut ~=3.8"]
 tests = [
+    "coverage[toml] ~=7.6",
     "hypothesis ~=6.169",
     "pytest ~=9.0",
+    "pytest-cov ~=7.0",
     "pytest-timeout ~=2.3",
     "pytest-xdist ~=3.8",
     "setproctitle ~=1.3",
@@ -115,6 +117,27 @@ pytest_add_cli_args = [
     "tests/test_compile.py::test_a_long_sequence_compiles[400]",
     "--deselect",
     "tests/test_compile.py::test_deeply_nested_options_compile",
+]
+
+[tool.coverage.run]
+source = ["funcparserlib"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+# A regression floor, not a target.
+fail_under = 85
+show_missing = true
+skip_covered = false
+precision = 2
+exclude_also = [
+    "if (typing\\.)?TYPE_CHECKING:",
+    "@(typing\\.)?overload",
+    "@(abc\\.)?abstractmethod",
+    "raise NotImplementedError",
+    "^\\s*\\.\\.\\.\\s*$",
+    "if __name__ == .__main__.:",
+    "pragma: no cover",
 ]
 
 [tool.interrogate]

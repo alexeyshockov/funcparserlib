@@ -19,3 +19,6 @@ venv/
 benchmarks/results/
 mutants/
 .nox/
+.coverage
+coverage.xml
+python-coverage-comment-action.txt

@@ -78,6 +78,16 @@ def exhaustive(session: nox.Session) -> None:
     )
 
 
+# One interpreter produces one report, so coverage is outside the matrix.
+@nox.session(python=Path(".python-version").read_text().strip())
+def coverage(session: nox.Session) -> None:
+    """The suite with branch coverage, which `just coverage` and `ci.yaml`'s coverage job run."""
+    sync(session)
+    session.run(
+        "pytest", *WORKERS, "--cov-report=term", "--cov-report=xml", "--cov", *session.posargs
+    )
+
+
 # One micro-benchmark session per interpreter; the one tagged `bench` is what `just bench::micro`
 # runs. It is the newest unless a benchmark dependency has no wheel for it, then the tag moves.
 BENCH_PYTHONS = [nox.param(v, tags=["bench"] if v == NEWEST else []) for v in VERSIONS]
