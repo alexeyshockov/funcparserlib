@@ -152,6 +152,10 @@ tests *args:
 test *args:
     "{{ justfile_directory() }}/.venv/bin/python" -m pytest "$@"
 
+[doc("Every distribution's suite with branch coverage: the noxfile's `coverage` session")]
+coverage:
+    @just tools::nox --session coverage
+
 [doc("Check the conventions (`conventions explain CODE` for a finding), then the repository's own checks")]
 conventions:
     @just tools::conventions

@@ -28,6 +28,11 @@ the reason. `tools/conventions/` is generated and never edited; the rules' data 
   needs every other job.
 - **Ruff is configured in `shared.ruff.toml`**; the project adds with `extend-select`,
   `extend-ignore` and `extend-per-file-ignores`, each with its reason (CON800, CON803).
+- **A check of this repository's own** is a pytest file that imports pytest and the standard
+  library only and reads the repository rather than importing the package. It asserts nothing a
+  `CON` code holds: a shared rule that needs this project's data takes it from `[tool.conventions]`,
+  and one that would hold in a sibling project belongs in the shared runner. A check that asserts
+  an absence carries a companion test showing it finds a planted case.
 
 Dependency groups have fixed names:
 
@@ -49,7 +54,11 @@ carries its reason beside the requirement. A distribution released from this rep
 The noxfile defines every environment the tests run in and is this project's to edit. Each session
 is tagged: `local` (run by `just tests`: at least the floor and the newest free-threaded build),
 `ci` (one job each in `tests.yaml`), `windows` (a `ci` session on `windows-latest`), `optional` (a
-`ci` session that may fail). Coverage is measured in one session, never added to the others.
+`ci` session that may fail).
+
+Coverage is measured in the noxfile's `coverage` session, never added to the others, and run by
+`just coverage`: branch coverage of every distribution, held at `fail_under = 85` in
+`[tool.coverage.report]`, a regression floor rather than a target.
 
 ## Layout
 
@@ -60,6 +69,11 @@ is tagged: `local` (run by `just tests`: at least the floor and the newest free-
   declared dependencies only.
 - Test fixtures several members share are a pytest plugin in the lowest member that needs them,
   public as `<package>.testing`.
+- Where a part goes is read from signs: a part users write against and choose for itself is a
+  repository; one that keeps another client's API working, or is the library's batteries, stays in
+  the library's repository; a part whose users face the wrapped stack's API, or whose dependencies
+  weigh on the rest, is a distribution, and otherwise a module, behind an extra when it needs a
+  third-party client. One distribution is the starting shape.
 
 ## Types
 
@@ -103,8 +117,9 @@ is tagged: `local` (run by `just tests`: at least the floor and the newest free-
   compared by content, `@refclass` for identity objects that hold a client, a session or a cache
   (CON502, CON503). The package's own helpers go in `_utils.py`.
 - **A component's settings are one frozen dataclass of plain values**, one field per option, each
-  documented as an attribute docstring and validated in `__post_init__`. Resources and callbacks
-  are arguments beside it, never fields.
+  documented as an attribute docstring (never an `Attributes:` section) and validated in
+  `__post_init__`. Resources and callbacks are arguments beside it, never fields. A field takes a
+  scope prefix only when its noun alone does not say what it belongs to.
 - **An implementation is chosen by name while no user implements its seam**: a `Literal` field,
   imported only once named, failing with an `ImportError` that names the extra. The seam's Protocol
   stays private until a user has to implement it.
@@ -124,13 +139,15 @@ is tagged: `local` (run by `just tests`: at least the floor and the newest free-
 ## Benchmarks
 
 - Benchmark code may reach into the package's internals; the package never imports it. It is
-  type-checked with the tests.
+  type-checked with the tests; a missing benchmark dependency shows as an unresolved import, which
+  `just venv` fixes, never a relaxed rule.
 - Micro-benchmarks are pytest-benchmark cases in `bench_*.py` files under a `benchmarks/` directory
   beside a distribution's `tests/`, in-process, with no server or network; `just bench::micro` runs
   them and `just bench::compare` compares saved runs.
 - Macro-benchmarks (a server, a driver, a load generator) stay out of CI and routine verification.
-- A figure is quoted with its interpreter and compared only within one machine and run. A single
-  absolute number is not a regression signal.
+- A figure is quoted with its interpreter and compared only within one machine and run, with
+  background load controlled and an anomaly rerun. A single absolute number is not a regression
+  signal.
 
 ## Exception messages
 
@@ -150,6 +167,10 @@ is CON6xx; a project's own data is `[tool.conventions.messages]`.
 - **Quote an interpolated value and name its kind**: `table "foo.bar"`.
 - **Tense is a claim**: `could not open` failed this time, `cannot open` can never work.
 - **Always give the reason**, and say what the code was trying to do, never the reporting function.
+  No known reason means the code is wrong, not the message.
+- **Active voice, never first person**; drop the subject where it would be the program itself.
+- Protocol- and RFC-mandated strings (a status phrase, a problem title) are not exception messages
+  and keep their own casing.
 - **A note is a detail or a hint**, at most one of each, a complete sentence. A detail is safe to
   lose; a hint states an action. A third note means the message is wrong.
 
@@ -158,7 +179,13 @@ is CON6xx; a project's own data is `[tool.conventions.messages]`.
 - **`docs/` is published whole**: it holds pages and the assets they reference, nothing else. Build
   tooling lives in `tools/`.
 - `zensical.toml`'s `nav` is the authority on the tree. `reference/` is generated from docstrings
-  and never hand-edited; `adr/` holds the decisions.
+  and never hand-edited; `adr/` holds the decisions. A hand-written page's home is its
+  [Diátaxis](https://diataxis.fr/) role: `modules/` where the public surface is a set of modules,
+  `guide/` where it reads as one narrative, and `recipes/`, `explanation/` and `design/` where the
+  project has that material.
+- **A module README is short and contributor-facing**: what the module is, a minimal example, its
+  internal layout and gotchas. The site is the user's reference; a README is never copied into it
+  and never grows into a guide.
 - Runnable snippets are included from the examples with `--8<--`, never copied into Markdown. An
   `<!-- hl: section ... -->` comment above a fence names the lines to highlight; `just docs-hl-fix`
   writes them.
@@ -178,6 +205,12 @@ and the cross-cutting concerns.
 - **Name code as it is written, in backticks**; every path named is held to the repository
   (CON311, CON312). Diagrams are ```` ```mermaid ```` fences, and the prose beside one names the
   same parts.
+- **A concept a static diagram cannot carry**, such as a state machine stepping through its input or
+  two tasks interleaving, may get an interactive explainer: one self-contained HTML file, with no
+  network access and no build step, opened from a file as well as from a server.
+  It lives beside the explanation page it illustrates, which links it and stays the source of
+  truth; the site publishes both.
+  No gate reads an explainer; review it with the change that alters what it shows.
 
 ## Specs and decisions
 

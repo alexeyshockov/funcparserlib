@@ -20,9 +20,13 @@ AVOID = {
     "bad": "invalid, and why",
     "illegal": "invalid, and why",
     "unknown": "unrecognized, and print the value",
+    "may": "can / might",
     "non-negative": "greater than or equal to zero",
     "nonnegative": "greater than or equal to zero",
 }
+# Each as a whole word: `badge` and `dismay` are not `bad` and `may`, and a hyphenated or dotted
+# name built on one (`bad-request`, `errors.unknown`) is someone's identifier.
+AVOIDED = re.compile(rf"(?<![-.\w])({'|'.join(map(re.escape, AVOID))})(?![-.\w])", re.IGNORECASE)
 
 # Contractions and abbreviations the guide asks to be spelled out. The lookarounds exclude a
 # package whose owner spells it that way (`google-auth`), which a bare `\b` does not.
@@ -287,8 +291,8 @@ def article_noun(text: str, known_names: Sequence[str]) -> str | None:
 
 
 def avoided_words(text: str) -> list[str]:
-    lowered = text.lower()
-    found = [f"{word} (say {instead})" for word, instead in AVOID.items() if word in lowered]
+    hits = dict.fromkeys(hit.lower() for hit in AVOIDED.findall(text))
+    found = [f"{word} (say {AVOID[word]})" for word in hits]
     found += [f"{hit} (spell it out)" for hit in SPELL_OUT.findall(text)]
     return found
 
@@ -350,7 +354,10 @@ def messages(project: Project) -> Iterator[Finding]:
     CON606: A message avoids the words PostgreSQL's guide rules out.
 
     Reason: each hides a fact: `unable` hides whether it is cannot or could not, `unknown` hides
-    what was looked for. Contractions and abbreviations are spelled out.
+    what was looked for, `may` hides whether it is permission or possibility. Contractions and
+    abbreviations are spelled out.
+
+    Scope: whole words; `badge` and `dismay` pass, as does a hyphenated or dotted name.
 
     Fix: write the replacement the finding names.
     """
