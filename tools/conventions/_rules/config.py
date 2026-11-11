@@ -1,8 +1,9 @@
 """CON8xx: a tool is configured in one place, a second place cannot appear beside it, pytest's
-configuration fails a test on an exception nothing receives, and the lists rendered from the
-packages name every package.
+configuration fails a test on an exception nothing receives, the lists rendered from the packages
+name every package, and the support a distribution claims is what the noxfile gates.
 """
 
+import ast
 import re
 import tomllib
 from collections.abc import Iterator
@@ -11,6 +12,7 @@ from typing import Any
 
 from .._engine import Finding, rule
 from .._project import Project
+from .._versions import distributions
 from .bounds import test_roots
 
 PYPROJECT = "pyproject.toml"
@@ -297,10 +299,6 @@ def _read(project: Project, name: str) -> str | None:
     return project.text(path) if path.is_file() else None
 
 
-def _first_line(text: str, prefix: str) -> int | None:
-    return next((n for n, line in enumerate(text.splitlines(), 1) if line.startswith(prefix)), None)
-
-
 def _interrogate_args(text: str) -> tuple[int, list[str]] | None:
     """The line of the interrogate hook's `args:` and the paths in its list, when it has one."""
     lines = text.splitlines()
@@ -329,28 +327,18 @@ def _interrogate_args(text: str) -> tuple[int, list[str]] | None:
 
 @rule("CON808")
 def rendered_package_lists(project: Project) -> Iterator[Finding]:
-    """`mypy.ini`'s `files` and `pyrefly.toml`'s `project-includes` name each package and each
-    examples directory that holds Python, and the interrogate hook's arguments name each package.
+    """The interrogate hook's arguments name each package.
 
-    Reason: the template renders these lists once, from `[tool.conventions] packages` and the
-    examples directories. `copier update` carries only what the template changed, so a package or an
-    examples directory added later never reaches them, and a checker run without paths reads less
-    than the project holds. `copier recopy --overwrite` re-renders them, and also deletes every line
-    the project added to a file it rewrites.
+    Reason: the template renders the list once, from `[tool.conventions] packages`. `copier update`
+    carries only what the template changed, so a package added later never reaches it, and
+    interrogate would not measure that package's docstrings. `copier recopy --overwrite` re-renders
+    it, and also deletes every line the project added to a file it rewrites. mypy and pyrefly are
+    not held: the recipes pass them explicit paths (`conventions packages`, `--examples`).
 
-    Fix: add the path the message names to that list, or remove the one it names as no package.
-    `conventions packages` and `conventions packages --examples` print what the lists hold.
+    Fix: add the path the message names to the hook's `args`, or remove the one it names as no
+    package. `conventions packages` prints what the list should hold.
     """
     packages = list(project.settings["packages"])
-    everything = [*packages, *project.example_dirs]
-    lists = (
-        ("mypy.ini", "files", project.mypy_files),
-        ("pyrefly.toml", "project-includes", project.pyrefly_includes),
-    )
-    for name, key, listed in lists:
-        if listed is not None:
-            line = _first_line(project.text(project.root / name) or "", key)
-            yield from _compare(name, line, f"`{key}`", everything, list(listed))
     text = _read(project, ".pre-commit-config.yaml")
     if text is not None and (found := _interrogate_args(text)) is not None:
         line, listed_args = found
@@ -373,3 +361,143 @@ def _tool_tables(project: Project, path: Path) -> dict[str, Any]:
         return dict(tomllib.loads(project.text(path) or "").get("tool", {}))
     except tomllib.TOMLDecodeError:
         return {}
+
+
+# --- Support claims ---
+
+VERSION = re.compile(r"\d+\.\d+t?")
+PYTHON_CLASSIFIER = re.compile(r"Programming Language :: Python :: (\d+\.\d+)")
+LINUX = "Operating System :: POSIX :: Linux"
+WINDOWS = "Operating System :: Microsoft :: Windows"
+
+
+def _strings(node: ast.expr | None) -> list[str] | None:
+    """A list or tuple literal of string constants, else `None`."""
+    if not isinstance(node, ast.List | ast.Tuple):
+        return None
+    if not all(isinstance(e, ast.Constant) and isinstance(e.value, str) for e in node.elts):
+        return None
+    return [str(e.value) for e in node.elts if isinstance(e, ast.Constant)]  # narrowed above
+
+
+def gating_sessions(tree: ast.Module) -> list[tuple[str, frozenset[str]]]:
+    """Each statically readable session the CI matrix gates on, as its Python and its tags.
+
+    A session is a `nox.param("3.14", tags=[...])` or an `@nox.session(python="3.14", tags=[...])`
+    with literal arguments; one tagged `ci` and not `optional` gates, and `3.14t` is read as the
+    `3.14t` it is spelled. An interpreter or a tag list computed at import time is not read.
+    """
+    found: list[tuple[str, frozenset[str]]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        tags = next((_strings(k.value) for k in node.keywords if k.arg == "tags"), None)
+        if tags is None:
+            continue
+        python = None
+        if name == "param" and node.args:
+            python = node.args[0]
+        elif name == "session":
+            python = next((k.value for k in node.keywords if k.arg == "python"), None)
+        if (
+            isinstance(python, ast.Constant)
+            and isinstance(python.value, str)
+            and VERSION.fullmatch(python.value)
+            and "ci" in tags
+            and "optional" not in tags
+        ):
+            found.append((python.value, frozenset(tags)))
+    return found
+
+
+def _oldest(versions: set[str]) -> str:
+    return min(versions, key=lambda v: tuple(map(int, v.split("."))))
+
+
+@rule("CON809", "CON810", "CON811")
+def support_claims(project: Project) -> Iterator[Finding]:
+    """The Python versions and platforms a distribution claims are the ones the noxfile gates.
+
+    CON809: A Python-version classifier is exactly a version a gating session runs.
+
+    Reason: PyPI must not advertise a version nothing runs, nor omit one that does; the first is
+    support claimed and never tested, the second work done and not credited, and how a version gets
+    dropped by accident when the matrix is tidied.
+
+    Fix: change the classifiers and the noxfile's sessions in the same commit. A session tagged
+    `optional` runs under `continue-on-error` and claims nothing.
+
+    CON810: `requires-python` is `>=` the oldest version the classifiers claim.
+
+    Reason: the two are one boundary written twice.
+
+    Fix: change `requires-python` to the version the message names, or the classifiers.
+
+    CON811: The Linux and Windows classifiers are exactly the platforms a gating session runs on.
+
+    Reason: for the reason of CON809, on the platform axis. A session tagged `windows` runs on
+    Windows and any other on Linux; a platform whose only run may be red is not claimed.
+
+    Fix: promote the Windows session (drop its `optional` tag) and add `Operating System ::
+    Microsoft :: Windows` in one change.
+
+    Scope: configuration, so CON8xx; the noxfile is the evidence and the classifiers the claim.
+    Every distribution with `classifiers` is held against the root `noxfile.py`. The noxfile is read
+    statically, so a matrix computed at import time (as the template's own derives it from the
+    classifiers) yields no sessions and nothing is held. CON811 is skipped for a distribution with
+    no operating-system classifier or with `Operating System :: OS Independent`, and ignores
+    platforms other than Linux and Windows, whose gate a project may keep outside the noxfile.
+    """
+    noxfile = project.root / "noxfile.py"
+    tree = project.tree(noxfile) if noxfile.is_file() else None
+    sessions = gating_sessions(tree) if tree is not None else []
+    if not sessions:
+        return
+    gated = {python.removesuffix("t") for python, _ in sessions}
+    platforms = {WINDOWS if "windows" in tags else LINUX for _, tags in sessions}
+    for member in distributions(project.root).members:
+        classifiers = _classifiers(project, member.pyproject)
+        if classifiers is None:
+            continue
+        path = project.relative(member.pyproject)
+        claimed = {m[1] for c in classifiers if (m := PYTHON_CLASSIFIER.fullmatch(c))}
+        line = project.line_of(member.pyproject, "Programming Language :: Python ::")
+        for version in sorted(claimed - gated):
+            yield Finding(
+                path, line, "CON809", f"{version} is claimed and no gating session runs it"
+            )
+        for version in sorted(gated - claimed):
+            yield Finding(path, line, "CON809", f"{version} is gated and no classifier claims it")
+        requires = _project_table(project, member.pyproject).get("requires-python")
+        if claimed and requires != f">={_oldest(claimed)}":
+            yield Finding(
+                path,
+                project.line_of(member.pyproject, "requires-python"),
+                "CON810",
+                f"requires-python is {requires!r}; the oldest claimed is {_oldest(claimed)}",
+            )
+        systems = {c for c in classifiers if c.startswith("Operating System ::")}
+        if not systems or "Operating System :: OS Independent" in systems:
+            continue
+        line = project.line_of(member.pyproject, "Operating System ::")
+        for platform in sorted((systems & {LINUX, WINDOWS}) - platforms):
+            yield Finding(
+                path, line, "CON811", f"`{platform}` is claimed and no gating session runs on it"
+            )
+        for platform in sorted(platforms - systems):
+            yield Finding(path, line, "CON811", f"`{platform}` is gated and not claimed")
+
+
+def _project_table(project: Project, path: Path) -> dict[str, Any]:
+    try:
+        table = tomllib.loads(project.text(path) or "").get("project", {})
+    except tomllib.TOMLDecodeError:
+        return {}
+    return dict(table)
+
+
+def _classifiers(project: Project, path: Path) -> list[str] | None:
+    listed = _project_table(project, path).get("classifiers")
+    return [str(c) for c in listed] if isinstance(listed, list) else None

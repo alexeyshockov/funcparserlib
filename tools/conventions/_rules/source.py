@@ -277,6 +277,50 @@ def foreign_private_modules(project: Project) -> Iterator[Finding]:
             )
 
 
+@rule("CON514")
+def foreign_private_from_imports(project: Project) -> Iterator[Finding]:
+    """A distribution reaches another one only through its public modules.
+
+    Reason: the other distribution is free to move or rename an underscore module in any release,
+    and the pinned versions of one repository do not make its internals a contract. ruff's PLC2701
+    skips a name used only in annotations and a file under `tests/`, and does not see `from x import
+    _y` naming a module; CON509 holds the plain `import x._y` form.
+
+    Fix: import the name from the other distribution's public module, or export it there.
+
+    Scope: `from` imports in the modules of each package (stubs included) whose root is another
+    package of this repository, or an import root listed in `[tool.conventions] dependencies`. A
+    listed dependency is outside the repository, so only the underscore in its module path marks a
+    module as not public; a sibling's `from x import _y` also counts when `_y` is a module there.
+    """
+    siblings = set(project.package_roots) | set(project.settings.get("dependencies", []))
+    for module in project.modules:
+        tree = project.tree(module.path)
+        if tree is None:
+            continue
+        own = module.name.partition(".")[0]
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level or not node.module:
+                continue
+            root = node.module.partition(".")[0]
+            if root == own or root not in siblings:
+                continue
+            targets = [node.module]
+            if root in project.package_roots:
+                targets += [f"{node.module}.{a.name}" for a in node.names]
+            for target in targets:
+                if is_private_path(target) and (
+                    target == node.module or project.module_path(target) is not None
+                ):
+                    yield Finding(
+                        project.relative(module.path),
+                        node.lineno,
+                        "CON514",
+                        f"`{target}` is not a public module of its distribution",
+                    )
+                    break
+
+
 # --- Two dataclass idioms ---
 #
 # A value is `@valueclass` and an identity object is `@refclass`, both from the package's

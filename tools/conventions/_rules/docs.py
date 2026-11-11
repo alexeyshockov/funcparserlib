@@ -811,6 +811,15 @@ def snippets_parse(project: Project) -> Iterator[Finding]:
 
 # Context-manager helpers the pages lean on, in no package's public surface.
 CONTEXT_HELPERS = frozenset({"closing", "aclosing", "contextmanager", "asynccontextmanager"})
+# Modules a snippet may use without importing them: the standard-library and async modules docs
+# examples reach for. `[tool.conventions.docs] modules` adds the project's own.
+DEFAULT_MODULES = frozenset(
+    {
+        "anyio", "asyncio", "contextlib", "dataclasses", "datetime", "decimal", "ipaddress", "json",
+        "logging", "os", "pathlib", "socket", "ssl", "struct", "sys", "threading", "time", "trio",
+        "typing", "uuid",
+    }
+)  # fmt: skip
 # Names a module-level public surface never holds: a vocabulary containing one read locals.
 NEVER_PUBLIC = frozenset({"conn", "settings"})
 
@@ -873,7 +882,7 @@ def importable(project: Project) -> frozenset[str]:
     def build() -> frozenset[str]:
         settings = project.settings.get("docs", {})
         packages = settings.get("vocabulary", list(project.package_roots))
-        names = set(settings.get("modules", [])) | CONTEXT_HELPERS
+        names = DEFAULT_MODULES | set(settings.get("modules", [])) | CONTEXT_HELPERS
         for package in packages:
             names |= surface(project, package)
         if missing := sorted({"closing", *settings.get("sentinels", [])} - names):
@@ -947,8 +956,9 @@ def snippets_import(project: Project) -> Iterator[Finding]:
     Fix: add the import to the block.
 
     Scope: importable means a module-level public name of `[tool.conventions.docs] vocabulary` (the
-    project's packages when unset), as `public_surface` reads it from source, the modules in
-    `modules`, and the context-manager helpers. A block that does not parse is CON913's.
+    project's packages when unset), as `public_surface` reads it from source, `DEFAULT_MODULES`, the
+    modules in `[tool.conventions.docs] modules` and the context-manager helpers. A block that does
+    not parse is CON913's.
     """
     if not _site(project):
         return

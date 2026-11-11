@@ -54,7 +54,8 @@ carries its reason beside the requirement. A distribution released from this rep
 The noxfile defines every environment the tests run in and is this project's to edit. Each session
 is tagged: `local` (run by `just tests`: at least the floor and the newest free-threaded build),
 `ci` (one job each in `tests.yaml`), `windows` (a `ci` session on `windows-latest`), `optional` (a
-`ci` session that may fail).
+`ci` session that may fail). The Python and platform classifiers and `requires-python` match the
+sessions tagged `ci` and not `optional` (CON809-CON811).
 
 Coverage is measured in the noxfile's `coverage` session, never added to the others, and run by
 `just coverage`: branch coverage of every distribution, held at `fail_under = 85` in
@@ -123,7 +124,8 @@ Coverage is measured in the noxfile's `coverage` session, never added to the oth
   imported only once named, failing with an `ImportError` that names the extra. The seam's Protocol
   stays private until a user has to implement it.
 - **Imports**: relative within a directory (CON501), absolute across directories; never through
-  the package's own root (CON506); never another package's underscore module (CON509).
+  the package's own root (CON506); never another package's underscore module (CON509, CON514); another distribution of the
+  repository, or a dependency named in `[tool.conventions] dependencies`, only through public modules.
 - **A `TYPE_CHECKING` block carries a comment** naming the import cycle, optional dependency or
   conformance reason (CON500).
 - **Docstrings follow the Google convention**, written where the name and the types do not already

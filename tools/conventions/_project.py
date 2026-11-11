@@ -24,6 +24,7 @@ KNOWN_KEYS: Mapping[str, frozenset[str] | None] = {
     "timeout_exceptions": None,
     "subclassable": None,
     "informational": None,
+    "dependencies": None,
     "messages": frozenset({"known_names", "ambiguous", "singular", "builders", "builders_home"}),
     "docs": frozenset({"modules", "sentinels", "vocabulary"}),
 }
